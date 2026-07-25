@@ -1,0 +1,882 @@
+const { db: firestoreDb, auth: firebaseAuth } = require('../config/firebase');
+const { dbRun, dbGet, dbAll } = require('../config/db');
+const financialService = require('../services/financialService');
+const crypto = require('crypto');
+const os = require('os');
+
+// Helper to write audit log to SQLite
+async function writeAuditLog(operatorId, operatorPhone, action, entityType, entityId, oldValue, newValue, reason, ip, device, browser) {
+  try {
+    const sql = `
+      INSERT INTO audit_logs (operator_id, operator_phone, action, entity_type, entity_id, old_value, new_value, reason, ip_address, device, browser)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+    await dbRun(sql, [
+      operatorId,
+      operatorPhone || '',
+      action,
+      entityType,
+      entityId || '',
+      oldValue ? JSON.stringify(oldValue) : '',
+      newValue ? JSON.stringify(newValue) : '',
+      reason || '',
+      ip || '',
+      device || '',
+      browser || ''
+    ]);
+  } catch (err) {
+    console.error('[AUDIT LOG ERROR] Failed to write audit log:', err.message);
+  }
+}
+
+class AdminController {
+
+  // --- USER MANAGEMENT ---
+
+  async updateUserStatus(req, res, next) {
+    const { uid } = req.params;
+    const { disabled, ban, reason } = req.body;
+    const operator = req.user;
+
+    try {
+      let oldValue = null;
+      if (firestoreDb) {
+        const userSnap = await firestoreDb.collection('users').doc(uid).get();
+        if (userSnap.exists) {
+          oldValue = userSnap.data();
+        }
+      }
+
+      // Update in Firebase Authentication
+      if (firebaseAuth) {
+        await firebaseAuth.updateUser(uid, { disabled: !!disabled });
+        if (disabled || ban) {
+          await firebaseAuth.revokeRefreshTokens(uid);
+          console.log(`[REVOCATION] Revoked active sessions for user: ${uid}`);
+        }
+      }
+
+      // Update in Firestore
+      const status = ban ? 'banned' : (disabled ? 'disabled' : 'active');
+      if (firestoreDb) {
+        await firestoreDb.collection('users').doc(uid).update({
+          status,
+          updatedAt: new Date().toISOString(),
+          updatedBy: operator.uid
+        });
+      }
+
+      const newValue = { ...oldValue, status, disabled };
+      await writeAuditLog(
+        operator.uid,
+        operator.phone || operator.email,
+        'UPDATE_USER_STATUS',
+        'users',
+        uid,
+        oldValue,
+        newValue,
+        reason,
+        req.ip || req.clientIp,
+        req.headers['user-agent'],
+        'Express Controller'
+      );
+
+      res.status(200).json({ status: 'success', message: 'User status updated successfully.' });
+    } catch (err) {
+      console.error('[ADMIN CONTROLLER ERROR] updateUserStatus:', err.message);
+      res.status(500).json({ error: 'Internal Server Error', message: err.message });
+    }
+  }
+
+  async resetUserPassword(req, res, next) {
+    const { uid } = req.params;
+    const { newPassword, reason } = req.body;
+    const operator = req.user;
+
+    try {
+      if (!newPassword || newPassword.length < 6) {
+        return res.status(400).json({ error: 'Validation Error', message: 'Password must be at least 6 characters.' });
+      }
+
+      if (firebaseAuth) {
+        await firebaseAuth.updateUser(uid, { password: newPassword });
+      }
+
+      await writeAuditLog(
+        operator.uid,
+        operator.phone || operator.email,
+        'RESET_USER_PASSWORD',
+        'users',
+        uid,
+        { redact: 'password_reset_triggered' },
+        { success: true },
+        reason,
+        req.ip || req.clientIp,
+        req.headers['user-agent'],
+        'Express Controller'
+      );
+
+      res.status(200).json({ status: 'success', message: 'User password reset successfully.' });
+    } catch (err) {
+      res.status(500).json({ error: 'Internal Server Error', message: err.message });
+    }
+  }
+
+  async deleteUserAccount(req, res, next) {
+    const { uid } = req.params;
+    const { reason } = req.query;
+    const operator = req.user;
+
+    try {
+      let oldValue = null;
+      if (firestoreDb) {
+        const docRef = firestoreDb.collection('users').doc(uid);
+        const snap = await docRef.get();
+        if (snap.exists) {
+          oldValue = snap.data();
+          // Soft delete in Firestore
+          await docRef.update({
+            isDeleted: true,
+            deletedAt: new Date().toISOString(),
+            deletedBy: operator.uid
+          });
+        }
+      }
+
+      // Delete from Firebase Auth
+      if (firebaseAuth) {
+        await firebaseAuth.deleteUser(uid);
+      }
+
+      await writeAuditLog(
+        operator.uid,
+        operator.phone || operator.email,
+        'DELETE_USER_ACCOUNT',
+        'users',
+        uid,
+        oldValue,
+        { isDeleted: true },
+        reason,
+        req.ip || req.clientIp,
+        req.headers['user-agent'],
+        'Express Controller'
+      );
+
+      res.status(200).json({ status: 'success', message: 'User account permanently deleted.' });
+    } catch (err) {
+      res.status(500).json({ error: 'Internal Server Error', message: err.message });
+    }
+  }
+
+  // --- NOTIFICATIONS ---
+
+  async sendNotifications(req, res, next) {
+    const { target, title, body, areaId } = req.body;
+    const operator = req.user;
+
+    try {
+      if (!firestoreDb) throw new Error('Firestore not initialized.');
+
+      // Enqueue as a background job in SQLite
+      const jobSql = `
+        INSERT INTO jobs_queue (job_type, payload, status)
+        VALUES (?, ?, 'PENDING')
+      `;
+      const payloadObj = { target, title, body, areaId, triggeredBy: operator.uid };
+      const jobResult = await dbRun(jobSql, ['BROADCAST_NOTIFICATION', JSON.stringify(payloadObj)]);
+
+      // Write notification queue item directly in Firestore to let worker process it if online
+      const queueId = `qnotif_${crypto.randomBytes(6).toString('hex')}`;
+      await firestoreDb.collection('notificationQueue').doc(queueId).set({
+        queueId,
+        target,
+        title,
+        body,
+        areaId: areaId || '',
+        status: 'PENDING',
+        attempts: 0,
+        createdAt: new Date().toISOString(),
+        createdBy: operator.uid,
+        isDeleted: false
+      });
+
+      await writeAuditLog(
+        operator.uid,
+        operator.phone || operator.email,
+        'BROADCAST_NOTIFICATION_ENQUEUED',
+        'jobs',
+        jobResult.id.toString(),
+        null,
+        payloadObj,
+        'Broadcast marketing notification',
+        req.ip || req.clientIp,
+        req.headers['user-agent'],
+        'Express Controller'
+      );
+
+      res.status(200).json({ status: 'success', jobId: jobResult.id, message: 'Notification enqueued successfully.' });
+    } catch (err) {
+      res.status(500).json({ error: 'Internal Server Error', message: err.message });
+    }
+  }
+
+  // --- COMPLAINTS MANAGEMENT ---
+
+  async getComplaints(req, res, next) {
+    try {
+      if (!firestoreDb) throw new Error('Firestore not connected.');
+      const snap = await firestoreDb.collection('complaints').orderBy('createdAt', 'desc').get();
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      res.status(200).json(list);
+    } catch (err) {
+      res.status(500).json({ error: 'Internal Server Error', message: err.message });
+    }
+  }
+
+  async createComplaint(req, res, next) {
+    // Derive identity strictly from token context to prevent mass assignment/faking
+    const userId = req.user.uid;
+    const userType = req.user.role || 'customer';
+    const { userName, orderId, subject, message } = req.body;
+    try {
+      if (!firestoreDb) throw new Error('Firestore not connected.');
+      const complaintId = `comp_${crypto.randomBytes(6).toString('hex')}`;
+      const payload = {
+        complaintId,
+        userId,
+        userName: userName || req.user.name || 'Registered User',
+        userType,
+        orderId: orderId || '',
+        subject,
+        message,
+        status: 'OPEN',
+        assignedTo: null,
+        reply: '',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      await firestoreDb.collection('complaints').doc(complaintId).set(payload);
+      res.status(200).json({ status: 'success', id: complaintId });
+    } catch (err) {
+      res.status(500).json({ error: 'Internal Server Error', message: err.message });
+    }
+  }
+
+
+  async updateComplaint(req, res, next) {
+    const { id } = req.params;
+    const { status, reply, assignedTo } = req.body;
+    const operator = req.user;
+
+    try {
+      if (!firestoreDb) throw new Error('Firestore not connected.');
+      const docRef = firestoreDb.collection('complaints').doc(id);
+      const snap = await docRef.get();
+      if (!snap.exists) {
+        return res.status(404).json({ error: 'Not Found', message: 'Complaint not found.' });
+      }
+
+      const updates = {
+        status: status || snap.data().status,
+        reply: reply || snap.data().reply,
+        assignedTo: assignedTo || snap.data().assignedTo,
+        updatedAt: new Date().toISOString()
+      };
+
+      await docRef.update(updates);
+
+      await writeAuditLog(
+        operator.uid,
+        operator.phone || operator.email,
+        'RESOLVE_COMPLAINT',
+        'complaints',
+        id,
+        snap.data(),
+        { ...snap.data(), ...updates },
+        'Complaint ticket status update',
+        req.ip || req.clientIp,
+        req.headers['user-agent'],
+        'Express Controller'
+      );
+
+      res.status(200).json({ status: 'success', message: 'Complaint ticket updated.' });
+    } catch (err) {
+      res.status(500).json({ error: 'Internal Server Error', message: err.message });
+    }
+  }
+
+  // --- ZONE GEOFENCING ---
+
+  async getZones(req, res, next) {
+    try {
+      if (!firestoreDb) throw new Error('Firestore not connected.');
+      const snap = await firestoreDb.collection('zones').get();
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      res.status(200).json(list);
+    } catch (err) {
+      res.status(500).json({ error: 'Internal Server Error', message: err.message });
+    }
+  }
+
+  async saveZone(req, res, next) {
+    const { id, name, polygon, pricing, isActive } = req.body;
+    const operator = req.user;
+
+    try {
+      if (!firestoreDb) throw new Error('Firestore not connected.');
+      const zoneId = id || `zone_${crypto.randomBytes(6).toString('hex')}`;
+      const docRef = firestoreDb.collection('zones').doc(zoneId);
+      
+      const payload = {
+        id: zoneId,
+        name,
+        polygon,
+        pricing: pricing || { minOrder: 100, deliveryFee: 20 },
+        isActive: isActive !== undefined ? isActive : true,
+        updatedAt: new Date().toISOString(),
+        updatedBy: operator.uid
+      };
+
+      await docRef.set(payload);
+      res.status(200).json({ status: 'success', zone: payload });
+    } catch (err) {
+      res.status(500).json({ error: 'Internal Server Error', message: err.message });
+    }
+  }
+
+  async deleteZone(req, res, next) {
+    const { id } = req.params;
+    try {
+      if (!firestoreDb) throw new Error('Firestore not connected.');
+      await firestoreDb.collection('zones').doc(id).delete();
+      res.status(200).json({ status: 'success', message: 'Zone deleted successfully.' });
+    } catch (err) {
+      res.status(500).json({ error: 'Internal Server Error', message: err.message });
+    }
+  }
+
+  // --- SETTINGS & CONFIGS ---
+
+  async getSettings(req, res, next) {
+    try {
+      if (!firestoreDb) throw new Error('Firestore not connected.');
+      const docSnap = await firestoreDb.collection('settings').doc('globalSettings').get();
+      if (docSnap.exists) {
+        res.status(200).json(docSnap.data());
+      } else {
+        const defaults = {
+          featureFlags: {
+            cod: true,
+            upi: true,
+            wallet: true,
+            delivery: true,
+            maintenance: false,
+            registration: true
+          },
+          versionControl: {
+            androidMinVersion: '1.0.0',
+            androidLatestVersion: '1.0.0',
+            iosMinVersion: '1.0.0',
+            iosLatestVersion: '1.0.0',
+            maintenanceMessage: 'System is currently undergoing minor upgrades.'
+          }
+        };
+        await firestoreDb.collection('settings').doc('globalSettings').set(defaults);
+        res.status(200).json(defaults);
+      }
+    } catch (err) {
+      res.status(500).json({ error: 'Internal Server Error', message: err.message });
+    }
+  }
+
+  async saveSettings(req, res, next) {
+    const { featureFlags, versionControl } = req.body;
+    const operator = req.user;
+
+    try {
+      if (!firestoreDb) throw new Error('Firestore not connected.');
+      const docRef = firestoreDb.collection('settings').doc('globalSettings');
+      const snap = await docRef.get();
+      const current = snap.exists ? snap.data() : {};
+
+      const updates = {
+        featureFlags: featureFlags || current.featureFlags || {},
+        versionControl: versionControl || current.versionControl || {},
+        updatedAt: new Date().toISOString(),
+        updatedBy: operator.uid
+      };
+
+      await docRef.set(updates);
+
+      await writeAuditLog(
+        operator.uid,
+        operator.phone || operator.email,
+        'UPDATE_PLATFORM_SETTINGS',
+        'settings',
+        'globalSettings',
+        current,
+        updates,
+        'Configured feature flags/version targets',
+        req.ip || req.clientIp,
+        req.headers['user-agent'],
+        'Express Controller'
+      );
+
+      res.status(200).json({ status: 'success', data: updates });
+    } catch (err) {
+      res.status(500).json({ error: 'Internal Server Error', message: err.message });
+    }
+  }
+
+  // --- SQLITE AUDIT LOGS ---
+
+  async getAuditLogs(req, res, next) {
+    try {
+      const logs = await dbAll('SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT 500');
+      res.status(200).json(logs);
+    } catch (err) {
+      res.status(500).json({ error: 'Internal Server Error', message: err.message });
+    }
+  }
+
+  // --- SQLITE SYSTEM HEALTH ---
+
+  async getSystemHealth(req, res, next) {
+    try {
+      const metrics = await dbAll('SELECT * FROM system_health ORDER BY timestamp DESC LIMIT 50');
+      
+      const freemem = os.freemem();
+      const totalmem = os.totalmem();
+      const memoryUsagePct = ((totalmem - freemem) / totalmem) * 100;
+      
+      const healthData = {
+        api_uptime: Math.round(process.uptime()),
+        cpu_model: os.cpus()[0]?.model || 'Generic Core',
+        memory: {
+          free: freemem,
+          total: totalmem,
+          usagePercentage: memoryUsagePct
+        },
+        sqlite_logs_count: (await dbGet('SELECT count(*) as count FROM audit_logs')).count,
+        background_jobs_queue: (await dbAll('SELECT status, count(*) as count FROM jobs_queue GROUP BY status')),
+        historical_metrics: metrics
+      };
+      
+      res.status(200).json(healthData);
+    } catch (err) {
+      res.status(500).json({ error: 'Internal Server Error', message: err.message });
+    }
+  }
+
+  // --- FRAUD DETECTION REGISTRY ---
+
+  async getFraudEvents(req, res, next) {
+    try {
+      const list = await dbAll('SELECT * FROM fraud_events ORDER BY timestamp DESC');
+      res.status(200).json(list);
+    } catch (err) {
+      res.status(500).json({ error: 'Internal Server Error', message: err.message });
+    }
+  }
+
+  async recordFraudEvent(req, res, next) {
+    const { userId, riderId, shopId, orderId, eventType, details, severity } = req.body;
+    try {
+      const sql = `
+        INSERT INTO fraud_events (user_id, rider_id, shop_id, order_id, event_type, details, severity)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `;
+      await dbRun(sql, [
+        userId || '',
+        riderId || '',
+        shopId || '',
+        orderId || '',
+        eventType,
+        details || '',
+        severity || 'MEDIUM'
+      ]);
+      res.status(200).json({ status: 'success' });
+    } catch (err) {
+      res.status(500).json({ error: 'Internal Server Error', message: err.message });
+    }
+  }
+
+  // --- FINANCIAL LEDGERS ---
+
+  async getFinancialSummary(req, res, next) {
+    try {
+      if (!firestoreDb) throw new Error('Firestore not initialized.');
+      // Fetch orders to calculate real platform metrics
+      const snap = await firestoreDb.collection('orders').where('paymentStatus', '==', 'completed').get();
+      
+      let platformEarnings = 0;
+      let taxCollection = 0;
+      let deliveryEarnings = 0;
+      let payoutsSum = 0;
+      
+      const details = [];
+
+      snap.docs.forEach(doc => {
+        const data = doc.data();
+        const subtotal = data.subtotal || 0;
+        const total = data.total || 0;
+        const platformFee = data.platformFee || 0;
+        const tax = data.tax || 0;
+        const deliveryFee = data.deliveryFee || 0;
+        
+        platformEarnings += platformFee;
+        taxCollection += tax;
+        deliveryEarnings += deliveryFee;
+
+        details.push({
+          orderId: doc.id,
+          amount: total,
+          subtotal,
+          platformFee,
+          tax,
+          deliveryFee,
+          createdAt: data.createdAt
+        });
+      });
+
+      res.status(200).json({
+        reconciliation: {
+          platformEarnings,
+          taxCollection,
+          deliveryEarnings,
+          totalRevenue: platformEarnings + taxCollection + deliveryEarnings
+        },
+        orders: details
+      });
+    } catch (err) {
+      res.status(500).json({ error: 'Internal Server Error', message: err.message });
+    }
+  }
+
+  // --- INTERNAL COMMUNICATION ---
+
+  async getInternalChats(req, res, next) {
+    const { userId } = req.query;
+    try {
+      const sql = `
+        SELECT * FROM internal_chats 
+        WHERE sender_id = ? OR receiver_id = ? 
+        ORDER BY timestamp ASC
+      `;
+      const messages = await dbAll(sql, [userId, userId]);
+      res.status(200).json(messages);
+    } catch (err) {
+      res.status(500).json({ error: 'Internal Server Error', message: err.message });
+    }
+  }
+
+  async sendChatMessage(req, res, next) {
+    const { senderId, senderRole, receiverId, receiverRole, message } = req.body;
+    try {
+      const sql = `
+        INSERT INTO internal_chats (sender_id, sender_role, receiver_id, receiver_role, message)
+        VALUES (?, ?, ?, ?, ?)
+      `;
+      await dbRun(sql, [senderId, senderRole, receiverId, receiverRole, message]);
+      res.status(200).json({ status: 'success' });
+    } catch (err) {
+      res.status(500).json({ error: 'Internal Server Error', message: err.message });
+    }
+  }
+
+  // --- DISASTER RECOVERY ---
+
+  async backupData(req, res, next) {
+    try {
+      if (!firestoreDb) throw new Error('Firestore not initialized.');
+      // Simple configuration state backup export
+      const docSnap = await firestoreDb.collection('settings').doc('globalSettings').get();
+      const settings = docSnap.exists ? docSnap.data() : {};
+      
+      const backupPayload = {
+        backupId: `bkp_${Date.now()}`,
+        settings,
+        timestamp: new Date().toISOString()
+      };
+      
+      res.status(200).json({ status: 'success', backupPayload });
+    } catch (err) {
+      res.status(500).json({ error: 'Internal Server Error', message: err.message });
+    }
+  }
+
+  async restoreData(req, res, next) {
+    const { settings } = req.body;
+    try {
+      if (!firestoreDb) throw new Error('Firestore not initialized.');
+      if (!settings) return res.status(400).json({ error: 'Bad Request', message: 'Settings missing from restore payload.' });
+      
+      await firestoreDb.collection('settings').doc('globalSettings').set(settings);
+      res.status(200).json({ status: 'success', message: 'Configurations successfully restored.' });
+    } catch (err) {
+      res.status(500).json({ error: 'Internal Server Error', message: err.message });
+    }
+  }
+
+  async getUsers(req, res, next) {
+    try {
+      if (!firestoreDb) throw new Error('Firestore not initialized.');
+      const snap = await firestoreDb.collection('users').get();
+      const list = snap.docs.map(doc => ({ uid: doc.id, ...doc.data() }));
+      res.status(200).json(list);
+    } catch (err) {
+      res.status(500).json({ error: 'Internal Server Error', message: err.message });
+    }
+  }
+
+  async getShops(req, res, next) {
+    try {
+      if (!firestoreDb) throw new Error('Firestore not initialized.');
+      const snap = await firestoreDb.collection('shops').get();
+      const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      res.status(200).json(list);
+    } catch (err) {
+      res.status(500).json({ error: 'Internal Server Error', message: err.message });
+    }
+  }
+
+  async getProducts(req, res, next) {
+    try {
+      if (!firestoreDb) throw new Error('Firestore not initialized.');
+      const snap = await firestoreDb.collection('products').get();
+      const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      res.status(200).json(list);
+    } catch (err) {
+      res.status(500).json({ error: 'Internal Server Error', message: err.message });
+    }
+  }
+
+  async getAdministrators(req, res, next) {
+    try {
+      if (!firebaseAuth) throw new Error('Auth not initialized.');
+      
+      const admins = [];
+      let nextPageToken;
+      do {
+        const listUsersResult = await firebaseAuth.listUsers(1000, nextPageToken);
+        listUsersResult.users.forEach((userRecord) => {
+          const claims = userRecord.customClaims || {};
+          if (claims.admin || claims.role) {
+            admins.push({
+              uid: userRecord.uid,
+              phone: userRecord.phoneNumber || '',
+              role: claims.role || 'admin',
+              claims: claims
+            });
+          }
+        });
+        nextPageToken = listUsersResult.pageToken;
+      } while (nextPageToken);
+      
+      res.status(200).json(admins);
+    } catch (err) {
+      res.status(500).json({ error: 'Internal Server Error', message: err.message });
+    }
+  }
+
+  async assignAdminRole(req, res, next) {
+    const { phone, uid, role } = req.body;
+    const actor = req.user;
+
+    try {
+      if (!firebaseAuth) throw new Error('Auth not initialized.');
+      if (!role) return res.status(400).json({ error: 'Bad Request', message: 'Role parameter is required.' });
+
+      let targetUser;
+      if (uid) {
+        targetUser = await firebaseAuth.getUser(uid);
+      } else if (phone) {
+        const cleanPhone = phone.replace(/\s+/g, '');
+        targetUser = await firebaseAuth.getUserByPhoneNumber(cleanPhone);
+      } else {
+        return res.status(400).json({ error: 'Bad Request', message: 'Either phone or uid is required.' });
+      }
+
+      const prevClaims = targetUser.customClaims || {};
+
+      // Update claims on Auth
+      await firebaseAuth.setCustomUserClaims(targetUser.uid, {
+        admin: true,
+        role: role
+      });
+
+      // SQLite Audit Log
+      await writeAuditLog(
+        actor.uid,
+        actor.phone_number || actor.phoneNumber || '',
+        'PROMOTE_ADMIN',
+        'admin_user',
+        targetUser.uid,
+        prevClaims,
+        { admin: true, role },
+        `Promoted user to ${role}`,
+        req.ip,
+        req.headers['user-agent']
+      );
+
+      res.status(200).json({ status: 'success', message: `Successfully assigned role ${role} to user ${targetUser.uid}.` });
+    } catch (err) {
+      res.status(500).json({ error: 'Internal Server Error', message: err.message });
+    }
+  }
+
+  async changeAdminRole(req, res, next) {
+    const { uid, role } = req.body;
+    const actor = req.user;
+
+    try {
+      if (!firebaseAuth) throw new Error('Auth not initialized.');
+      if (!uid || !role) return res.status(400).json({ error: 'Bad Request', message: 'UID and Role are required.' });
+
+      const targetUser = await firebaseAuth.getUser(uid);
+      const prevClaims = targetUser.customClaims || {};
+
+      // Check if demoting the last Super Admin
+      if (prevClaims.role === 'super_admin' && role !== 'super_admin') {
+        const allAdmins = [];
+        let nextPageToken;
+        do {
+          const listUsersResult = await firebaseAuth.listUsers(1000, nextPageToken);
+          listUsersResult.users.forEach((u) => {
+            if (u.customClaims?.role === 'super_admin') {
+              allAdmins.push(u.uid);
+            }
+          });
+          nextPageToken = listUsersResult.pageToken;
+        } while (nextPageToken);
+
+        if (allAdmins.length <= 1 && allAdmins.includes(uid)) {
+          return res.status(403).json({
+            error: 'Forbidden',
+            message: 'Cannot demote the last remaining Super Admin.'
+          });
+        }
+      }
+
+      // Update Claims
+      await firebaseAuth.setCustomUserClaims(uid, {
+        admin: true,
+        role: role
+      });
+
+      // Audit Log
+      await writeAuditLog(
+        actor.uid,
+        actor.phone_number || actor.phoneNumber || '',
+        'CHANGE_ROLE',
+        'admin_user',
+        uid,
+        prevClaims,
+        { admin: true, role },
+        `Changed role from ${prevClaims.role || 'admin'} to ${role}`,
+        req.ip,
+        req.headers['user-agent']
+      );
+
+      res.status(200).json({ status: 'success', message: 'Admin role updated.' });
+    } catch (err) {
+      res.status(500).json({ error: 'Internal Server Error', message: err.message });
+    }
+  }
+
+  async removeAdminAccess(req, res, next) {
+    const { uid } = req.body;
+    const actor = req.user;
+
+    try {
+      if (!firebaseAuth) throw new Error('Auth not initialized.');
+      if (!uid) return res.status(400).json({ error: 'Bad Request', message: 'UID parameter is required.' });
+
+      const targetUser = await firebaseAuth.getUser(uid);
+      const prevClaims = targetUser.customClaims || {};
+
+      // Verify if target is super_admin
+      if (prevClaims.role === 'super_admin') {
+        const superAdmins = [];
+        let nextPageToken;
+        do {
+          const listUsersResult = await firebaseAuth.listUsers(1000, nextPageToken);
+          listUsersResult.users.forEach((u) => {
+            if (u.customClaims?.role === 'super_admin') {
+              superAdmins.push(u.uid);
+            }
+          });
+          nextPageToken = listUsersResult.pageToken;
+        } while (nextPageToken);
+
+        if (superAdmins.length <= 1 && superAdmins.includes(uid)) {
+          return res.status(403).json({
+            error: 'Forbidden',
+            message: 'Cannot revoke administrative permissions from the last remaining Super Admin.'
+          });
+        }
+      }
+
+      // Update Custom Claims to null
+      await firebaseAuth.setCustomUserClaims(uid, null);
+
+      // Audit Log
+      await writeAuditLog(
+        actor.uid,
+        actor.phone_number || actor.phoneNumber || '',
+        'REMOVE_ADMIN',
+        'admin_user',
+        uid,
+        prevClaims,
+        null,
+        'Revoked admin permissions and cleared Custom Claims.',
+        req.ip,
+        req.headers['user-agent']
+      );
+
+      res.status(200).json({ status: 'success', message: 'Administrative access revoked successfully.' });
+    } catch (err) {
+      res.status(500).json({ error: 'Internal Server Error', message: err.message });
+    }
+  }
+
+  async getShopsFinancials(req, res, next) {
+    try {
+      const data = await financialService.getShopsMetrics();
+      res.status(200).json(data);
+    } catch (err) {
+      res.status(500).json({ error: 'Internal Server Error', message: err.message });
+    }
+  }
+
+  async getShopFinancialsById(req, res, next) {
+    const { shopId } = req.params;
+    try {
+      const data = await financialService.getShopMetricsById(shopId);
+      res.status(200).json(data);
+    } catch (err) {
+      res.status(500).json({ error: 'Internal Server Error', message: err.message });
+    }
+  }
+
+  async getRiderFinancialsById(req, res, next) {
+    const { riderId } = req.params;
+    try {
+      const data = await financialService.getRiderMetricsById(riderId);
+      res.status(200).json(data);
+    } catch (err) {
+      res.status(500).json({ error: 'Internal Server Error', message: err.message });
+    }
+  }
+
+  async getPlatformFinancials(req, res, next) {
+    try {
+      const data = await financialService.getPlatformMetrics();
+      res.status(200).json(data);
+    } catch (err) {
+      res.status(500).json({ error: 'Internal Server Error', message: err.message });
+    }
+  }
+}
+
+module.exports = new AdminController();

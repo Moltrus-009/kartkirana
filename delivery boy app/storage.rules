@@ -1,0 +1,38 @@
+rules_version = '2';
+
+// H-5 fix: baseline Firebase Storage Security Rules for
+// kartkirana-3cd12.firebasestorage.app.
+//
+// IMPORTANT: must be deployed to take effect —
+//   firebase deploy --only storage
+//
+// This app's UserProfileDoc has avatarUrl/dlUrl/aadhaarUrl/rcUrl fields but
+// no upload code path exists yet in this archive, so the exact storage
+// paths below (riders/{uid}/...) are a reasonable convention, not something
+// verified against real upload code — update the path segments here to
+// match whatever paths the actual upload implementation ends up using.
+//
+// KYC documents (driving license, Aadhaar, RC) are sensitive PII — these
+// rules intentionally do not allow public/anonymous read access at all.
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Rider's own KYC documents and avatar. Only the rider who owns the
+    // folder can read or write into it; nobody else (not even other
+    // authenticated riders) can read another rider's ID documents.
+    match /riders/{riderId}/{allPaths=**} {
+      allow read, write: if request.auth != null
+        && request.auth.uid == riderId
+        // Basic sanity limits: images/PDFs only, capped at 10MB, to avoid
+        // arbitrary file-type/size abuse of a rider's own storage quota.
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*|application/pdf');
+    }
+
+    // Deny everything else by default.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

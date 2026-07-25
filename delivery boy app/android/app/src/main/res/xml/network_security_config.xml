@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  C-4 note: cleartextTrafficPermitted domains below (including the private
+  172.17.103.150 LAN IP) exist ONLY so the app can talk to a developer's
+  local backend during development. They must never point at a real
+  production/staging host — production traffic must go over HTTPS only,
+  which is enforced separately by src/lib/apiConfig.ts refusing to start
+  with a non-https VITE_API_URL outside of `vite dev`. If/when this project
+  splits into debug/release Android build variants, move this
+  cleartext-permitted domain-config into a debug-only resource file so it
+  can never ship in a release build.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="true">10.0.2.2</domain>
+        <domain includeSubdomains="true">172.17.103.150</domain>
+    </domain-config>
+</network-security-config>

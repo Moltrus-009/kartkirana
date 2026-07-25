@@ -1,0 +1,17 @@
+export const APP_CATEGORIES = [
+  { id: 'groceries', name: 'Groceries', icon: 'ShoppingBag', color: 'bg-blue-100 dark:bg-green-950 text-blue-600' },
+  { id: 'fruits-veg', name: 'Fruits & Vegetables', icon: 'Apple', color: 'bg-red-100 dark:bg-red-950 text-red-600' },
+  { id: 'snacks-bev', name: 'Snacks & Beverages', icon: 'CupSoda', color: 'bg-orange-100 dark:bg-orange-950 text-orange-600' },
+  { id: 'electronics', name: 'Electronics', icon: 'Laptop', color: 'bg-blue-100 dark:bg-blue-950 text-blue-600' },
+  { id: 'medical', name: 'Medical', icon: 'Activity', color: 'bg-teal-100 dark:bg-teal-950 text-teal-600' },
+  { id: 'stationery', name: 'Stationery', icon: 'PenTool', color: 'bg-purple-100 dark:bg-purple-950 text-purple-600' },
+  { id: 'fashion', name: 'Fashion', icon: 'Shirt', color: 'bg-pink-100 dark:bg-pink-950 text-pink-600' },
+  { id: 'books', name: 'Books', icon: 'BookOpen', color: 'bg-indigo-100 dark:bg-indigo-950 text-indigo-600' },
+  { id: 'home-essentials', name: 'Home Essentials', icon: 'Home', color: 'bg-amber-100 dark:bg-amber-950 text-amber-600' },
+  { id: 'pet-supplies', name: 'Pet Supplies', icon: 'Dog', color: 'bg-yellow-100 dark:bg-yellow-950 text-yellow-600' },
+  { id: 'beauty', name: 'Beauty & Personal Care', icon: 'Sparkles', color: 'bg-rose-100 dark:bg-rose-950 text-rose-600' },
+  { id: 'sports', name: 'Sports', icon: 'Dribbble', color: 'bg-blue-100 dark:bg-emerald-950 text-blue-600' },
+  { id: 'hardware', name: 'Hardware', icon: 'Wrench', color: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300' },
+  { id: 'religious', name: 'Religious Items', icon: 'Flame', color: 'bg-red-50 dark:bg-red-950 text-red-500' },
+  { id: 'others', name: 'Others', icon: 'Grid', color: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300' },
+];

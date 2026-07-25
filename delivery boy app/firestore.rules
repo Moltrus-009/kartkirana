@@ -1,0 +1,145 @@
+rules_version = '2';
+
+// H-5 fix: baseline Firestore Security Rules for project kartkirana-3cd12.
+//
+// IMPORTANT: this file must be deployed to take effect —
+//   firebase deploy --only firestore:rules
+// A rules file in source control that hasn't been deployed provides zero
+// protection; Firestore falls back to whatever ruleset (or lack thereof)
+// currently exists on the project.
+//
+// Scope: this covers the collections this rider-app codebase actually
+// reads/writes (orders, batches, dispatchRequests, riders, users +
+// notifications/messages subcollections). The Customer and Shopkeeper/Admin
+// apps aren't in this archive, so their write patterns are inferred from
+// the fields this app reads — re-verify against those apps' code before
+// deploying to production, since overly narrow rules will break flows this
+// app doesn't drive (e.g. a customer placing an order) just as surely as
+// overly broad rules leave data exposed.
+//
+// Design principles applied throughout:
+//  - Every rule requires request.auth != null (no anonymous/unauthenticated
+//    access at all — directly closes C-3, where the client could otherwise
+//    fall back to writing without an authenticated user).
+//  - A rider may only write documents where the resource's riderId (or
+//    equivalent) matches their own uid — one rider cannot alter another
+//    rider's order, batch, or profile.
+//  - Fields that represent business-critical facts a rider should not be
+//    able to unilaterally rewrite (payment status, item pricing) are not
+//    writable by the rider role at all via these rules.
+
+function isSignedIn() {
+  return request.auth != null;
+}
+
+function isOwner(uid) {
+  return isSignedIn() && request.auth.uid == uid;
+}
+
+function isRider() {
+  return isSignedIn() &&
+    exists(/databases/$(database)/documents/riders/$(request.auth.uid));
+}
+
+function hasValidRiderOrderTransition() {
+  return request.resource.data.status == resource.data.status
+    || ((resource.data.status == 'SEARCHING_RIDER' || resource.data.status == 'SHOP_ACCEPTED')
+        && request.resource.data.status == 'RIDER_ASSIGNED')
+    || (resource.data.status == 'RIDER_ASSIGNED' && request.resource.data.status == 'ARRIVED_AT_SHOP')
+    || (resource.data.status == 'ARRIVED_AT_SHOP' && request.resource.data.status == 'PICKED_UP')
+    || (resource.data.status == 'PICKED_UP' && request.resource.data.status == 'OUT_FOR_DELIVERY')
+    || (resource.data.status == 'OUT_FOR_DELIVERY' && request.resource.data.status == 'DELIVERED')
+    || (resource.data.status == 'DELIVERED' && request.resource.data.status == 'COMPLETED');
+}
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Rider profile documents (keyed by uid). A rider can read/update only
+    // their own profile. Creation happens via the app's signup flow.
+    match /riders/{riderId} {
+      allow read: if isOwner(riderId);
+      allow create: if isOwner(riderId);
+      allow update: if isOwner(riderId)
+        // Riders cannot self-promote rating/acceptanceRate/documentStatus —
+        // those should only be set by a trusted backend/Cloud Function.
+        && !request.resource.data.diff(resource.data).affectedKeys()
+             .hasAny(['rating', 'acceptanceRate', 'documentStatus', 'totalDeliveries']);
+      allow delete: if false;
+    }
+
+    // Shared user profile documents (customers, owners, admins, riders all
+    // live here per UserProfileDoc). Same self-service-only pattern.
+    match /users/{uid} {
+      allow read: if isOwner(uid);
+      allow create: if isOwner(uid);
+      allow update: if isOwner(uid);
+      allow delete: if false;
+
+      // Per-user notification inbox — written by updateOrderStatus() on
+      // behalf of a customer when a rider's order-status write happens.
+      // Only the backend/other trusted server context should ideally write
+      // these; allowing a signed-in rider to write into a customer's
+      // notifications collection is a deliberate, narrow exception needed
+      // because this app writes them directly (see firestoreService.ts
+      // updateOrderStatus). Tighten this to a Cloud Function once one
+      // exists — a client being able to write arbitrary users' inboxes,
+      // even just notification text, is more trust than ideal.
+      match /notifications/{notifId} {
+        allow read: if isOwner(uid);
+        allow create: if isRider();
+        allow update, delete: if false;
+      }
+    }
+
+    // Orders: a rider may read any order that's unassigned (so they can see
+    // dispatch offers) or assigned to them, and may only update status/
+    // rider/timeline fields on orders assigned to them — never rewrite
+    // pricing, items, or customer contact info.
+    match /orders/{orderId} {
+      allow read: if isSignedIn();
+
+      allow update: if isRider()
+        && (
+             // Accepting an unassigned order
+             ((resource.data.rider == null || resource.data.rider.uid == null)
+                && request.resource.data.riderId == request.auth.uid
+                && request.resource.data.rider.uid == request.auth.uid
+                && request.resource.data.status == 'RIDER_ASSIGNED')
+             ||
+             // Updating an order already assigned to this rider
+             (resource.data.rider.uid == request.auth.uid
+                && request.resource.data.riderId == request.auth.uid
+                && request.resource.data.rider.uid == request.auth.uid)
+           )
+        && hasValidRiderOrderTransition()
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['status', 'timeline', 'rider', 'riderId', 'batchId', 'updatedAt']);
+
+      allow create, delete: if false; // Orders are created by the Customer/Shopkeeper app, not this one.
+
+      match /messages/{messageId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn();
+        allow update, delete: if false;
+      }
+    }
+
+    // Batches: a rider may read an unassigned batch offer, or one assigned
+    // to them, and may only accept/progress a batch already targeting them.
+    match /batches/{batchId} {
+      allow read: if isSignedIn();
+      allow create: if false; // Batches are created by a dispatch backend/Cloud Function.
+      allow update: if isRider()
+        && (resource.data.riderId == null || resource.data.riderId == request.auth.uid);
+      allow delete: if false;
+    }
+
+    // Dispatch offers pushed to a specific rider.
+    match /dispatchRequests/{requestId} {
+      allow read: if isRider() && resource.data.riderId == request.auth.uid;
+      allow update: if isRider() && resource.data.riderId == request.auth.uid;
+      allow create, delete: if false; // Written by the dispatch backend only.
+    }
+  }
+}

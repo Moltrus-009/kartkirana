@@ -1,0 +1,136 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // Helper checks
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAppCheckVerified() {
+      return request.app != null;
+    }
+    
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.admin == true ||
+        request.auth.token.role in ['super_admin', 'admin', 'operations', 'support', 'finance', 'marketing', 'logistics', 'merchant_success', 'analyst']
+      );
+    }
+    
+    function isShopkeeper(shopId) {
+      return isSignedIn() && (
+        request.auth.token.shopId == shopId ||
+        (firestore.exists(/databases/(default)/documents/shops/$(shopId)) &&
+         firestore.get(/databases/(default)/documents/shops/$(shopId)).data.ownerId == request.auth.uid)
+      );
+    }
+
+    function getOrderData(orderId) {
+      return firestore.get(/databases/(default)/documents/orders/$(orderId)).data;
+    }
+
+    function isOrderParticipant(orderId) {
+      return isSignedIn() && (
+        isAdmin() ||
+        (firestore.exists(/databases/(default)/documents/orders/$(orderId)) && (
+          getOrderData(orderId).userId == request.auth.uid ||
+          getOrderData(orderId).riderId == request.auth.uid ||
+          (firestore.exists(/databases/(default)/documents/shops/$(getOrderData(orderId).shopId)) &&
+           firestore.get(/databases/(default)/documents/shops/$(getOrderData(orderId).shopId)).data.ownerId == request.auth.uid)
+        ))
+      );
+    }
+
+    // Helper functions for file validation
+    function isValidImage(maxSize) {
+      return request.resource.size < maxSize &&
+        request.resource.contentType.matches('image/.*');
+    }
+
+    function isValidDocument(maxSize) {
+      return request.resource.size < maxSize &&
+        (request.resource.contentType.matches('image/.*') || request.resource.contentType == 'application/pdf');
+    }
+    
+    // User profile avatar and KYC files
+    match /users/{userId}/{allPaths=**} {
+      allow read: if isOwner(userId) || isAdmin();
+      // Allow read of profile pictures for UI displays in review/chat (but not KYC/sensitive documents)
+      match /profile.jpg {
+        allow read: if isSignedIn();
+        allow write: if isOwner(userId) && isAppCheckVerified() && isValidImage(5 * 1024 * 1024);
+      }
+      match /kyc/{docName} {
+        allow read, write: if (isOwner(userId) || isAdmin()) && (request.method == 'GET' || (isAppCheckVerified() && isValidDocument(10 * 1024 * 1024)));
+      }
+      match /documents/{filename} {
+        allow read, write: if (isOwner(userId) || isAdmin()) && (request.method == 'GET' || (isAppCheckVerified() && isValidDocument(10 * 1024 * 1024)));
+      }
+    }
+    
+    // Shop logo, banner, and legal documents
+    match /shops/{shopId}/{allPaths=**} {
+      allow read: if true; // Shops are public
+      
+      match /logo.png {
+        allow write: if (isShopkeeper(shopId) || isAdmin()) && isValidImage(5 * 1024 * 1024);
+      }
+      match /banner.jpg {
+        allow write: if (isShopkeeper(shopId) || isAdmin()) && isValidImage(5 * 1024 * 1024);
+      }
+      match /license.pdf {
+        allow read: if isShopkeeper(shopId) || isAdmin();
+        allow write: if (isShopkeeper(shopId) || isAdmin()) && isAppCheckVerified() && isValidDocument(10 * 1024 * 1024);
+      }
+      match /gallery/{filename} {
+        allow write: if (isShopkeeper(shopId) || isAdmin()) && isValidImage(5 * 1024 * 1024);
+      }
+    }
+    
+    // Product cover and gallery images
+    match /products/{shopId}/{productId}/{allPaths=**} {
+      allow read: if true; // Products are public
+      allow write: if (isShopkeeper(shopId) || isAdmin()) && isValidImage(5 * 1024 * 1024);
+    }
+    
+    // Rider records (Aadhaar, License, RC)
+    match /riders/{riderId}/{allPaths=**} {
+      allow read: if isOwner(riderId) || isAdmin();
+      allow write: if isOwner(riderId) && isAppCheckVerified() && isValidDocument(10 * 1024 * 1024);
+    }
+    
+    // Orders invoices, signatures, delivery proofs
+    match /orders/{orderId}/{allPaths=**} {
+      allow read: if isOrderParticipant(orderId);
+      allow write: if isOrderParticipant(orderId) && isAppCheckVerified() && isValidDocument(10 * 1024 * 1024);
+    }
+    
+    // Categories and advertisements (Admin writes, anyone reads)
+    match /categories/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAdmin() && isAppCheckVerified() && isValidImage(5 * 1024 * 1024);
+    }
+    
+    match /advertisements/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAdmin() && isAppCheckVerified() && isValidImage(5 * 1024 * 1024);
+    }
+ 
+    // Banners collection support
+    match /banners/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAdmin() && isAppCheckVerified() && isValidImage(5 * 1024 * 1024);
+    }
+    
+    // Temp folder rules
+    match /temp/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && isAppCheckVerified() && isValidDocument(10 * 1024 * 1024);
+    }
+  }
+}

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Kart Kirana Partner</string>
+    <string name="title_activity_main">Kart Kirana Partner</string>
+    <string name="package_name">com.kartkirana.partner</string>
+    <string name="custom_url_scheme">com.kartkirana.partner</string>
+</resources>

@@ -1,0 +1,292 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAppCheckVerified() {
+      return true;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.admin == true ||
+        request.auth.token.role in ['super_admin', 'admin', 'operations', 'support', 'finance', 'marketing', 'logistics', 'merchant_success', 'analyst']
+      );
+    }
+
+    function isRider() {
+      return isSignedIn() && (
+        request.auth.token.role == 'rider' || 
+        exists(/databases/$(database)/documents/riders/$(request.auth.uid)) ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'rider')
+      );
+    }
+
+    function isShopOwner(shopId) {
+      return isSignedIn() && (
+        request.auth.token.shopId == shopId ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.shopId == shopId) ||
+        (shopId != '' && shopId != null && exists(/databases/$(database)/documents/shops/$(shopId)) && 
+         get(/databases/$(database)/documents/shops/$(shopId)).data.ownerId == request.auth.uid)
+      );
+    }
+
+    // --- Users Collection ---
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      
+      // Merchant profiles are self-provisioned after verified phone authentication.
+      // Privileged platform roles and financial fields remain server-managed.
+      allow create: if isOwner(userId) && 
+        request.resource.data.uid == userId &&
+        request.resource.data.role == 'owner' &&
+        request.resource.data.shopId == null &&
+        request.resource.data.accountStatus == 'pending' &&
+        !request.resource.data.keys().hasAny(['admin', 'riderId', 'walletBalance', 'earnings', 'commission']);
+      
+      allow update: if (
+        isOwner(userId) && 
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fullName', 'lastLogin', 'shopId']) &&
+        (
+          request.resource.data.shopId == resource.data.shopId ||
+          (
+            resource.data.shopId == null &&
+            request.resource.data.shopId != null &&
+            existsAfter(/databases/$(database)/documents/shops/$(request.resource.data.shopId)) &&
+            getAfter(/databases/$(database)/documents/shops/$(request.resource.data.shopId)).data.ownerId == request.auth.uid
+          )
+        )
+      ) || isAdmin();
+      
+      allow delete: if isAdmin();
+
+      // Notifications Subcollection
+      match /notifications/{notificationId} {
+        allow read: if isOwner(userId) || isAdmin();
+        // Allow write by signed in system roles writing order-type notifications
+        allow create: if isSignedIn();
+        allow update, delete: if isOwner(userId) || isAdmin();
+      }
+    }
+
+    // --- Shops Collection ---
+    match /shops/{shopId} {
+      allow read: if true; // Public directories
+      allow create: if isSignedIn() && (request.resource.data.ownerId == request.auth.uid || isAdmin());
+      allow update: if isShopOwner(shopId) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // --- Products Collection ---
+    match /products/{productId} {
+      allow read: if true; // Public catalogs
+      
+      allow create: if isShopOwner(request.resource.data.shopId) || isAdmin();
+      allow update: if isShopOwner(resource.data.shopId) || isAdmin();
+      allow delete: if isShopOwner(resource.data.shopId) || isAdmin();
+    }
+
+    // --- Orders Collection ---
+    match /orders/{orderId} {
+      allow read: if isSignedIn() && (
+        resource.data.userId == request.auth.uid || 
+        isShopOwner(resource.data.shopId) || 
+        resource.data.riderId == request.auth.uid ||
+        (isRider() && resource.data.currentRiderId == request.auth.uid) ||
+        isAdmin()
+      );
+      
+      allow create: if isSignedIn() && (
+        request.resource.data.userId == request.auth.uid ||
+        isAdmin()
+      );
+      
+      allow update: if isSignedIn() && (
+        isAdmin() || 
+        (isShopOwner(resource.data.shopId) && 
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'timeline', 'notes', 'batchId', 'rider', 'riderId', 'updatedAt', 'paymentStatus', 'riderName', 'riderPhone'])) ||
+        (resource.data.userId == request.auth.uid && 
+         resource.data.status != 'DELIVERED' && 
+         resource.data.status != 'COMPLETED' && 
+         (request.resource.data.status == 'cancelled' || request.resource.data.status == 'CANCELLED') && 
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt', 'timeline'])) ||
+        (isRider() && 
+         (resource.data.riderId == request.auth.uid || resource.data.riderId == null || resource.data.currentRiderId == request.auth.uid) &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'timeline', 'rider', 'riderId', 'paymentStatus', 'updatedAt', 'currentRiderId']))
+      );
+      
+      allow delete: if isAdmin();
+
+      // Messages Subcollection
+      match /messages/{messageId} {
+        allow read, write: if isSignedIn() && (
+          exists(/databases/$(database)/documents/orders/$(orderId)) && (
+            get(/databases/$(database)/documents/orders/$(orderId)).data.userId == request.auth.uid ||
+            isShopOwner(get(/databases/$(database)/documents/orders/$(orderId)).data.shopId) ||
+            get(/databases/$(database)/documents/orders/$(orderId)).data.riderId == request.auth.uid ||
+            isAdmin()
+          )
+        );
+      }
+    }
+
+    // --- Categories Collection ---
+    match /categories/{categoryId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // --- Advertisements Collection ---
+    match /advertisements/{adId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // --- Reviews Collection ---
+    match /reviews/{reviewId} {
+      allow read: if true;
+      allow create: if isSignedIn() && 
+        isAppCheckVerified() && 
+        request.resource.data.userId == request.auth.uid;
+        
+      allow update: if isSignedIn() && isAppCheckVerified() && (
+        isAdmin() ||
+        (resource.data.userId == request.auth.uid && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['reply', 'isReported', 'reportReason'])) ||
+        (isShopOwner(resource.data.shopId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reply', 'isReported', 'reportReason']))
+      );
+      
+      allow delete: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    // --- Banners Collection ---
+    match /banners/{bannerId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // --- Coupons Collection ---
+    match /coupons/{couponId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // --- Inventory Logs Collection ---
+    match /inventoryLogs/{logId} {
+      allow read: if isSignedIn() && (isShopOwner(resource.data.shopId) || isAdmin());
+      allow create: if isSignedIn() && isAppCheckVerified() && (isShopOwner(request.resource.data.shopId) || isAdmin());
+      allow update, delete: if isAdmin();
+    }
+
+    // --- Calls Collection (Signaling for video calls) ---
+    match /calls/{orderId} {
+      allow read, write: if isSignedIn() && (
+        exists(/databases/$(database)/documents/orders/$(orderId)) && (
+          get(/databases/$(database)/documents/orders/$(orderId)).data.userId == request.auth.uid ||
+          isShopOwner(get(/databases/$(database)/documents/orders/$(orderId)).data.shopId) ||
+          get(/databases/$(database)/documents/orders/$(orderId)).data.riderId == request.auth.uid ||
+          isAdmin()
+        )
+      );
+      
+      match /callerCandidates/{candidateId} {
+        allow read, write: if isSignedIn() && (
+          exists(/databases/$(database)/documents/orders/$(orderId)) && (
+            get(/databases/$(database)/documents/orders/$(orderId)).data.userId == request.auth.uid ||
+            isShopOwner(get(/databases/$(database)/documents/orders/$(orderId)).data.shopId) ||
+            get(/databases/$(database)/documents/orders/$(orderId)).data.riderId == request.auth.uid ||
+            isAdmin()
+          )
+        );
+      }
+      
+      match /calleeCandidates/{candidateId} {
+        allow read, write: if isSignedIn() && (
+          exists(/databases/$(database)/documents/orders/$(orderId)) && (
+            get(/databases/$(database)/documents/orders/$(orderId)).data.userId == request.auth.uid ||
+            isShopOwner(get(/databases/$(database)/documents/orders/$(orderId)).data.shopId) ||
+            get(/databases/$(database)/documents/orders/$(orderId)).data.riderId == request.auth.uid ||
+            isAdmin()
+          )
+        );
+      }
+    }
+
+    // --- Riders Collection ---
+    match /riders/{riderId} {
+      allow read: if isOwner(riderId) || isAdmin();
+      allow write: if isOwner(riderId) || isAdmin();
+    }
+
+    // --- Batches Collection ---
+    match /batches/{batchId} {
+      allow read: if isSignedIn() && (request.auth.token.role in ['owner', 'rider'] || isAdmin());
+      allow write: if isSignedIn() && (request.auth.token.role == 'owner' || isAdmin());
+    }
+
+    // --- Offers Collection ---
+    match /offers/{offerId} {
+      allow read: if true;
+      allow create: if (isSignedIn() && isShopOwner(request.resource.data.shopId)) || isAdmin();
+      allow update: if (isSignedIn() && isShopOwner(resource.data.shopId) && isShopOwner(request.resource.data.shopId)) || isAdmin();
+      allow delete: if (isSignedIn() && isShopOwner(resource.data.shopId)) || isAdmin();
+    }
+
+    // --- Complaints Collection ---
+    match /complaints/{complaintId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow write: if isAdmin();
+    }
+
+    // --- Dispatch Requests Collection ---
+    match /dispatchRequests/{requestId} {
+      allow read: if isSignedIn() && (resource.data.riderId == request.auth.uid || isAdmin());
+      allow update: if isSignedIn() && (resource.data.riderId == request.auth.uid || isAdmin()) && 
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) &&
+        request.resource.data.status in ['ACCEPTED', 'REJECTED', 'TIMEOUT'];
+      allow create: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // --- Video Calls Collection ---
+    match /videoCalls/{orderId} {
+      allow read: if isSignedIn() && (
+        resource.data.customerId == request.auth.uid || 
+        resource.data.riderId == request.auth.uid || 
+        isAdmin()
+      );
+      allow create: if isAdmin();
+      allow update: if isSignedIn() && (
+        resource.data.customerId == request.auth.uid || 
+        resource.data.riderId == request.auth.uid || 
+        isAdmin()
+      ) && request.resource.data.diff(resource.data).affectedKeys().hasAny(['offer', 'answer', 'status', 'startedAt', 'endedAt', 'endedBy', 'duration', 'updatedAt']);
+      allow delete: if isAdmin();
+
+      match /callerCandidates/{candId} {
+        allow read, write: if isSignedIn() && (
+          get(/databases/$(database)/documents/videoCalls/$(orderId)).data.customerId == request.auth.uid ||
+          get(/databases/$(database)/documents/videoCalls/$(orderId)).data.riderId == request.auth.uid ||
+          isAdmin()
+        );
+      }
+      
+      match /calleeCandidates/{candId} {
+        allow read, write: if isSignedIn() && (
+          get(/databases/$(database)/documents/videoCalls/$(orderId)).data.customerId == request.auth.uid ||
+          get(/databases/$(database)/documents/videoCalls/$(orderId)).data.riderId == request.auth.uid ||
+          isAdmin()
+        );
+      }
+    }
+  }
+}
