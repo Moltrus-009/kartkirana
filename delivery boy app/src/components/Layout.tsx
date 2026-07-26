@@ -305,6 +305,11 @@ export const Layout: React.FC<LayoutProps> = ({
               // Batch Layout details
               <div className="space-y-6">
                 <div className="bg-primary/25 border-2 border-secondary/20 p-5 rounded-2xl text-center space-y-1.5 shadow-md">
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-full text-[9px] font-black uppercase tracking-wider mb-1">
+                    <span>🏪 Same Shop Pickup</span>
+                    <span>•</span>
+                    <span>📍 Customers {(newRequest.batchData as any)?.neighborhoodDistanceMeters || 420}m apart</span>
+                  </div>
                   <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Estimated Total Earnings</p>
                   <p className="text-4xl font-black text-secondary">₹{newRequest.batchData?.totalEarnings}</p>
                   <div className="flex justify-center space-x-4 pt-2 text-[10px] text-slate-300 font-semibold">

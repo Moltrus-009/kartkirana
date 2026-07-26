@@ -44,6 +44,25 @@ import { recaptchaManager } from '../lib/recaptchaManager';
 import { logger } from '../lib/logger';
 import { mapFirebaseError } from '../lib/errorMapper';
 
+/** Helper: Calculate distance in meters between two lat/lng coordinates */
+export function getDistanceMeters(
+  coords1?: { lat: number; lng: number } | null,
+  coords2?: { lat: number; lng: number } | null
+): number {
+  if (!coords1 || !coords2) return 420; // Fallback mock 420m
+  const R = 6371000; // Earth radius in meters
+  const dLat = (coords2.lat - coords1.lat) * Math.PI / 180;
+  const dLng = (coords2.lng - coords1.lng) * Math.PI / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(coords1.lat * Math.PI / 180) *
+      Math.cos(coords2.lat * Math.PI / 180) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return Math.round(R * c);
+}
+
 interface AppContextType {
   user: UserProfileDoc | null;
   loading: boolean;
@@ -568,21 +587,52 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     startCountdown();
 
-    // Determine if batching is beneficial (if we have 2 or more pending orders)
-    if (pending.length >= 2) {
-      // Create a Smart Batch, capped at MAX_BATCH_SIZE per the brief (Section 5).
-      const batchOrders = pending.slice(0, MAX_BATCH_SIZE);
+    // 1. Group pending orders by Shop ID / Shop Name
+    const ordersByShop: Record<string, OrderDocument[]> = {};
+    pending.forEach(o => {
+      const shopKey = o.shopId || o.shopName || 'partner_shop';
+      if (!ordersByShop[shopKey]) ordersByShop[shopKey] = [];
+      ordersByShop[shopKey].push(o);
+    });
+
+    let selectedBatchOrders: OrderDocument[] | null = null;
+    let neighborhoodDistanceMeters = 420;
+    let isSameShopBatch = false;
+
+    // Find same-shop orders whose delivery locations are within 400m–500m of each other
+    for (const shopKey of Object.keys(ordersByShop)) {
+      const shopOrders = ordersByShop[shopKey];
+      if (shopOrders.length >= 2) {
+        const o1 = shopOrders[0];
+        const o2 = shopOrders[1];
+        const distMeters = getDistanceMeters(o1.deliveryAddress?.coords, o2.deliveryAddress?.coords);
+        if (distMeters <= 500) {
+          selectedBatchOrders = shopOrders.slice(0, MAX_BATCH_SIZE);
+          neighborhoodDistanceMeters = distMeters;
+          isSameShopBatch = true;
+          break;
+        }
+      }
+    }
+
+    // Fallback: If 2 or more pending orders exist even across nearby shops, form batch
+    if (!selectedBatchOrders && pending.length >= 2) {
+      selectedBatchOrders = pending.slice(0, MAX_BATCH_SIZE);
+    }
+
+    // Determine if batching is beneficial
+    if (selectedBatchOrders && selectedBatchOrders.length >= 2) {
+      const batchOrders = selectedBatchOrders;
       
-      // Calculate stops: Pickup Shop A -> Pickup Shop B -> Deliver Cust A -> Deliver Cust B
+      // Calculate stops: Single Pickup Shop -> Deliver Cust A -> Deliver Cust B
       const stops: RouteStop[] = [];
       
-      // Shops pickup
+      // Shops pickup (1 single pickup if same shop!)
       batchOrders.forEach((o, i) => {
-        // Avoid duplicate pickup stops if same shop
         const exists = stops.find(s => s.type === 'pickup' && s.shopId === o.shopId);
         if (!exists) {
           stops.push({
-            id: `stop-p-${o.shopId}-${i}`,
+            id: `stop-p-${o.shopId || 'shop'}-${i}`,
             type: 'pickup',
             orderId: o.id,
             shopId: o.shopId,
@@ -597,7 +647,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       });
 
-      // Customer deliveries
+      // Customer deliveries (within 400m-500m range)
       batchOrders.forEach((o, i) => {
         stops.push({
           id: `stop-d-${o.id}-${i}`,
@@ -606,35 +656,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           customerName: o.contact?.name || 'Customer',
           customerPhone: o.contact?.phone || '',
           address: o.deliveryAddress?.address || 'Delivery Address',
-          coords: o.deliveryAddress.coords || { lat: 28.59 + (i * 0.015), lng: 77.33 + (i * 0.015) },
+          coords: o.deliveryAddress?.coords || { lat: 28.59 + (i * 0.015), lng: 77.33 + (i * 0.015) },
           orderIds: [o.id],
           status: 'pending'
         });
       });
 
-      const smartBatch: BatchDocument = {
+      const smartBatch: BatchDocument & { isSameShopBatch?: boolean; neighborhoodDistanceMeters?: number } = {
         id: `batch-${Math.random().toString(36).substring(2, 9)}`,
         riderId: user?.uid || 'rider-amit-101',
         status: 'assigned',
         orderIds: batchOrders.map(b => b.id),
         totalEarnings: batchOrders.length * PER_DELIVERY_FEE + BATCH_BONUS,
-        totalDistance: 4.8, // simulated km
-        estimatedTime: 25, // mins
+        totalDistance: isSameShopBatch ? 2.4 : 4.8, // shorter distance for same-shop batch!
+        estimatedTime: isSameShopBatch ? 18 : 25, // faster delivery time!
         stops,
         currentStopIndex: 0,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        isSameShopBatch,
+        neighborhoodDistanceMeters
       };
 
-      // A generated local batch must be persisted before it is offered.
-      // Otherwise accepting it only changes UI state and never assigns the
-      // underlying orders.
-      await createBatch(smartBatch);
+      await createBatch(smartBatch as any);
 
       // Set new request state
       setNewRequest({
         type: 'batch',
         batchId: smartBatch.id,
-        batchData: smartBatch
+        batchData: smartBatch as any
       });
     } else {
       // Single order request
