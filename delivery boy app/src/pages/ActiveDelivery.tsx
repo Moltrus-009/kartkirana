@@ -83,7 +83,7 @@ export const ActiveDelivery: React.FC<ActiveDeliveryProps> = ({ setViewActiveMap
     const callDocRef = doc(db, 'videoCalls', order.id);
     const unsub = onSnapshot(callDocRef, (snap) => {
       const data = snap.data();
-      if (data && data.status === 'initiated' && data.customerId && data.customerId !== user?.uid) {
+      if (data && data.status === 'initiated' && (data.callerRole === 'customer' || (data.customerId && data.customerId !== user?.uid))) {
         // Customer is caller, so show incoming call
         setIncomingCall(data);
       } else if (data && (data.status === 'ended' || data.status === 'declined' || data.status === 'missed')) {
