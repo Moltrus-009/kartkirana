@@ -353,7 +353,7 @@ export const Layout: React.FC<LayoutProps> = ({
                 {/* Visual Earnings Card */}
                 <div className="bg-primary/25 border-2 border-secondary/20 p-5 rounded-2xl text-center space-y-1.5 shadow-md">
                   <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Guaranteed Trip Payout</p>
-                  <p className="text-4xl font-black text-secondary">₹{newRequest.earnings || newRequest.orderData?.deliveryFee || 45}</p>
+                  <p className="text-4xl font-black text-secondary">₹{newRequest.earnings || newRequest.orderData?.deliveryFee || 10}</p>
                   <div className="flex justify-center space-x-4 pt-2 text-[10px] text-slate-350 font-semibold">
                     <span>Est Distance: {newRequest.distance ? `${newRequest.distance} km` : '2.1 km'}</span>
                     <span>•</span>

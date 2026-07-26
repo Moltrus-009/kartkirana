@@ -22,7 +22,7 @@ export const Earnings: React.FC = () => {
         return false;
       }
     })
-    .reduce((sum, o) => sum + (o.deliveryFee || 45), 0);
+    .reduce((sum, o) => sum + (o.deliveryFee || 10), 0);
 
   const totalMonthlyEarnings = completedHistory
     .filter(o => {
@@ -35,11 +35,7 @@ export const Earnings: React.FC = () => {
         return false;
       }
     })
-    .reduce((sum, o) => sum + (o.deliveryFee || 45), 0);
-
-  const averageEarnings = totalCompletedDeliveries > 0 
-    ? Math.round(completedHistory.reduce((sum, o) => sum + (o.deliveryFee || 45), 0) / totalCompletedDeliveries) 
-    : 45;
+    .reduce((sum, o) => sum + (o.deliveryFee || 10), 0);
 
   const formatTime = (isoString: string) => {
     try {
@@ -59,8 +55,21 @@ export const Earnings: React.FC = () => {
           Earnings Summary
         </h2>
         <span className="text-[10px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-2.5 py-0.5 rounded font-extrabold uppercase">
-          Payout: Direct Bank
+          Payout: ₹10 / Order
         </span>
+      </div>
+
+      {/* Weekly Revenue Settlement Banner */}
+      <div className="bg-emerald-500/10 border border-emerald-500/20 p-3.5 rounded-2xl flex items-center space-x-3 text-emerald-700 dark:text-emerald-300">
+        <div className="h-9 w-9 rounded-xl bg-emerald-500/20 flex items-center justify-center text-emerald-500 font-bold shrink-0">
+          🗓️
+        </div>
+        <div className="space-y-0.5 text-xs font-semibold">
+          <p className="font-extrabold text-[10px] uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Weekly Revenue Settlement</p>
+          <p className="text-[10px] text-slate-600 dark:text-zinc-300 leading-snug">
+            Total accumulated revenue is calculated and paid out at the end of every 7-day weekly cycle (every Sunday midnight).
+          </p>
+        </div>
       </div>
 
       {/* Main Income cards grid */}
@@ -69,7 +78,7 @@ export const Earnings: React.FC = () => {
         {/* Today's Earning Highlight Card */}
         <div className="bg-slate-950 text-white border border-slate-850 p-5 rounded-2xl shadow-lg space-y-3">
           <div className="flex justify-between items-center text-[10px] font-black text-slate-400 uppercase tracking-widest">
-            <span>Today's Earnings</span>
+            <span>Today's Revenue</span>
             <TrendingUp className="h-4.5 w-4.5 text-success animate-pulse" />
           </div>
           
@@ -79,7 +88,7 @@ export const Earnings: React.FC = () => {
               <span>{todayEarnings}</span>
             </h3>
             <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">
-              {todayDeliveries} Orders completed today
+              {todayDeliveries} Orders completed today (₹10 / order)
             </p>
           </div>
         </div>
@@ -87,9 +96,9 @@ export const Earnings: React.FC = () => {
         {/* Weekly & Monthly Small Cards */}
         <div className="grid grid-cols-2 gap-4">
           <div className="bg-white dark:bg-zinc-900 border border-slate-200/60 dark:border-zinc-800 p-4.5 rounded-2xl shadow-xs space-y-1 transition-all duration-300">
-            <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">This Week</p>
+            <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">This Week (7 Days)</p>
             <p className="text-lg font-black text-slate-900 dark:text-white">₹{totalWeeklyEarnings}</p>
-            <p className="text-[8px] text-slate-400 font-semibold uppercase">Payout: Weekly</p>
+            <p className="text-[8px] text-emerald-500 font-bold uppercase">Weekly Settled Revenue</p>
           </div>
 
           <div className="bg-white dark:bg-zinc-900 border border-slate-200/60 dark:border-zinc-800 p-4.5 rounded-2xl shadow-xs space-y-1 transition-all duration-300">
@@ -104,13 +113,13 @@ export const Earnings: React.FC = () => {
           <div className="bg-white dark:bg-zinc-900 border border-slate-200/60 dark:border-zinc-800 p-4.5 rounded-2xl shadow-xs space-y-1 transition-all duration-300">
             <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Total Trips</p>
             <p className="text-lg font-black text-slate-900 dark:text-white">{totalCompletedDeliveries}</p>
-            <p className="text-[8px] text-slate-400 font-semibold uppercase">Lifetime completions</p>
+            <p className="text-[8px] text-slate-400 font-semibold uppercase">Completed Trips</p>
           </div>
 
           <div className="bg-white dark:bg-zinc-900 border border-slate-200/60 dark:border-zinc-800 p-4.5 rounded-2xl shadow-xs space-y-1 transition-all duration-300">
-            <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Avg. per order</p>
-            <p className="text-lg font-black text-slate-900 dark:text-white">₹{averageEarnings}</p>
-            <p className="text-[8px] text-slate-400 font-semibold uppercase">Based on recent payouts</p>
+            <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Rate per order</p>
+            <p className="text-lg font-black text-slate-900 dark:text-white">₹10</p>
+            <p className="text-[8px] text-slate-400 font-semibold uppercase">Flat rate delivery payout</p>
           </div>
         </div>
 
@@ -119,7 +128,7 @@ export const Earnings: React.FC = () => {
       {/* Transaction History Logs */}
       <section className="space-y-3.5">
         <h3 className="text-[10px] font-black uppercase text-slate-400 tracking-wider">
-          Recent Transaction History
+          Recent Delivery Revenue Logs
         </h3>
 
         <div className="bg-white dark:bg-zinc-900 border border-slate-200/60 dark:border-zinc-800 rounded-2xl p-2.5 shadow-xs divide-y divide-slate-100 dark:divide-zinc-800 transition-all duration-300">
@@ -150,10 +159,10 @@ export const Earnings: React.FC = () => {
                 <div className="text-right flex-shrink-0">
                   <span className="text-success font-black text-sm flex items-center justify-end">
                     <span>+₹</span>
-                    <span>{o.deliveryFee || 45}</span>
+                    <span>{o.deliveryFee || 10}</span>
                   </span>
                   <span className="text-[8px] text-slate-400 font-normal uppercase">
-                    UPI Transferred
+                    Weekly Payout
                   </span>
                 </div>
               </div>

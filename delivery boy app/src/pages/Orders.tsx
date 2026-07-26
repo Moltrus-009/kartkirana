@@ -171,7 +171,7 @@ export const Orders: React.FC = () => {
                     <span className="text-slate-300 dark:text-zinc-700">|</span>
                     <span className="text-success font-black text-xs flex items-center">
                       <IndianRupee className="h-3 w-3" />
-                      <span>{o.deliveryFee || 45}</span>
+                      <span>{o.deliveryFee || 10}</span>
                     </span>
                   </div>
                 </div>

@@ -148,7 +148,7 @@ export const Home: React.FC<HomeProps> = ({
   const activeStop = getActiveStopDetails();
 
   // Dynamic calculations from real backend history instead of hardcoded numbers
-  const lifetimeEarnings = historyOrders.reduce((sum, o) => sum + (o.deliveryFee || 45), 0) + todayEarnings;
+  const lifetimeEarnings = historyOrders.reduce((sum, o) => sum + (o.deliveryFee || 10), 0) + todayEarnings;
   const activeHours = isOnline ? Math.max(0.5, Math.round((todayDeliveries * 25) / 60 * 10) / 10) : 0;
   const totalDistanceKm = (todayDeliveries * 3.4).toFixed(1);
 

@@ -16,7 +16,7 @@
 // validated instead of a bare `2`.
 
 /** Base payout per single delivery, in ₹. */
-export const PER_DELIVERY_FEE = 45;
+export const PER_DELIVERY_FEE = 10;
 
 /** Extra bonus paid per batch for accepting a multi-order route, in ₹. */
 export const BATCH_BONUS = 15;
