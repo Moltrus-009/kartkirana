@@ -297,13 +297,15 @@ export const Cart: React.FC = () => {
             )}
           </div>
 
-          <div className="flex justify-between">
-            <span>Govt. Taxes (5% GST)</span>
-            <span className="text-gray-900 dark:text-white font-extrabold">₹{priceBreakdown.taxes}</span>
-          </div>
+          {priceBreakdown.taxes > 0 && (
+            <div className="flex justify-between">
+              <span>Govt. Taxes (5% GST)</span>
+              <span className="text-gray-900 dark:text-white font-extrabold">₹{priceBreakdown.taxes}</span>
+            </div>
+          )}
 
           <div className="flex justify-between pb-3 border-b border-[#E2E8F0] dark:border-[#334155]">
-            <span>Platform Handling Fee</span>
+            <span>Handling Fee</span>
             <span className="text-gray-900 dark:text-white font-extrabold">₹{priceBreakdown.platformFee}</span>
           </div>
 
@@ -312,14 +314,14 @@ export const Cart: React.FC = () => {
             <span className="text-[#1565C0] dark:text-[#1E88E5] text-base">₹{priceBreakdown.grandTotal}</span>
           </div>
 
-          {priceBreakdown.subtotal >= 199 ? (
+          {priceBreakdown.subtotal >= 149 ? (
             <div className="mt-1 p-2 rounded-xl bg-blue-500/5 text-blue-700 dark:text-[#1E88E5] text-[10px] font-black text-center flex items-center justify-center gap-1.5">
               <Check className="h-4 w-4" />
-              <span>YAY! You saved delivery charge of ₹29 on this order!</span>
+              <span>YAY! You saved delivery charge of ₹25 on this order!</span>
             </div>
           ) : (
             <span className="text-[9px] font-semibold text-gray-400 block mt-0.5 text-center">
-              Add products worth ₹{199 - priceBreakdown.subtotal} more to get Free Delivery!
+              Add products worth ₹{149 - priceBreakdown.subtotal} more to get Free Delivery!
             </span>
           )}
 

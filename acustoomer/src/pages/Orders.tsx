@@ -373,10 +373,12 @@ export const Orders: React.FC = () => {
                             <span>-₹{order.priceBreakdown.discount}</span>
                           </div>
                         )}
-                        <div className="flex justify-between">
-                          <span className="text-gray-400">GST & Taxes (5%):</span>
-                          <span>₹{order.priceBreakdown.taxes || 0}</span>
-                        </div>
+                        {!!order.priceBreakdown?.taxes && order.priceBreakdown.taxes > 0 && (
+                          <div className="flex justify-between">
+                            <span className="text-gray-400">GST & Taxes (5%):</span>
+                            <span>₹{order.priceBreakdown.taxes}</span>
+                          </div>
+                        )}
                         <div className="flex justify-between">
                           <span className="text-gray-400">Delivery Partner Fee:</span>
                           <span>

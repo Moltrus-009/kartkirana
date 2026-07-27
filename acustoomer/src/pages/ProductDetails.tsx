@@ -430,9 +430,10 @@ export const ProductDetails: React.FC = () => {
           <Button
             variant="outline"
             onClick={handleBuyNow}
+            disabled={product.stock <= 0}
             className="flex-1 rounded-2xl py-3 text-xs font-black border-2"
           >
-            BUY NOW
+            {product.stock <= 0 ? 'OUT OF STOCK' : 'BUY NOW'}
           </Button>
           
           {quantity > 0 && !product.isPreorder ? (
@@ -447,7 +448,7 @@ export const ProductDetails: React.FC = () => {
               className="flex-1 rounded-2xl py-3 text-xs font-black"
               disabled={product.stock <= 0}
             >
-              {product.isPreorder ? 'BOOK PREORDER' : 'ADD TO CART'}
+              {product.stock <= 0 ? 'OUT OF STOCK' : (product.isPreorder ? 'BOOK PREORDER' : 'ADD TO CART')}
             </Button>
           )}
         </div>

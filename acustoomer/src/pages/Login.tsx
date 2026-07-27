@@ -69,7 +69,18 @@ export const Login: React.FC = () => {
       } else if (!notificationPrompted) {
         setStep('notifications');
       } else {
-        navigate('/', { replace: true });
+        const savedCart = localStorage.getItem('shop_app_cart');
+        let hasItems = false;
+        try {
+          hasItems = savedCart ? JSON.parse(savedCart).length > 0 : false;
+        } catch (e) {
+          hasItems = false;
+        }
+        if (hasItems) {
+          navigate('/cart', { replace: true });
+        } else {
+          navigate('/', { replace: true });
+        }
       }
     }
   }, [user, navigate]);

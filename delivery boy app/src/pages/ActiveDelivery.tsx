@@ -164,20 +164,20 @@ export const ActiveDelivery: React.FC<ActiveDeliveryProps> = ({ setViewActiveMap
   const getActiveStop = () => {
     if (activeBatch && Array.isArray(activeBatch.stops) && activeBatch.stops.length > 0) {
       const idx = Math.min(Math.max(0, activeBatch.currentStopIndex || 0), activeBatch.stops.length - 1);
-      const stop = activeBatch.stops[idx] || {};
-      const isPickup = stop.type === 'pickup';
-      const linkedOrder = activeOrders.find(o => o.id === stop.orderId) || order;
+      const stop = activeBatch.stops[idx];
+      const isPickup = stop?.type === 'pickup';
+      const linkedOrder = (stop?.orderId ? activeOrders.find(o => o.id === stop.orderId) : null) || order;
       return {
         isBatch: true,
-        type: stop.type || 'pickup',
-        orderId: stop.orderId || order?.id || '',
-        name: isPickup ? (stop.shopName || 'Partner Store') : (stop.customerName || 'Customer'),
-        phone: isPickup ? '' : (stop.customerPhone || ''),
-        address: isPickup ? (stop.shopAddress || 'Store Location') : (stop.address || 'Delivery Address'),
-        coords: stop.coords || { lat: 28.5835, lng: 77.3142 },
+        type: stop?.type || 'pickup',
+        orderId: stop?.orderId || order?.id || '',
+        name: isPickup ? (stop?.shopName || 'Partner Store') : (stop?.customerName || 'Customer'),
+        phone: isPickup ? '' : (stop?.customerPhone || ''),
+        address: isPickup ? (stop?.shopAddress || 'Store Location') : (stop?.address || 'Delivery Address'),
+        coords: stop?.coords || { lat: 28.5835, lng: 77.3142 },
         items: linkedOrder?.items || [],
         instructions: linkedOrder?.instructions || 'Handle with care.',
-        status: stop.status || 'pending',
+        status: stop?.status || 'pending',
         stopIndex: idx,
         totalStops: activeBatch.stops.length,
         earnings: activeBatch.totalEarnings || 0

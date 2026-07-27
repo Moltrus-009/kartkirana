@@ -202,17 +202,17 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
 
-    // Free delivery check (above 500)
-    const qualifiesFreeDelivery = subtotal >= 500;
-    const deliveryCharge = cartItems.length > 0 && !qualifiesFreeDelivery ? 30 : 0;
+    // Free delivery check (above ₹149)
+    const qualifiesFreeDelivery = subtotal >= 149;
+    const deliveryCharge = cartItems.length > 0 && !qualifiesFreeDelivery ? 25 : 0;
     
-    const platformFee = cartItems.length > 0 ? 2 : 0;
-    const packagingFee = cartItems.length > 0 ? 5 : 0;
+    // Flat handling fee of ₹5 per delivery
+    const platformFee = cartItems.length > 0 ? 5 : 0;
+    const packagingFee = 0;
 
-    const taxableAmount = Math.max(0, subtotal - discount);
-    const taxes = Math.round(taxableAmount * 0.05 * 100) / 100; // 5% GST
+    const taxes = 0; // GST removed - prices are inclusive as shown on platform
     
-    const grandTotal = Math.max(0, subtotal - discount + taxes + deliveryCharge + platformFee + packagingFee);
+    const grandTotal = Math.max(0, subtotal - discount + deliveryCharge + platformFee + packagingFee);
 
     return {
       subtotal,

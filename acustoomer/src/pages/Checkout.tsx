@@ -550,10 +550,12 @@ export const Checkout: React.FC = () => {
                   <span>-₹{priceBreakdown.discount}</span>
                 </div>
               )}
-              <div className="flex justify-between">
-                <span>GST & Taxes (5%):</span>
-                <span className="text-gray-800 dark:text-white">₹{priceBreakdown.taxes}</span>
-              </div>
+              {priceBreakdown.taxes > 0 && (
+                <div className="flex justify-between">
+                  <span>GST & Taxes (5%):</span>
+                  <span className="text-gray-800 dark:text-white">₹{priceBreakdown.taxes}</span>
+                </div>
+              )}
               <div className="flex justify-between">
                 <span>Delivery Partner Fee:</span>
                 <span className="text-gray-800 dark:text-white">
@@ -571,7 +573,7 @@ export const Checkout: React.FC = () => {
                 </div>
               )}
               <div className="flex justify-between">
-                <span>Platform Handling Fee:</span>
+                <span>Handling Fee:</span>
                 <span className="text-gray-800 dark:text-white">₹{priceBreakdown.platformFee}</span>
               </div>
             </div>
