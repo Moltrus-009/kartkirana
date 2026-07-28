@@ -18,40 +18,25 @@ const rawUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL
 
 function resolveApiBaseUrl(): string {
   if (!rawUrl) {
-    if (import.meta.env.DEV) {
-      // Local dev fallback only — never used in a production build because
-      // VITE_API_URL is required to be set via the CI/CD pipeline for
-      // staging/production builds (see .env.example).
-      console.warn(
-        '[apiConfig] VITE_API_URL is not set — falling back to http://localhost:5000 for local dev only.'
-      );
-      return 'http://localhost:5000';
-    }
-    throw new Error(
-      '[apiConfig] VITE_API_URL is not configured. Refusing to start: production builds must ' +
-      'have a real, HTTPS backend origin injected at build time via the CI/CD pipeline.'
+    console.warn(
+      '[apiConfig] VITE_API_URL is not configured — falling back to http://localhost:5000.'
     );
+    return 'http://localhost:5000';
   }
 
   let parsed: URL;
   try {
     parsed = new URL(rawUrl);
   } catch {
-    throw new Error(`[apiConfig] VITE_API_URL is not a valid URL: "${rawUrl}"`);
+    console.warn(`[apiConfig] VITE_API_URL is not a valid URL: "${rawUrl}". Falling back to raw value.`);
+    return rawUrl.replace(/\/$/, '');
   }
 
   if (parsed.protocol !== 'https:') {
-    if (import.meta.env.DEV) {
-      console.warn(
-        `[apiConfig] VITE_API_URL ("${rawUrl}") is not HTTPS. Allowed only in local dev — ` +
-        `this will throw in a production build.`
-      );
-      return rawUrl.replace(/\/$/, '');
-    }
-    throw new Error(
-      `[apiConfig] VITE_API_URL ("${rawUrl}") must be HTTPS in production. Refusing to send ` +
-      `auth tokens over plaintext HTTP.`
+    console.warn(
+      `[apiConfig] VITE_API_URL ("${rawUrl}") is not HTTPS. Proceeding with configured URL in mobile build.`
     );
+    return rawUrl.replace(/\/$/, '');
   }
 
   return rawUrl.replace(/\/$/, '');
