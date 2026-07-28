@@ -1005,15 +1005,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       let pct = 0;
       if (currentActiveOrders.length > 0) {
         let destCoords = MOCK_GPS_START;
-        if (currentActiveBatch) {
-          const currentStop = currentActiveBatch.stops[currentActiveBatch.currentStopIndex];
-          destCoords = currentStop.coords;
+        if (currentActiveBatch && Array.isArray(currentActiveBatch.stops) && currentActiveBatch.stops.length > 0) {
+          const idx = Math.min(Math.max(0, currentActiveBatch.currentStopIndex || 0), currentActiveBatch.stops.length - 1);
+          const currentStop = currentActiveBatch.stops[idx];
+          if (currentStop?.coords) {
+            destCoords = currentStop.coords;
+          }
         } else {
           const order = currentActiveOrders[0];
-          if (isOrderStatus(order.status, 'RIDER_ASSIGNED', 'ARRIVED_AT_SHOP')) {
-            destCoords = order.shopCoords || { lat: 28.5835, lng: 77.3142 };
-          } else {
-            destCoords = order.deliveryAddress.coords || MOCK_GPS_START;
+          if (order) {
+            if (isOrderStatus(order.status, 'RIDER_ASSIGNED', 'ARRIVED_AT_SHOP')) {
+              destCoords = order.shopCoords || { lat: 28.5835, lng: 77.3142 };
+            } else if (order.deliveryAddress?.coords) {
+              destCoords = order.deliveryAddress.coords;
+            }
           }
         }
         const totalDist = Math.hypot(destCoords.lat - MOCK_GPS_START.lat, destCoords.lng - MOCK_GPS_START.lng);
@@ -1073,9 +1078,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const currentActiveBatch = activeBatchRef.current;
         const currentUser = userRef.current;
         if (!isFirebaseActive() && currentActiveOrders.length > 0 && currentUser) {
-          const destCoords = currentActiveBatch 
-            ? currentActiveBatch.stops[currentActiveBatch.currentStopIndex].coords 
-            : (currentActiveOrders[0].deliveryAddress.coords || MOCK_GPS_START);
+          const destCoords = (currentActiveBatch && Array.isArray(currentActiveBatch.stops) && currentActiveBatch.stops.length > 0)
+            ? (currentActiveBatch.stops[Math.min(Math.max(0, currentActiveBatch.currentStopIndex || 0), currentActiveBatch.stops.length - 1)]?.coords || MOCK_GPS_START)
+            : (currentActiveOrders[0]?.deliveryAddress?.coords || MOCK_GPS_START);
           const currCoords = currentUser.coords || MOCK_GPS_START;
           const nextCoords = { ...currCoords };
           const dLat = destCoords.lat - currCoords.lat;

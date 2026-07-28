@@ -65,8 +65,8 @@ export const SVGMap: React.FC<SVGMapProps> = ({
   useEffect(() => {
     if (!riderCoords) return;
 
-    const activeStop = stops[currentStopIndex] || stops[0];
-    if (!activeStop) {
+    const activeStop = stops && Array.isArray(stops) && stops.length > 0 ? (stops[currentStopIndex] || stops[0]) : null;
+    if (!activeStop || !activeStop.coords) {
       setRoutePolyline([]);
       return;
     }

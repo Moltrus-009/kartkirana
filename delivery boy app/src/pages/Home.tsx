@@ -116,21 +116,24 @@ export const Home: React.FC<HomeProps> = ({
   };
 
   const getActiveStopDetails = () => {
-    if (activeBatch) {
-      const stop = activeBatch.stops[activeBatch.currentStopIndex];
+    if (activeBatch && Array.isArray(activeBatch.stops) && activeBatch.stops.length > 0) {
+      const idx = Math.min(Math.max(0, activeBatch.currentStopIndex || 0), activeBatch.stops.length - 1);
+      const stop = activeBatch.stops[idx];
+      if (!stop) return null;
       const isPickup = stop.type === 'pickup';
-      const orderCount = activeBatch.stops.filter(s => s.type === 'delivery').length;
+      const orderCount = activeBatch.stops.filter(s => s && s.type === 'delivery').length;
       return {
         label: isPickup ? 'Next Pickup' : 'Next Delivery',
-        name: isPickup ? stop.shopName : stop.customerName,
-        address: isPickup ? stop.shopAddress : stop.address,
+        name: isPickup ? (stop.shopName || 'Partner Store') : (stop.customerName || 'Customer'),
+        address: isPickup ? (stop.shopAddress || 'Store Location') : (stop.address || 'Delivery Address'),
         isPickup,
-        index: activeBatch.currentStopIndex + 1,
+        index: idx + 1,
         total: activeBatch.stops.length,
         orderCount
       };
-    } else if (activeOrders.length > 0) {
+    } else if (activeOrders && activeOrders.length > 0) {
       const order = activeOrders[0];
+      if (!order) return null;
       const isPickup = isOrderStatus(order.status, 'RIDER_ASSIGNED', 'ARRIVED_AT_SHOP');
       return {
         label: isPickup ? 'Next Pickup' : 'Next Delivery',
