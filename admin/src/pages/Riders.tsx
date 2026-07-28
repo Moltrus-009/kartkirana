@@ -41,12 +41,16 @@ export default function Riders() {
     }
   };
 
+  const pendingRiders = riders.filter(r => r.verificationStatus !== 'approved');
+
   // Filter riders safely
   const filteredRiders = riders.filter(r => {
     const nameStr = r.name || '';
     const phoneStr = r.phone || '';
     const matchSearch = nameStr.toLowerCase().includes(search.toLowerCase()) || phoneStr.includes(search);
-    const matchStatus = statusFilter ? r.status === statusFilter : true;
+    const matchStatus = statusFilter === 'pending_approval'
+      ? r.verificationStatus !== 'approved'
+      : statusFilter ? r.status === statusFilter : true;
     return matchSearch && matchStatus;
   });
 
@@ -124,7 +128,8 @@ export default function Riders() {
             onChange={(e) => setStatusFilter(e.target.value)}
             className="w-full md:w-44 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-3 text-xs focus:outline-none font-bold appearance-none cursor-pointer"
           >
-            <option value="">All Statuses</option>
+            <option value="">All Riders ({riders.length})</option>
+            <option value="pending_approval">⚡ Pending Approvals ({pendingRiders.length})</option>
             <option value="online">Online</option>
             <option value="offline">Offline</option>
             <option value="busy">Busy</option>

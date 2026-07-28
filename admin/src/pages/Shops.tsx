@@ -6,9 +6,11 @@ import { Store, ToggleLeft, ToggleRight, Plus, MapPin } from 'lucide-react';
 export default function Shops() {
   const { shops, updateShopStatus, createNewShop, approveShopAndMerchant } = useAdmin();
   const [showAddModal, setShowAddModal] = useState(false);
-  const [activeTab, setActiveTab] = useState<'directory' | 'finances'>('directory');
+  const [activeTab, setActiveTab] = useState<'directory' | 'pending' | 'finances'>('directory');
   const [finances, setFinances] = useState<any[]>([]);
   const [loadingFinances, setLoadingFinances] = useState(false);
+
+  const pendingShops = shops.filter(s => s.verificationStep !== 'approved' && s.verificationStep !== 'live');
 
   const fetchFinances = async () => {
     try {
@@ -67,10 +69,10 @@ export default function Shops() {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-black text-slate-800 dark:text-white">
-            🏪 Merchant Stores
+            🏪 Merchant Stores & Approvals
           </h1>
           <p className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider block mt-0.5">
-            Registered Store Directory & Status Control
+            Step 1 Onboarding: Store Directory, Verification & Access Control
           </p>
         </div>
 
@@ -92,7 +94,22 @@ export default function Shops() {
               : 'text-slate-450 hover:text-slate-750 dark:hover:text-zinc-300'
           }`}
         >
-          🏪 Store Directory
+          🏪 All Stores ({shops.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('pending')}
+          className={`pb-3 text-xs font-black uppercase tracking-wider transition-colors cursor-pointer flex items-center gap-2 ${
+            activeTab === 'pending' 
+              ? 'border-b-2 border-amber-500 text-amber-500' 
+              : 'text-slate-450 hover:text-slate-750 dark:hover:text-zinc-300'
+          }`}
+        >
+          ⚡ Pending Approvals
+          {pendingShops.length > 0 && (
+            <span className="px-2 py-0.5 bg-amber-500 text-slate-950 font-black text-[9px] rounded-full">
+              {pendingShops.length}
+            </span>
+          )}
         </button>
         <button
           onClick={() => setActiveTab('finances')}
@@ -106,7 +123,58 @@ export default function Shops() {
         </button>
       </div>
 
-      {activeTab === 'directory' ? (
+      {activeTab === 'pending' ? (
+        /* Pending Approvals List */
+        <div className="space-y-4">
+          <div className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-2xl flex items-center justify-between text-amber-600 dark:text-amber-400">
+            <div className="text-xs font-bold">
+              <span className="font-black">Step 1 Merchant Verification:</span> Review store details and owner credentials. Once approved, the merchant store becomes live for customer orders and rider dispatch.
+            </div>
+            <span className="text-xs font-black bg-amber-500 text-slate-950 px-3 py-1 rounded-xl">
+              {pendingShops.length} Awaiting Verification
+            </span>
+          </div>
+
+          {pendingShops.length === 0 ? (
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-12 text-center text-slate-400">
+              <Store className="h-10 w-10 mx-auto text-emerald-500 mb-2 opacity-50" />
+              <h3 className="text-sm font-black text-slate-800 dark:text-white">All Merchants Verified</h3>
+              <p className="text-xs text-slate-400 mt-1">There are no pending shop applications requiring approval at this time.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {pendingShops.map((shop) => (
+                <div key={shop.id} className="bg-white dark:bg-slate-900 border-2 border-amber-500/30 rounded-3xl p-5 space-y-4 shadow-sm">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <span className="text-[9px] font-black uppercase text-amber-500 tracking-wider">Awaiting Admin Sign-off</span>
+                      <h3 className="text-base font-black text-slate-900 dark:text-white">{shop.name}</h3>
+                      <p className="text-[10px] text-slate-400 font-bold">ID: {shop.id} • Owner: {shop.ownerId}</p>
+                    </div>
+                    <span className="px-2.5 py-1 bg-amber-500/10 text-amber-500 text-[10px] font-black uppercase tracking-wider rounded-xl">
+                      {shop.verificationStep || 'pending'}
+                    </span>
+                  </div>
+
+                  <div className="text-xs text-slate-500 dark:text-slate-400 space-y-1">
+                    <p>📍 <span className="font-semibold">{shop.address}</span></p>
+                    <p>⏱️ Estimated Prep/Delivery: <span className="font-bold text-slate-800 dark:text-white">{shop.deliveryTime || 15} mins</span></p>
+                  </div>
+
+                  <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end gap-2">
+                    <button
+                      onClick={() => approveShopAndMerchant(shop.id, shop.ownerId)}
+                      className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition cursor-pointer shadow-sm"
+                    >
+                      ✓ Approve Store & Go Live
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : activeTab === 'directory' ? (
         /* Grid of Shops */
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {shops.map((shop) => (

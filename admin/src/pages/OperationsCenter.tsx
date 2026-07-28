@@ -70,12 +70,115 @@ export default function OperationsCenter() {
             <Sparkles className="h-6 w-6 text-yellow-300 animate-pulse" /> Operations Command Center
           </h1>
           <p className="text-xs text-emerald-100 font-bold max-w-xl">
-            Hyperlocal dashboard monitor mapping core dispatch networks, vendor checklists, support requests, and fraud scanners.
+            KartKirana Hyperlocal Command Center • Coordinated step formation mapping merchant approvals, catalog readiness, real-time dispatch, escalations, and financial settlements.
           </p>
         </div>
         <div className="z-10 bg-white/10 backdrop-blur-md px-4 py-2.5 rounded-2xl border border-white/20 text-white">
           <div className="text-[9px] font-black uppercase tracking-widest opacity-80">Today's Revenue</div>
           <div className="text-xl font-black">₹{revenueToday.toLocaleString()}</div>
+        </div>
+      </div>
+
+      {/* MASTER OPERATIONAL PIPELINE STEP FORMATION BAR */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[32px] p-6 shadow-sm space-y-4">
+        <div className="flex justify-between items-center pb-2 border-b border-slate-100 dark:border-slate-800">
+          <div>
+            <h2 className="text-sm font-black uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span>
+              Operational Lifecycle Pipeline
+            </h2>
+            <p className="text-[10px] font-semibold text-slate-400">Sequential step formation of platform coordination</p>
+          </div>
+          <span className="text-[9px] font-black uppercase bg-emerald-500/10 text-emerald-500 px-3 py-1 rounded-full border border-emerald-500/20">
+            System Live
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+          {/* Step 1 */}
+          <Link
+            to="/shops"
+            className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-850 hover:bg-slate-100 dark:hover:bg-slate-800 transition border border-slate-200 dark:border-slate-800 flex flex-col justify-between space-y-2 group"
+          >
+            <div className="flex justify-between items-center">
+              <span className="text-[9px] font-black uppercase tracking-wider text-emerald-500">Step 1</span>
+              <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${shopsAwaitingApproval.length > 0 ? 'bg-amber-500/20 text-amber-500' : 'bg-slate-200 dark:bg-slate-700 text-slate-500'}`}>
+                {shopsAwaitingApproval.length} Pending
+              </span>
+            </div>
+            <div>
+              <h4 className="text-xs font-black text-slate-900 dark:text-white group-hover:text-emerald-500 transition">Partner Approvals</h4>
+              <p className="text-[9px] text-slate-400 font-semibold mt-0.5">Shops & Rider Verification</p>
+            </div>
+          </Link>
+
+          {/* Step 2 */}
+          <Link
+            to="/inventory-health"
+            className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-850 hover:bg-slate-100 dark:hover:bg-slate-800 transition border border-slate-200 dark:border-slate-800 flex flex-col justify-between space-y-2 group"
+          >
+            <div className="flex justify-between items-center">
+              <span className="text-[9px] font-black uppercase tracking-wider text-blue-500">Step 2</span>
+              <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${lowStockProducts.length > 0 ? 'bg-rose-500/20 text-rose-500' : 'bg-slate-200 dark:bg-slate-700 text-slate-500'}`}>
+                {lowStockProducts.length} Low Stock
+              </span>
+            </div>
+            <div>
+              <h4 className="text-xs font-black text-slate-900 dark:text-white group-hover:text-blue-500 transition">Catalog & Inventory</h4>
+              <p className="text-[9px] text-slate-400 font-semibold mt-0.5">Stock & Category Readiness</p>
+            </div>
+          </Link>
+
+          {/* Step 3 */}
+          <Link
+            to="/operations"
+            className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-850 hover:bg-slate-100 dark:hover:bg-slate-800 transition border border-slate-200 dark:border-slate-800 flex flex-col justify-between space-y-2 group"
+          >
+            <div className="flex justify-between items-center">
+              <span className="text-[9px] font-black uppercase tracking-wider text-purple-500">Step 3</span>
+              <span className="text-[10px] font-black bg-purple-500/20 text-purple-500 px-2 py-0.5 rounded-full">
+                {pendingOrders.length} Waiting
+              </span>
+            </div>
+            <div>
+              <h4 className="text-xs font-black text-slate-900 dark:text-white group-hover:text-purple-500 transition">Dispatch & Batching</h4>
+              <p className="text-[9px] text-slate-400 font-semibold mt-0.5">Live Rider Assignment</p>
+            </div>
+          </Link>
+
+          {/* Step 4 */}
+          <Link
+            to="/complaints"
+            className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-850 hover:bg-slate-100 dark:hover:bg-slate-800 transition border border-slate-200 dark:border-slate-800 flex flex-col justify-between space-y-2 group"
+          >
+            <div className="flex justify-between items-center">
+              <span className="text-[9px] font-black uppercase tracking-wider text-amber-500">Step 4</span>
+              <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${delayedOrders.length > 0 ? 'bg-red-500/20 text-red-500' : 'bg-slate-200 dark:bg-slate-700 text-slate-500'}`}>
+                {delayedOrders.length} Delayed
+              </span>
+            </div>
+            <div>
+              <h4 className="text-xs font-black text-slate-900 dark:text-white group-hover:text-amber-500 transition">Support Escalations</h4>
+              <p className="text-[9px] text-slate-400 font-semibold mt-0.5">Disputes & Refunds</p>
+            </div>
+          </Link>
+
+          {/* Step 5 */}
+          <Link
+            to="/payments"
+            className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-850 hover:bg-slate-100 dark:hover:bg-slate-800 transition border border-slate-200 dark:border-slate-800 flex flex-col justify-between space-y-2 group"
+          >
+            <div className="flex justify-between items-center">
+              <span className="text-[9px] font-black uppercase tracking-wider text-emerald-500">Step 5</span>
+              <span className="text-[10px] font-black bg-emerald-500/20 text-emerald-500 px-2 py-0.5 rounded-full">
+                ₹{revenueToday}
+              </span>
+            </div>
+            <div>
+              <h4 className="text-xs font-black text-slate-900 dark:text-white group-hover:text-emerald-500 transition">Daily Financials</h4>
+              <p className="text-[9px] text-slate-400 font-semibold mt-0.5">Merchant & Rider Payouts</p>
+            </div>
+          </Link>
         </div>
       </div>
 

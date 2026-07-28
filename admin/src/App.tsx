@@ -129,38 +129,73 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
   if (!adminUser) return <>{children}</>;
 
-  const menuItems = [
-    { name: 'Command Center', path: '/', icon: ShieldAlert },
-    { name: 'Dispatch Kanban', path: '/operations', icon: LayoutDashboard },
-    { name: 'Merchant Shops', path: '/shops', icon: Store },
-    { name: 'User Directory', path: '/users', icon: Users },
-    { name: 'Courier Fleet', path: '/riders', icon: Truck },
-    { name: 'Live Tracking Map', path: '/map', icon: Navigation },
-    { name: 'Inventory Health', path: '/inventory-health', icon: Package },
-    { name: 'Categories', path: '/categories', icon: Grid },
-    { name: 'Financials Ledger', path: '/payments', icon: Wallet },
-    { name: 'Performance Analytics', path: '/analytics', icon: Activity },
-    { name: 'Broadcast Sender', path: '/notifications', icon: Rss },
-    { name: 'Support Tickets', path: '/complaints', icon: MessageSquare },
-    { name: 'Slider Banners', path: '/banners', icon: Image },
-    { name: 'Promo Coupons', path: '/coupons', icon: Ticket },
-    { name: 'Geofenced Zones', path: '/zones', icon: MapPin },
-    { name: 'Internal Chats', path: '/chats', icon: HelpCircle },
-    { name: 'Audit Logs', path: '/logs', icon: FileText },
-    { name: 'System Settings', path: '/settings', icon: SettingsIcon },
+  const menuSections = [
+    {
+      group: 'Core Control',
+      items: [
+        { name: 'Command Center', path: '/', icon: ShieldAlert }
+      ]
+    },
+    {
+      group: 'Step 1: Onboarding & Approvals',
+      items: [
+        { name: 'Merchant Shops', path: '/shops', icon: Store },
+        { name: 'Courier Fleet', path: '/riders', icon: Truck },
+        { name: 'User Directory', path: '/users', icon: Users }
+      ]
+    },
+    {
+      group: 'Step 2: Catalog & Stock',
+      items: [
+        { name: 'Inventory Health', path: '/inventory-health', icon: Package },
+        { name: 'Categories', path: '/categories', icon: Grid },
+        { name: 'Products & Items', path: '/products', icon: Package },
+        { name: 'Slider Banners', path: '/banners', icon: Image },
+        { name: 'Promo Coupons', path: '/coupons', icon: Ticket }
+      ]
+    },
+    {
+      group: 'Step 3: Dispatch & Tracking',
+      items: [
+        { name: 'Dispatch Kanban', path: '/operations', icon: LayoutDashboard },
+        { name: 'Live Tracking Map', path: '/map', icon: Navigation },
+        { name: 'Geofenced Zones', path: '/zones', icon: MapPin }
+      ]
+    },
+    {
+      group: 'Step 4: Care & Escalations',
+      items: [
+        { name: 'Support Tickets', path: '/complaints', icon: MessageSquare },
+        { name: 'Internal Chats', path: '/chats', icon: HelpCircle },
+        { name: 'Broadcast Sender', path: '/notifications', icon: Rss }
+      ]
+    },
+    {
+      group: 'Step 5: Financial Settlements',
+      items: [
+        { name: 'Financials Ledger', path: '/payments', icon: Wallet },
+        { name: 'Performance Analytics', path: '/analytics', icon: Activity }
+      ]
+    },
+    {
+      group: 'Step 6: Governance & Security',
+      items: [
+        { name: 'Audit Logs', path: '/logs', icon: FileText },
+        { name: 'Fraud Monitoring', path: '/fraud', icon: ShieldAlert },
+        { name: 'System Health', path: '/system-health', icon: Activity },
+        ...(adminUser?.role === 'super_admin' ? [{ name: 'Manage Admins', path: '/admins', icon: Shield }] : []),
+        { name: 'System Settings', path: '/settings', icon: SettingsIcon }
+      ]
+    }
   ];
-
-  if (adminUser?.role === 'super_admin') {
-    menuItems.splice(menuItems.length - 1, 0, { name: 'Manage Admins', path: '/admins', icon: Shield });
-  }
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex">
       {/* Sidebar Desktop */}
       <aside className="w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-850 hidden md:flex flex-col justify-between shrink-0 overflow-y-auto h-screen sticky top-0">
-        <div className="p-6 space-y-6 text-left">
+        <div className="p-5 space-y-5 text-left">
           {/* Logo */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
             <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-500">
               <ShieldAlert className="h-5 w-5" />
             </div>
@@ -175,25 +210,32 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           </div>
 
           {/* Navigation Links */}
-          <nav className="space-y-1">
-            {menuItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = location.pathname === item.path;
-              return (
-                <Link
-                  key={item.path}
-                  to={item.path}
-                  className={`flex items-center gap-3 px-4 py-2.5 rounded-2xl text-[11px] font-black uppercase tracking-wider transition-colors cursor-pointer ${
-                    isActive 
-                      ? 'bg-emerald-500/10 text-emerald-500' 
-                      : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850/50 dark:text-zinc-400'
-                  }`}
-                >
-                  <Icon className="h-4 w-4" />
-                  <span>{item.name}</span>
-                </Link>
-              );
-            })}
+          <nav className="space-y-4">
+            {menuSections.map((sec) => (
+              <div key={sec.group} className="space-y-1">
+                <span className="text-[8px] font-black uppercase text-slate-400 dark:text-slate-500 tracking-widest block px-2 mb-1">
+                  {sec.group}
+                </span>
+                {sec.items.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = location.pathname === item.path;
+                  return (
+                    <Link
+                      key={item.path}
+                      to={item.path}
+                      className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-colors cursor-pointer ${
+                        isActive 
+                          ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 font-black' 
+                          : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850/50 dark:text-zinc-400'
+                      }`}
+                    >
+                      <Icon className="h-3.5 w-3.5 shrink-0" />
+                      <span className="truncate">{item.name}</span>
+                    </Link>
+                  );
+                })}
+              </div>
+            ))}
           </nav>
         </div>
 
@@ -256,7 +298,13 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
         {/* Mobile Bottom Navigation bar (Only visible on small devices) */}
         <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-850 flex md:hidden justify-around p-2.5 overflow-x-auto">
-          {menuItems.slice(0, 5).map((item) => {
+          {[
+            { name: 'Home', path: '/', icon: ShieldAlert },
+            { name: 'Shops', path: '/shops', icon: Store },
+            { name: 'Dispatch', path: '/operations', icon: LayoutDashboard },
+            { name: 'Fleet', path: '/riders', icon: Truck },
+            { name: 'Settings', path: '/settings', icon: SettingsIcon }
+          ].map((item) => {
             const Icon = item.icon;
             const isActive = location.pathname === item.path;
             return (
@@ -264,10 +312,11 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                 key={item.path}
                 to={item.path}
                 className={`flex flex-col items-center p-2 rounded-xl transition-colors ${
-                  isActive ? 'text-emerald-500' : 'text-slate-400'
+                  isActive ? 'text-emerald-500 font-bold' : 'text-slate-400'
                 }`}
               >
                 <Icon className="h-5 w-5" />
+                <span className="text-[9px] font-bold mt-0.5">{item.name}</span>
               </Link>
             );
           })}
