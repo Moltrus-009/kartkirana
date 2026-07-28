@@ -608,6 +608,16 @@ export const Login: React.FC = () => {
               >
                 {t('send_otp')}
               </Button>
+              <div className="text-[10px] text-slate-400 font-semibold text-center mt-3">
+                By continuing, you agree to our{' '}
+                <button type="button" onClick={() => navigate('/terms')} className="text-blue-500 hover:underline font-bold cursor-pointer">
+                  Terms & Conditions
+                </button>{' '}
+                and{' '}
+                <button type="button" onClick={() => navigate('/privacy')} className="text-blue-500 hover:underline font-bold cursor-pointer">
+                  Privacy Policy
+                </button>
+              </div>
             </div>
           </motion.form>
         )}

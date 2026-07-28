@@ -279,6 +279,17 @@ export default function Login() {
               </div>
             </form>
           )}
+
+          <div className="text-[10px] text-slate-400 font-semibold text-center mt-6 pt-4 border-t border-slate-100">
+            By logging in, you agree to the{' '}
+            <button type="button" onClick={() => navigate('/terms')} className="text-primary hover:underline font-bold cursor-pointer">
+              Merchant Terms
+            </button>{' '}
+            &{' '}
+            <button type="button" onClick={() => navigate('/privacy')} className="text-primary hover:underline font-bold cursor-pointer">
+              Privacy Policy
+            </button>
+          </div>
         </div>
       </div>
     </div>

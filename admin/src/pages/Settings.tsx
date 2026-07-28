@@ -1,11 +1,14 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { adminService } from '../services/adminService';
 import DisasterRecovery from './DisasterRecovery';
 import { 
   ToggleLeft, 
   ToggleRight, 
   Smartphone, 
-  Activity
+  Activity,
+  FileText,
+  Lock
 } from 'lucide-react';
 
 export default function Settings() {
@@ -230,6 +233,33 @@ export default function Settings() {
 
         </form>
       )}
+
+      {/* Legal & Governance */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm text-left space-y-4">
+        <h3 className="font-black text-slate-850 dark:text-white text-sm">Platform Legal & Governance Policies</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Link
+            to="/terms"
+            className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-850 hover:bg-slate-100 dark:hover:bg-slate-800 transition border border-slate-200 dark:border-slate-800 flex items-center gap-3 text-xs font-bold text-slate-800 dark:text-zinc-200"
+          >
+            <FileText className="h-5 w-5 text-emerald-500" />
+            <div>
+              <span className="block font-black text-slate-900 dark:text-white">Admin Terms of Governance</span>
+              <span className="text-[10px] text-slate-400 font-semibold">Operational terms and master administrative SLAs</span>
+            </div>
+          </Link>
+          <Link
+            to="/privacy"
+            className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-850 hover:bg-slate-100 dark:hover:bg-slate-800 transition border border-slate-200 dark:border-slate-800 flex items-center gap-3 text-xs font-bold text-slate-800 dark:text-zinc-200"
+          >
+            <Lock className="h-5 w-5 text-emerald-500" />
+            <div>
+              <span className="block font-black text-slate-900 dark:text-white">Admin Data Protection Policy</span>
+              <span className="text-[10px] text-slate-400 font-semibold">User PII confidentiality and audit privacy rules</span>
+            </div>
+          </Link>
+        </div>
+      </div>
 
       {/* Disaster Recovery Console */}
       <div className="pt-6 border-t border-slate-200 dark:border-slate-800">

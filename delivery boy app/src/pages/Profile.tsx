@@ -5,17 +5,24 @@ import {
   Bike, 
   Star, 
   FileText, 
+  Lock,
   CheckCircle2, 
   LogOut, 
   Edit2, 
   Save, 
   ShieldCheck,
   Upload,
-  Eye
+  Eye,
+  ChevronRight
 } from 'lucide-react';
 import { uploadFile, STORAGE_PATHS } from '../services/storageService';
 
-export const Profile: React.FC = () => {
+interface ProfileProps {
+  onOpenTerms?: () => void;
+  onOpenPrivacy?: () => void;
+}
+
+export const Profile: React.FC<ProfileProps> = ({ onOpenTerms, onOpenPrivacy }) => {
   const { user, logout, setOnlineStatus, updateProfile } = useApp();
   
   const [isEditing, setIsEditing] = useState(false);
@@ -341,6 +348,41 @@ export const Profile: React.FC = () => {
               </label>
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* Legal & Policies */}
+      <section className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 p-4.5 rounded-2xl shadow-xs space-y-3">
+        <div className="border-b border-slate-100 dark:border-zinc-800 pb-2.5 text-left">
+          <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-wider">
+            Legal & Partner Policies
+          </h4>
+        </div>
+
+        <div className="space-y-2">
+          <button
+            type="button"
+            onClick={onOpenTerms}
+            className="w-full p-3 rounded-xl bg-slate-50 dark:bg-zinc-800/40 hover:bg-slate-100 dark:hover:bg-zinc-800 transition flex items-center justify-between text-xs font-bold text-slate-800 dark:text-zinc-200 cursor-pointer"
+          >
+            <div className="flex items-center gap-2.5">
+              <FileText className="h-4 w-4 text-primary" />
+              <span>Rider Terms & Code of Conduct</span>
+            </div>
+            <ChevronRight className="h-4 w-4 text-slate-400" />
+          </button>
+
+          <button
+            type="button"
+            onClick={onOpenPrivacy}
+            className="w-full p-3 rounded-xl bg-slate-50 dark:bg-zinc-800/40 hover:bg-slate-100 dark:hover:bg-zinc-800 transition flex items-center justify-between text-xs font-bold text-slate-800 dark:text-zinc-200 cursor-pointer"
+          >
+            <div className="flex items-center gap-2.5">
+              <Lock className="h-4 w-4 text-emerald-500" />
+              <span>Rider Privacy & Location Policy</span>
+            </div>
+            <ChevronRight className="h-4 w-4 text-slate-400" />
+          </button>
         </div>
       </section>
 

@@ -7,6 +7,8 @@ import { ActiveDelivery } from './pages/ActiveDelivery';
 import { Orders } from './pages/Orders';
 import { Earnings } from './pages/Earnings';
 import { Profile } from './pages/Profile';
+import { Terms } from './pages/Terms';
+import { Privacy } from './pages/Privacy';
 import { Compass } from 'lucide-react';
 
 import ErrorBoundary from './components/ErrorBoundary';
@@ -15,6 +17,7 @@ const MainAppContent: React.FC = () => {
   const { user, loading } = useApp();
   const [activeTab, setActiveTab] = useState<'home' | 'orders' | 'earnings' | 'profile'>('home');
   const [viewActiveMap, setViewActiveMap] = useState(false);
+  const [currentView, setCurrentView] = useState<'app' | 'terms' | 'privacy'>('app');
 
   if (loading) {
     return (
@@ -29,9 +32,17 @@ const MainAppContent: React.FC = () => {
     );
   }
 
+  if (currentView === 'terms') {
+    return <Terms onBack={() => setCurrentView('app')} />;
+  }
+
+  if (currentView === 'privacy') {
+    return <Privacy onBack={() => setCurrentView('app')} />;
+  }
+
   // Protected route check
   if (!user) {
-    return <Login />;
+    return <Login onOpenTerms={() => setCurrentView('terms')} onOpenPrivacy={() => setCurrentView('privacy')} />;
   }
 
   // Display Active GPS Map HUD if toggled
@@ -55,7 +66,7 @@ const MainAppContent: React.FC = () => {
       case 'earnings':
         return <Earnings />;
       case 'profile':
-        return <Profile />;
+        return <Profile onOpenTerms={() => setCurrentView('terms')} onOpenPrivacy={() => setCurrentView('privacy')} />;
       default:
         return <Home setActiveTab={setActiveTab} setViewActiveMap={setViewActiveMap} />;
     }

@@ -26,6 +26,8 @@ import Settings from './pages/Settings';
 import ManageAdmins from './pages/ManageAdmins';
 import FraudDetection from './pages/FraudDetection';
 import SystemHealth from './pages/SystemHealth';
+import Terms from './pages/Terms';
+import Privacy from './pages/Privacy';
 
 import { 
   LayoutDashboard, 
@@ -308,6 +310,8 @@ export default function App() {
             <Route path="/logs" element={<ProtectedRoute><Logs /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
             <Route path="/admins" element={<ProtectedRoute><ManageAdmins /></ProtectedRoute>} />
+            <Route path="/terms" element={<Terms />} />
+            <Route path="/privacy" element={<Privacy />} />
             <Route path="/fraud" element={<ProtectedRoute><FraudDetection /></ProtectedRoute>} />
             <Route path="/system-health" element={<ProtectedRoute><SystemHealth /></ProtectedRoute>} />
             <Route path="*" element={<Navigate to="/" replace />} />

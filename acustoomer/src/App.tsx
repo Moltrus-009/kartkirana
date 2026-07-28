@@ -32,6 +32,8 @@ import { Wishlist } from './pages/Wishlist';
 import { Profile } from './pages/Profile';
 import { PreOrders } from './pages/PreOrders';
 import { OrderSuccess } from './pages/OrderSuccess';
+import { Terms } from './pages/Terms';
+import { Privacy } from './pages/Privacy';
 
 // Protected Route Guard Wrapper
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -230,7 +232,10 @@ export const AppContent: React.FC = () => {
             </ProtectedRoute>
           } />
 
-          {/* Fallback to splash */}
+          <Route path="/terms" element={<Terms />} />
+          <Route path="/privacy" element={<Privacy />} />
+
+          {/* Catch-all fallback redirect */}
           <Route path="*" element={<Navigate to="/splash" replace />} />
         </Routes>
       </AppLayout>

@@ -4,7 +4,12 @@ import { Bike, ShieldCheck, ArrowRight } from 'lucide-react';
 import { auth, hasValidConfig } from '../lib/firebase';
 import { RecaptchaVerifier } from 'firebase/auth';
 
-export const Login: React.FC = () => {
+interface LoginProps {
+  onOpenTerms?: () => void;
+  onOpenPrivacy?: () => void;
+}
+
+export const Login: React.FC<LoginProps> = ({ onOpenTerms, onOpenPrivacy }) => {
   const { sendOTP, verifyOTP, loading } = useApp();
   
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -316,6 +321,17 @@ export const Login: React.FC = () => {
         )}
 
         <div id="recaptcha-container" ref={recaptchaRef}></div>
+
+        <div className="text-[10px] text-slate-400 font-semibold text-center mt-6 pt-4 border-t border-slate-100 dark:border-zinc-800">
+          By logging in, you agree to our{' '}
+          <button type="button" onClick={onOpenTerms} className="text-primary hover:underline font-bold cursor-pointer">
+            Rider Terms
+          </button>{' '}
+          &{' '}
+          <button type="button" onClick={onOpenPrivacy} className="text-primary hover:underline font-bold cursor-pointer">
+            Privacy Policy
+          </button>
+        </div>
       </div>
     </div>
   );

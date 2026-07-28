@@ -7,7 +7,7 @@ import { UserAddress, NotificationItem } from '../types';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Dialog } from '../components/ui/Dialog';
-import { MapPin, LogOut, Shield, FileText, Bell, CreditCard, ChevronRight, Plus, Check, Trash2, Heart, Headphones, Upload, Image as ImageIcon, ShoppingBag, CalendarClock } from 'lucide-react';
+import { MapPin, LogOut, Shield, FileText, Lock, Bell, CreditCard, ChevronRight, Plus, Check, Trash2, Heart, Headphones, Upload, Image as ImageIcon, ShoppingBag, CalendarClock } from 'lucide-react';
 import { AddressSelectorModal } from '../components/AddressSelectorModal';
 import { useLanguage } from '../context/LanguageContext';
 import { uploadFile, STORAGE_PATHS } from '../infrastructure/storage/localStorage';
@@ -215,7 +215,8 @@ export const Profile: React.FC = () => {
           { id: 'wishlist' as const, name: t('my_favorite_items'), icon: Heart, action: () => navigate('/wishlist') },
           { id: 'notifications' as const, name: t('app_notifications'), icon: Bell, badge: notifications.filter(n => !n.read).length },
           { id: 'support' as const, name: t('support_helpdesk_faqs'), icon: Headphones },
-          { id: 'terms' as const, name: t('terms_of_service'), icon: FileText },
+          { id: 'terms' as const, name: 'Terms & Conditions', icon: FileText, action: () => navigate('/terms') },
+          { id: 'privacy' as const, name: 'Privacy Policy', icon: Lock, action: () => navigate('/privacy') },
           { id: 'about' as const, name: t('about_kart_kirana'), icon: Shield }
         ].map(menu => {
           const Icon = menu.icon;

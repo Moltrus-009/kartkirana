@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../core/store/useAppStore';
 import { useDiagnostics } from '../core/diagnostics/diagnostics';
 import { useLanguage } from '../context/LanguageContext';
@@ -12,11 +13,15 @@ import {
   Clock,
   LogOut,
   Upload,
-  Image as ImageIcon
+  Image as ImageIcon,
+  FileText,
+  Lock,
+  ChevronRight
 } from 'lucide-react';
 import { uploadFile, STORAGE_PATHS } from '../infrastructure/storage/localStorage';
 
 export default function Profile() {
+  const navigate = useNavigate();
   const { shop, user, updateShop, logoutOwner, theme, toggleTheme } = useAppStore();
   const showInternalDiagnostics = import.meta.env.DEV && new URLSearchParams(window.location.search).has('diagnostics');
   const { t } = useLanguage();
@@ -396,6 +401,35 @@ export default function Profile() {
           </button>
         </div>
       </form>
+
+      {/* LEGAL & POLICIES BLOCK */}
+      <div className="bg-white dark:bg-dark-card border border-slate-100 dark:border-dark-border p-5 rounded-3xl space-y-3 shadow-xs text-left">
+        <h3 className="text-[9px] font-black uppercase tracking-wider text-slate-400 pb-2 border-b border-slate-50 dark:border-dark-border/40">Legal & Policies</h3>
+        <div className="space-y-2">
+          <button
+            type="button"
+            onClick={() => navigate('/terms')}
+            className="w-full p-3 rounded-2xl bg-slate-50 dark:bg-zinc-900 hover:bg-slate-100 dark:hover:bg-zinc-800 transition flex items-center justify-between text-xs font-bold text-slate-800 dark:text-zinc-200 cursor-pointer"
+          >
+            <div className="flex items-center gap-2.5">
+              <FileText className="h-4 w-4 text-primary" />
+              <span>Merchant Terms & Conditions</span>
+            </div>
+            <ChevronRight className="h-4 w-4 text-slate-400" />
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate('/privacy')}
+            className="w-full p-3 rounded-2xl bg-slate-50 dark:bg-zinc-900 hover:bg-slate-100 dark:hover:bg-zinc-800 transition flex items-center justify-between text-xs font-bold text-slate-800 dark:text-zinc-200 cursor-pointer"
+          >
+            <div className="flex items-center gap-2.5">
+              <Lock className="h-4 w-4 text-emerald-500" />
+              <span>Merchant Privacy Policy</span>
+            </div>
+            <ChevronRight className="h-4 w-4 text-slate-400" />
+          </button>
+        </div>
+      </div>
 
       {/* LOGOUT BLOCK */}
       <div className="bg-white dark:bg-dark-card border border-slate-100 dark:border-dark-border p-4 rounded-3xl shadow-xs">
