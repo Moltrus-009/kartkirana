@@ -362,7 +362,7 @@ export const Checkout: React.FC = () => {
   ];
 
   return (
-    <div className="max-w-xl mx-auto w-full px-4 pb-[calc(10rem+env(safe-area-inset-bottom))] sm:pb-28 text-left">
+    <div className="w-full max-w-full overflow-x-hidden px-3 sm:px-4 pb-[calc(10rem+env(safe-area-inset-bottom))] sm:pb-28 text-left space-y-4">
       {/* Header bar */}
       <div className="sticky top-0 z-35 bg-[#F8FAFC]/90 dark:bg-[#0F172A]/90 backdrop-blur-md py-3.5 flex items-center gap-3 border-b border-[#E2E8F0] dark:border-[#334155] mb-4">
         <button

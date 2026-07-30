@@ -2,97 +2,63 @@
 
 html, body, #root {
   min-height: 100%;
-  overflow-x: clip;
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
+  box-sizing: border-box;
+}
+
+*, ::before, ::after {
+  box-sizing: border-box;
 }
 
 @theme {
-  /* Customer logo palette: electric blue with warm gold accents */
-  --color-blue-50: #E2E8F0;
+  /* Customer logo palette: Dominant Royal Blue with Warm Gold Yellow Accents */
+  --color-blue-50: #EFF6FF;
   --color-blue-100: #DBEAFE;
-  --color-blue-200: #B8E8FF;
-  --color-blue-300: #72CCFF;
-  --color-blue-400: #36B6F4;
-  --color-blue-500: #168CF0;
+  --color-blue-200: #BFDBFE;
+  --color-blue-300: #93C5FD;
+  --color-blue-400: #60A5FA;
+  --color-blue-500: #3B82F6;
   --color-blue-600: #0B74E8;
   --color-blue-700: #0758C7;
-  --color-blue-800: #1565C0;
-  --color-blue-900: #1B5E20;
+  --color-blue-800: #1E40AF;
+  --color-blue-900: #1E3A8A;
 
-  /* Override green to match */
-  --color-blue-50: #E2E8F0;
-  --color-blue-100: #DBEAFE;
-  --color-blue-200: #B8E8FF;
-  --color-blue-300: #72CCFF;
-  --color-blue-400: #36B6F4;
-  --color-blue-500: #168CF0;
-  --color-blue-600: #0B74E8;
-  --color-blue-700: #0758C7;
-
-  /* Override slate dynamically using CSS custom properties */
-  --color-slate-50: var(--bg-main);
-  --color-slate-100: var(--bg-surface-secondary);
-  --color-slate-150: var(--bg-surface-secondary);
-  --color-slate-200: var(--border-main);
-  --color-slate-300: var(--border-main);
-  --color-slate-400: var(--text-disabled);
-  --color-slate-500: var(--text-disabled);
-  --color-slate-600: var(--text-secondary);
-  --color-slate-700: var(--text-secondary);
-  --color-slate-800: var(--bg-card);
-  --color-slate-850: var(--bg-card);
-  --color-slate-900: var(--bg-surface);
-  --color-slate-950: var(--bg-main);
-
-  /* Override gray dynamically */
-  --color-gray-50: var(--bg-surface);
-  --color-gray-100: var(--border-main);
-  --color-gray-200: var(--border-main);
-  --color-gray-350: var(--bg-card);
-  --color-gray-300: var(--text-disabled);
-  --color-gray-400: var(--text-secondary);
-  --color-gray-500: var(--text-disabled);
-  --color-gray-600: var(--text-secondary);
-  --color-gray-700: var(--text-primary);
-  --color-gray-800: var(--text-primary);
-  --color-gray-900: var(--text-primary);
-
-  /* Custom values */
-  --color-brand-green: #0B74E8;
-  --color-brand-dark-green: #0758C7;
-  --color-brand-lime: #72CCFF;
+  /* Custom brand colors matching logo */
+  --color-brand-blue: #0B74E8;
+  --color-brand-dark-blue: #0758C7;
+  --color-brand-light-blue: #36B6F4;
   --color-brand-yellow: #FFC928;
+  --color-brand-amber: #F59E0B;
   --color-brand-black: #1B1B1B;
   --color-brand-surface: #FFFFFF;
   --color-brand-card: #FFFFFF;
   --color-brand-divider: #E2E8F0;
-  --color-brand-white: #FFFFFF;
-  --color-brand-text-secondary: #666666;
-  --color-brand-text-disabled: #9E9E9E;
 
   /* Status colors */
   --color-orange-500: #FF9800;
   --color-orange-600: #F57C00;
   --color-amber-500: #FFC107;
   --color-amber-600: #FFB300;
-  
   --color-red-500: #D32F2F;
   --color-red-600: #C62828;
 }
 
 :root {
-  /* Premium Light Mode values (Default) - Fresh Organic Grocery Visual Theme */
+  /* Premium Light Mode values (Default) */
   --bg-main: #F8FAFC;
   --bg-surface: #FFFFFF;
   --bg-surface-secondary: #E2E8F0;
   --bg-card: #FFFFFF;
   --border-main: #E2E8F0;
-  --text-primary: #1B1B1B;
-  --text-secondary: #666666;
-  --text-disabled: #9E9E9E;
+  --text-primary: #0F172A;
+  --text-secondary: #475569;
+  --text-disabled: #94A3B8;
 }
 
 .dark {
-  /* Premium Dark Mode values - Dark Forest Green Theme */
+  /* Premium Dark Mode values */
   --bg-main: #0F172A;
   --bg-surface: #1E293B;
   --bg-surface-secondary: #1E293B;

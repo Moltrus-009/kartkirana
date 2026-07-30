@@ -92,7 +92,7 @@ export const ShopPage: React.FC = () => {
   }
 
   return (
-    <div className="max-w-xl mx-auto pb-24 text-left">
+    <div className="w-full max-w-full overflow-x-hidden pb-24 text-left space-y-4">
       
       {/* Cover Banner header */}
       <div className="relative w-full aspect-video md:aspect-[21/9] overflow-hidden md:rounded-b-3xl">

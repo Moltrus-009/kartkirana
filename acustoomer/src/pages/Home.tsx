@@ -248,10 +248,10 @@ export const Home: React.FC = () => {
   const cartCount = cartItems.reduce((acc, item) => acc + item.quantity, 0);
 
   return (
-    <div className="max-w-xl mx-auto pb-24 text-left">
+    <div className="w-full max-w-full overflow-x-hidden pb-24 text-left space-y-4">
       
       {/* 1. Premium Sticky Header Section */}
-      <div className="sticky top-0 z-40 bg-[#F8FAFC]/95 dark:bg-[#0F172A]/95 backdrop-blur-md border-b border-[#E2E8F0] dark:border-[#334155] pb-3.5 pt-3.5 px-4 shadow-sm transition-colors">
+      <div className="sticky top-0 z-40 bg-[#F8FAFC]/95 dark:bg-[#0F172A]/95 backdrop-blur-md border-b border-[#E2E8F0] dark:border-[#334155] pb-3.5 pt-3.5 px-3 sm:px-4 shadow-xs transition-colors">
         <div className="flex flex-col gap-3">
           
           {/* Top Line: Delivery details, bells and theme togglers */}
@@ -313,8 +313,8 @@ export const Home: React.FC = () => {
             <h2 className="text-sm font-black text-[#1B1B1B] dark:text-white leading-tight">
               {language === 'hi' ? 'नमस्ते' : 'Hello'}, <span className="text-[#1565C0] dark:text-[#1E88E5]">{user?.name ? user.name.split(' ')[0] : 'Guest'}</span>! 👋
             </h2>
-            <span className="text-[10px] font-black text-gray-400 dark:text-[#94A3B8] uppercase tracking-wide bg-[#E2E8F0] dark:bg-[#334155] px-2.5 py-1 rounded-full text-blue-800 dark:text-[#1E88E5]">
-              {language === 'hi' ? '15 मिनट में डिलीवरी' : 'Delivered in 15 mins'}
+            <span className="text-[10px] font-black uppercase tracking-wider bg-gradient-to-r from-[#FFC928]/20 to-[#F59E0B]/20 text-[#0B74E8] dark:text-[#60A5FA] border border-[#FFC928]/40 px-2.5 py-1 rounded-full">
+              ⚡ {language === 'hi' ? '15 मिनट में डिलीवरी' : '15 Mins Delivery'}
             </span>
           </div>
 

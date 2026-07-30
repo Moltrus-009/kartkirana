@@ -90,21 +90,21 @@ const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const isCheckoutFlow = ['/cart', '/checkout'].includes(location.pathname);
 
   return (
-    <div className="flex flex-col min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 transition-colors">
+    <div className="flex flex-col min-h-screen w-full max-w-[100vw] overflow-x-hidden bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 transition-colors">
       {isOffline && (
-        <div className="bg-red-650 text-white text-[10px] font-black py-2.5 px-4 text-center sticky top-0 z-50 flex items-center justify-center gap-2 animate-pulse uppercase tracking-widest shadow-md">
+        <div className="bg-red-600 text-white text-[10px] font-black py-2.5 px-4 text-center sticky top-0 z-50 flex items-center justify-center gap-2 animate-pulse uppercase tracking-widest shadow-md">
           <div className="w-2 h-2 rounded-full bg-white animate-ping shrink-0" />
           <span>No Internet Connection. Operating in offline cache mode.</span>
         </div>
       )}
 
-      <div className="flex-1 flex">
+      <div className="flex-1 flex w-full max-w-[100vw] overflow-x-hidden">
         {showNav && <Sidebar />}
         
-        <div className="flex-1 flex flex-col min-w-0">
+        <div className="flex-1 flex flex-col min-w-0 w-full overflow-x-hidden">
           {showHeader && <Header />}
           
-          <main className={`flex-1 w-full min-w-0 pb-20 md:pb-6 ${noNavRoutes.includes(location.pathname) ? '' : isCheckoutFlow ? '' : 'max-w-5xl px-4 md:px-6 mx-auto'}`}>
+          <main className={`flex-1 w-full min-w-0 overflow-x-hidden pb-24 md:pb-6 ${noNavRoutes.includes(location.pathname) ? '' : isCheckoutFlow ? '' : 'max-w-md sm:max-w-xl md:max-w-4xl px-3 sm:px-4 mx-auto'}`}>
             {children}
           </main>
 

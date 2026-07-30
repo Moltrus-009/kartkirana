@@ -46,7 +46,7 @@ export const Category: React.FC = () => {
     : products.filter(p => p.shopId === selectedShopId);
 
   return (
-    <div className="max-w-xl mx-auto px-4 pb-24 text-left">
+    <div className="w-full max-w-full overflow-x-hidden px-3 sm:px-4 pb-24 text-left space-y-4">
       
       {/* Header */}
       <div className="sticky top-0 z-35 bg-slate-50 dark:bg-slate-950 py-3.5 flex items-center gap-3 border-b border-gray-100 dark:border-slate-900 mb-4">

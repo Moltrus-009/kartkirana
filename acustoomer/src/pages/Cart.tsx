@@ -89,7 +89,7 @@ export const Cart: React.FC = () => {
   const isPreorderCart = cartItems.some(i => i.isPreorder);
 
   return (
-    <div className="max-w-xl mx-auto w-full px-4 pb-[calc(10rem+env(safe-area-inset-bottom))] sm:pb-28 text-left">
+    <div className="w-full max-w-full overflow-x-hidden px-3 sm:px-4 pb-[calc(10rem+env(safe-area-inset-bottom))] sm:pb-28 text-left space-y-4">
       
       {/* Title Header */}
       <div className="py-4 border-b border-[#E2E8F0] dark:border-[#334155] flex items-center justify-between mb-4">

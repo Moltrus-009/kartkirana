@@ -184,7 +184,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
               <motion.button
                 whileTap={{ scale: 0.94 }}
                 onClick={handleAdd}
-                className="w-full h-8 bg-gradient-to-br from-[#1E88E5] to-[#1565C0] hover:from-[#43A047] hover:to-[#1B5E20] text-white hover:shadow-md hover:shadow-[#1565C0]/25 rounded-full text-xs font-black transition-all cursor-pointer flex items-center justify-center gap-0.5 shadow-sm shadow-[#1565C0]/10 btn-glossy border border-[#90CAF9]/20"
+                className="w-full h-8 bg-gradient-to-br from-[#1E88E5] to-[#0B74E8] hover:from-[#0B74E8] hover:to-[#0758C7] text-white hover:shadow-md hover:shadow-[#0B74E8]/25 rounded-full text-xs font-black transition-all cursor-pointer flex items-center justify-center gap-0.5 shadow-sm shadow-[#0B74E8]/10 btn-glossy border border-[#90CAF9]/20"
               >
                 {product.isPreorder ? (
                   <>

@@ -143,7 +143,7 @@ export const Orders: React.FC = () => {
   };
 
   return (
-    <div className="w-full px-4 pb-24 text-left max-w-xl mx-auto">
+    <div className="w-full max-w-full overflow-x-hidden px-3 sm:px-4 pb-24 text-left space-y-4">
       
       {/* Title Header */}
       <div className="sticky top-0 z-35 bg-[#F8FAFC]/90 dark:bg-[#0F172A]/90 backdrop-blur-md py-3.5 flex items-center justify-between border-b border-[#E2E8F0] dark:border-[#334155] mb-4">
