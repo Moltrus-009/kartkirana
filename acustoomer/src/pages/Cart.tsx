@@ -7,6 +7,7 @@ import { Button } from '../components/ui/Button';
 import { Dialog } from '../components/ui/Dialog';
 import { useLanguage } from '../context/LanguageContext';
 import { useAppStore } from '../core/store/useAppStore';
+import { PreorderModal } from '../components/PreorderModal';
 
 export const Cart: React.FC = () => {
   const navigate = useNavigate();
@@ -380,64 +381,16 @@ export const Cart: React.FC = () => {
         </div>
       </Dialog>
 
-      {/* Preorder Slot Selection Modal */}
-      <Dialog
+      {/* Preorder Schedule Modal */}
+      <PreorderModal
         isOpen={isPreorderScheduleModalOpen}
         onClose={() => setIsPreorderScheduleModalOpen(false)}
-        title="Schedule Preorder Delivery"
-      >
-        <div className="flex flex-col gap-4 text-xs font-bold text-gray-600 dark:text-gray-400 text-left">
-          <p className="text-[11px] font-semibold text-gray-400">
-            Choose when you would like this order to be prepared and delivered. You can modify or cancel any preorder before confirmation.
-          </p>
-
-          <div className="flex flex-col gap-1.5">
-            <label className="font-extrabold uppercase text-[10px] text-gray-405">Delivery Date</label>
-            <input
-              type="date"
-              value={tempDate}
-              min={new Date().toISOString().split('T')[0]}
-              max={(() => {
-                const maxDate = new Date();
-                maxDate.setDate(maxDate.getDate() + 7);
-                return maxDate.toISOString().split('T')[0];
-              })()}
-              onChange={(e) => setTempDate(e.target.value)}
-              className="px-3.5 py-3 rounded-2xl border border-[#E2E8F0] dark:border-[#334155] bg-[#F8FAFC] dark:bg-[#1E293B] font-bold text-gray-800 dark:text-gray-200 outline-none focus:border-[#1E88E5]"
-            />
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <label className="font-extrabold uppercase text-[10px] text-gray-450">Delivery Time Slot</label>
-            <select
-              value={tempSlot}
-              onChange={(e) => setTempSlot(e.target.value)}
-              className="px-3.5 py-3 rounded-2xl border border-[#E2E8F0] dark:border-[#334155] bg-[#F8FAFC] dark:bg-[#1E293B] font-bold text-gray-850 dark:text-gray-200 outline-none focus:border-[#1E88E5]"
-            >
-              {[
-                '08:00 AM - 10:00 AM',
-                '10:00 AM - 12:00 PM',
-                '12:00 PM - 02:00 PM',
-                '04:00 PM - 06:00 PM',
-                '06:00 PM - 08:00 PM',
-                '08:00 PM - 10:00 PM'
-              ].map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-          </div>
-
-          <Button
-            onClick={() => {
-              setPreorderSchedule({ date: tempDate, slot: tempSlot });
-              setIsPreorderScheduleModalOpen(false);
-            }}
-            fullWidth
-            className="rounded-2xl py-3.5 font-black mt-2 text-xs"
-          >
-            CONFIRM SCHEDULE
-          </Button>
-        </div>
-      </Dialog>
-
+        onConfirm={(schedule) => {
+          setPreorderSchedule(schedule);
+        }}
+        initialDate={preorderSchedule?.date}
+        initialSlot={preorderSchedule?.slot}
+      />
     </div>
   );
 };

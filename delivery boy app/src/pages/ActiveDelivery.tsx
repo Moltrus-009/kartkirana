@@ -401,6 +401,13 @@ export const ActiveDelivery: React.FC<ActiveDeliveryProps> = ({ setViewActiveMap
           </div>
         </div>
 
+        {/* Pre-Order Schedule Badge */}
+        {((stopOrder as any)?.preorderDate || (stopOrder as any)?.preorderSlot) && (
+          <div className="bg-gradient-to-r from-amber-500/20 to-orange-500/20 text-amber-300 border border-amber-500/30 p-2.5 rounded-xl font-extrabold text-[10px] uppercase tracking-wider flex items-center gap-2 text-left">
+            <span>📅 PRE-ORDER SCHEDULE: {(stopOrder as any).preorderDate || 'Scheduled'} • {(stopOrder as any).preorderSlot || 'Assigned Slot'}</span>
+          </div>
+        )}
+
         {/* Address and instructions log */}
         <div className="space-y-3.5 text-xs font-semibold">
           <div className="flex items-start justify-between gap-3 bg-white/5 p-3 rounded-xl border border-white/5 text-left">

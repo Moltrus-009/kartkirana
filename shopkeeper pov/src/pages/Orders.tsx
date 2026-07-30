@@ -310,7 +310,12 @@ export default function Orders() {
                     )}
                     <div className="space-y-0.5">
                       <span className="font-extrabold text-slate-800 dark:text-zinc-200">{t('order_id')}: {order.id.slice(-6).toUpperCase()}</span>
-                      <div className="flex items-center gap-1 text-[10px] text-slate-400 font-bold">
+                      {((order as any).preorderDate || (order as any).preorderSlot || (order as any).items?.some((i: any) => i.isPreorder)) && (
+                        <div className="flex items-center gap-1 mt-1 bg-gradient-to-r from-amber-500/20 to-orange-500/20 text-amber-700 dark:text-amber-400 border border-amber-500/30 px-2.5 py-1 rounded-xl font-black text-[9px] uppercase tracking-wider">
+                          📅 PRE-ORDER: {(order as any).preorderDate || 'Scheduled'} • {(order as any).preorderSlot || 'Assigned Slot'}
+                        </div>
+                      )}
+                      <div className="flex items-center gap-1 text-[10px] text-slate-400 font-bold mt-0.5">
                         <Clock className="h-3.5 w-3.5" />
                         <span>{timeStr}</span>
                       </div>

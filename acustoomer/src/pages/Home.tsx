@@ -17,6 +17,8 @@ import { AddressSelectorModal } from '../components/AddressSelectorModal';
 import { ProductCard } from '../components/product/ProductCard';
 import { Skeleton } from '../components/ui/Skeleton';
 import { useLanguage } from '../context/LanguageContext';
+import { PreorderModal } from '../components/PreorderModal';
+import { CalendarClock } from 'lucide-react';
 import { Shop, PromoBanner, UserAddress } from '../types';
 
 
@@ -98,11 +100,12 @@ export const Home: React.FC = () => {
 
   // Address Selector Modal State
   const { addresses, selectedAddress, selectAddress, addAddress } = useAddress();
-  const { cartItems, priceBreakdown } = useCart();
+  const { cartItems, priceBreakdown, preorderSchedule, setPreorderSchedule } = useCart();
   const { user } = useAuth();
   const { theme, toggleTheme } = useTheme();
 
   const [isLocationOpen, setIsLocationOpen] = useState(false);
+  const [isPreorderModalOpen, setIsPreorderModalOpen] = useState(false);
 
   // Wireframe UI State
   const [searchQuery, setSearchQuery] = useState('');
@@ -313,9 +316,13 @@ export const Home: React.FC = () => {
             <h2 className="text-sm font-black text-[#1B1B1B] dark:text-white leading-tight">
               {language === 'hi' ? 'नमस्ते' : 'Hello'}, <span className="text-[#1565C0] dark:text-[#1E88E5]">{user?.name ? user.name.split(' ')[0] : 'Guest'}</span>! 👋
             </h2>
-            <span className="text-[10px] font-black uppercase tracking-wider bg-gradient-to-r from-[#FFC928]/20 to-[#F59E0B]/20 text-[#0B74E8] dark:text-[#60A5FA] border border-[#FFC928]/40 px-2.5 py-1 rounded-full">
-              ⚡ {language === 'hi' ? '15 मिनट में डिलीवरी' : '15 Mins Delivery'}
-            </span>
+            <button
+              onClick={() => setIsPreorderModalOpen(true)}
+              className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider bg-gradient-to-r from-[#FFC928] to-[#F59E0B] text-slate-950 px-3 py-1.5 rounded-full shadow-sm hover:opacity-90 cursor-pointer transition-all border border-[#FFC928]"
+            >
+              <CalendarClock className="h-3.5 w-3.5" />
+              <span>{preorderSchedule?.slot ? `📅 ${preorderSchedule.slot.split('-')[0].trim()}` : (language === 'hi' ? 'प्री-ऑर्डर बुक करें' : '📅 Pre-Order Slot')}</span>
+            </button>
           </div>
 
           {/* Second Line: Search Bar and Sliders Filter */}
@@ -702,7 +709,17 @@ export const Home: React.FC = () => {
         onClose={() => setIsAddressEditorOpen(false)}
         onSave={handleAddNewAddressFromHome}
       />
-      
+
+      {/* 2-Hour Slot Pre-Order Modal */}
+      <PreorderModal
+        isOpen={isPreorderModalOpen}
+        onClose={() => setIsPreorderModalOpen(false)}
+        onConfirm={(schedule) => {
+          setPreorderSchedule(schedule);
+        }}
+        initialDate={preorderSchedule?.date}
+        initialSlot={preorderSchedule?.slot}
+      />
     </div>
   );
 };
