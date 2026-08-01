@@ -438,30 +438,30 @@ export const Checkout: React.FC = () => {
         </div>
 
         {/* Preorder/Delivery speed estimate */}
-        <div className="p-4 rounded-[20px] border border-[#90CAF9]/30 dark:border-[#334155] bg-[#E2E8F0]/30 dark:bg-[#1E293B]/20 flex items-center justify-between gap-3 shadow-sm">
+        <div className="p-4 rounded-[20px] border border-[#90CAF9]/30 dark:border-[#334155] bg-white dark:bg-[#1E293B] flex items-center justify-between gap-3 shadow-sm">
           <div className="flex items-start gap-3">
-            <Clock className="h-5 w-5 text-[#1565C0] dark:text-[#1E88E5] flex-shrink-0 mt-0.5" />
-            <div className="text-xs font-bold text-gray-700 dark:text-[#94A3B8]">
-              <span className="block font-black mb-0.5 text-[#1565C0] dark:text-[#1E88E5]">Estimated Delivery</span>
-              <span>
-                {cartItems.some(i => i.isPreorder)
-                  ? `Preorder Schedule: ${preorderSchedule?.date} (${preorderSchedule?.slot})`
-                  : 'Items arriving in 15-20 Mins from order approval.'}
+            <Clock className="h-5 w-5 text-[#0B74E8] flex-shrink-0 mt-0.5" />
+            <div className="text-xs font-bold text-gray-700 dark:text-[#94A3B8] text-left">
+              <span className="block font-black mb-0.5 text-[#0B74E8] dark:text-[#60A5FA]">
+                {preorderSchedule ? '📅 Pre-Order Scheduled Delivery' : '⚡ Instant Deliver Now'}
+              </span>
+              <span className="text-[11px] font-semibold text-gray-600 dark:text-gray-300">
+                {preorderSchedule
+                  ? `Delivering on ${preorderSchedule.date} during ${preorderSchedule.slot}`
+                  : 'Order will be prepared & dispatched immediately upon shop approval.'}
               </span>
             </div>
           </div>
-          {cartItems.some(i => i.isPreorder) && (
-            <button
-              onClick={() => {
-                setTempDate(preorderSchedule?.date || new Date().toISOString().split('T')[0]);
-                setTempSlot(preorderSchedule?.slot || '08:00 AM - 10:00 AM');
-                setIsPreorderModalOpen(true);
-              }}
-              className="text-[10px] font-black uppercase tracking-wider text-[#1565C0] dark:text-[#1E88E5] border border-[#1565C0]/25 px-2.5 py-1 rounded-xl hover:bg-[#E2E8F0] cursor-pointer transition-colors"
-            >
-              Change
-            </button>
-          )}
+          <button
+            onClick={() => {
+              setTempDate(preorderSchedule?.date || new Date().toISOString().split('T')[0]);
+              setTempSlot(preorderSchedule?.slot || '09:00 AM - 11:00 AM');
+              setIsPreorderModalOpen(true);
+            }}
+            className="text-[10px] font-black uppercase tracking-wider text-[#0B74E8] border border-[#0B74E8]/30 px-3 py-1.5 rounded-xl hover:bg-[#0B74E8]/10 cursor-pointer transition-colors shrink-0"
+          >
+            {preorderSchedule ? 'Edit Slot' : 'Schedule'}
+          </button>
         </div>
 
         {/* Payment Methods */}

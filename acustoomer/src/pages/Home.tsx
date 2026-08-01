@@ -109,7 +109,7 @@ export const Home: React.FC = () => {
 
   // Wireframe UI State
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState<'shops' | 'items'>('shops');
+  const [activeTab, setActiveTab] = useState<'shops' | 'items' | 'preorder'>('shops');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
@@ -473,18 +473,18 @@ export const Home: React.FC = () => {
             )}
           </AnimatePresence>
 
-          {/* 3. Segmented Tab Selector ("Shops" | "Items") */}
+          {/* 3. Segmented Tab Selector ("Shops" | "Items" | "Pre-Orders") */}
           <div className="flex p-1 rounded-[14px] bg-[#E2E8F0]/50 dark:bg-[#1E293B]/50 border border-[#E2E8F0] dark:border-[#334155]">
             <button
               onClick={() => {
                 setActiveTab('shops');
                 setSelectedCategory(null);
               }}
-              className={`flex-1 py-2 text-xs font-black uppercase tracking-wider rounded-[11px] transition-all cursor-pointer
-                ${activeTab === 'shops' 
+              className={`flex-1 py-2 text-xs font-black uppercase tracking-wider rounded-[11px] transition-all cursor-pointer ${
+                activeTab === 'shops' 
                   ? 'bg-white dark:bg-[#1E293B] text-[#1565C0] dark:text-[#1E88E5] shadow-sm' 
                   : 'text-gray-400 dark:text-[#64748B] hover:text-[#1565C0]'
-                }`}
+              }`}
             >
               {language === 'hi' ? 'दुकानें' : 'Shops'}
             </button>
@@ -493,13 +493,27 @@ export const Home: React.FC = () => {
                 setActiveTab('items');
                 setSelectedCategory(null);
               }}
-              className={`flex-1 py-2 text-xs font-black uppercase tracking-wider rounded-[11px] transition-all cursor-pointer
-                ${activeTab === 'items' 
+              className={`flex-1 py-2 text-xs font-black uppercase tracking-wider rounded-[11px] transition-all cursor-pointer ${
+                activeTab === 'items' 
                   ? 'bg-white dark:bg-[#1E293B] text-[#1565C0] dark:text-[#1E88E5] shadow-sm' 
                   : 'text-gray-400 dark:text-[#64748B] hover:text-[#1565C0]'
-                }`}
+              }`}
             >
               {language === 'hi' ? 'उत्पाद' : 'Items'}
+            </button>
+            <button
+              onClick={() => {
+                setActiveTab('preorder');
+                setSelectedCategory(null);
+              }}
+              className={`flex-1 py-2 text-xs font-black uppercase tracking-wider rounded-[11px] transition-all cursor-pointer flex items-center justify-center gap-1 ${
+                activeTab === 'preorder' 
+                  ? 'bg-gradient-to-r from-[#FFC928] to-[#F59E0B] text-slate-950 shadow-sm font-black' 
+                  : 'text-amber-600 dark:text-amber-400 hover:text-amber-700'
+              }`}
+            >
+              <CalendarClock className="h-3.5 w-3.5" />
+              <span>{language === 'hi' ? 'प्री-ऑर्डर' : 'Pre-Orders'}</span>
             </button>
           </div>
 
@@ -628,6 +642,39 @@ export const Home: React.FC = () => {
                   ))}
                 </div>
               )
+            ) : activeTab === 'preorder' ? (
+              <div className="space-y-4">
+                <div className="bg-gradient-to-r from-[#FFC928]/20 via-[#F59E0B]/20 to-[#0B74E8]/20 border border-[#FFC928]/40 p-4 rounded-2xl text-left space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-black uppercase text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
+                      <CalendarClock className="h-4 w-4" /> 📅 Pre-Order & Scheduled Delivery Store
+                    </span>
+                    <button
+                      onClick={() => setIsPreorderModalOpen(true)}
+                      className="px-3 py-1 rounded-full bg-[#0B74E8] text-white text-[10px] font-black uppercase tracking-wider hover:opacity-90 cursor-pointer shadow-xs"
+                    >
+                      {preorderSchedule?.slot ? `Slot: ${preorderSchedule.slot.split('-')[0].trim()}` : 'Set Slot'}
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-gray-600 dark:text-gray-300 font-semibold leading-relaxed">
+                    Add items to your cart and choose either <b className="text-[#0B74E8]">⚡ Instant Delivery</b> or <b className="text-amber-600">📅 Pre-Order Schedule</b> (Date & 2-Hour Slot) at checkout!
+                  </p>
+                </div>
+
+                {filteredProducts.filter(p => p.isPreorder).length === 0 ? (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                    {filteredProducts.map(product => (
+                      <ProductCard key={product.id} product={product} />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                    {filteredProducts.filter(p => p.isPreorder).map(product => (
+                      <ProductCard key={product.id} product={product} />
+                    ))}
+                  </div>
+                )}
+              </div>
             ) : (
               filteredProducts.length === 0 ? (
                 <div className="text-center py-16 text-gray-400">

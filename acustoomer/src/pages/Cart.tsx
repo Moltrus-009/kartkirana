@@ -178,32 +178,56 @@ export const Cart: React.FC = () => {
         ))}
       </div>
 
-      {/* Preorder Time display & Slot editor */}
-      {isPreorderCart && (
-        <div className="mt-5 p-4 rounded-[20px] border border-purple-200/60 dark:border-purple-950/60 bg-purple-50/20 dark:bg-purple-950/10 flex flex-col gap-3">
-          <div className="flex items-start gap-2.5 text-xs text-purple-700 dark:text-purple-400 font-bold">
-            <Clock className="h-4.5 w-4.5 mt-0.5 shrink-0" />
-            <div className="flex-1 text-left">
-              <span className="block font-black mb-0.5 text-purple-900 dark:text-purple-300">Preorder Scheduled Delivery</span>
-              {preorderSchedule ? (
-                <span className="text-[11px]">Date: <span className="font-extrabold">{preorderSchedule.date}</span> • Slot: <span className="font-extrabold">{preorderSchedule.slot}</span></span>
-              ) : (
-                <span className="text-[11px] text-red-500 font-black animate-pulse">⚠️ Please select a delivery slot to proceed</span>
-              )}
+      {/* Universal Delivery Mode Selector (Deliver Now vs Pre-Order Schedule) */}
+      <div className="mt-5 p-4 rounded-[20px] bg-white dark:bg-[#1E293B] border border-[#E2E8F0] dark:border-[#334155] shadow-xs flex flex-col gap-3 text-left">
+        <span className="text-[10px] font-black uppercase tracking-wider text-gray-400 dark:text-[#94A3B8] flex items-center gap-1.5">
+          <Clock className="h-3.5 w-3.5 text-[#0B74E8]" /> Select Delivery Option
+        </span>
+        
+        <div className="grid grid-cols-2 gap-2.5">
+          {/* Option A: Instant Deliver Now */}
+          <button
+            type="button"
+            onClick={() => setPreorderSchedule(null)}
+            className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+              !preorderSchedule
+                ? 'bg-gradient-to-br from-[#1E88E5]/15 to-[#0B74E8]/15 border-[#0B74E8] text-[#0B74E8] dark:text-[#60A5FA] ring-2 ring-[#0B74E8]/30 font-black'
+                : 'bg-white dark:bg-[#1E293B] border-gray-200 dark:border-[#334155] text-gray-700 dark:text-gray-300 hover:border-[#0B74E8]'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[9px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400">⚡ Instant</span>
+              {!preorderSchedule && <Check className="h-4 w-4 text-[#0B74E8] shrink-0" />}
             </div>
-            <button
-              onClick={() => {
-                setTempDate(preorderSchedule?.date || new Date().toISOString().split('T')[0]);
-                setTempSlot(preorderSchedule?.slot || '08:00 AM - 10:00 AM');
-                setIsPreorderScheduleModalOpen(true);
-              }}
-              className="text-[10px] font-black uppercase tracking-wider text-purple-600 dark:text-purple-400 border border-purple-300/40 dark:border-purple-900/60 px-2.5 py-1 rounded-xl hover:bg-purple-100/50 dark:hover:bg-purple-950/30 cursor-pointer transition-colors shrink-0"
-            >
-              {preorderSchedule ? 'Change Slot' : 'Select Slot'}
-            </button>
-          </div>
+            <div className="text-xs font-black mt-1.5 text-gray-900 dark:text-white">
+              Deliver Now
+            </div>
+            <div className="text-[9px] text-gray-400 dark:text-gray-400 mt-0.5 font-bold">Standard quick dispatch</div>
+          </button>
+
+          {/* Option B: Pre-Order Schedule */}
+          <button
+            type="button"
+            onClick={() => setIsPreorderScheduleModalOpen(true)}
+            className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+              preorderSchedule
+                ? 'bg-gradient-to-br from-[#FFC928]/20 to-[#F59E0B]/20 border-[#FFC928] text-slate-950 dark:text-amber-300 ring-2 ring-[#FFC928]/40 font-black'
+                : 'bg-white dark:bg-[#1E293B] border-gray-200 dark:border-[#334155] text-gray-700 dark:text-gray-300 hover:border-[#FFC928]'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[9px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400">📅 Pre-Order</span>
+              {preorderSchedule && <Check className="h-4 w-4 text-amber-600 shrink-0" />}
+            </div>
+            <div className="text-xs font-black mt-1.5 text-gray-900 dark:text-white truncate">
+              {preorderSchedule ? `📅 ${preorderSchedule.date}` : 'Schedule Date & Slot'}
+            </div>
+            <div className="text-[9px] text-amber-600 dark:text-amber-400 mt-0.5 font-bold truncate">
+              {preorderSchedule ? `Slot: ${preorderSchedule.slot}` : 'Pick 2-Hour Slot'}
+            </div>
+          </button>
         </div>
-      )}
+      </div>
 
       {/* Instructions Entry */}
       <div className="mt-5">
