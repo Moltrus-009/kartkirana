@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { HashRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { HelmetProvider } from 'react-helmet-async';
 import { ThemeProvider } from './context/ThemeContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AddressProvider } from './context/AddressContext';
@@ -33,11 +34,36 @@ import { Profile } from './pages/Profile';
 import { PreOrders } from './pages/PreOrders';
 import { OrderSuccess } from './pages/OrderSuccess';
 import { Terms } from './pages/Terms';
-import { Privacy } from './pages/Privacy';
+import { PrivacyHub } from './pages/privacy/PrivacyHub';
+import { CustomerPrivacy } from './pages/privacy/CustomerPrivacy';
+import { ShopkeeperPrivacy } from './pages/privacy/ShopkeeperPrivacy';
+import { RiderPrivacy } from './pages/privacy/RiderPrivacy';
+
+// Helper component to auto-sync legacy hash URLs (e.g., /#/privacy/customer) to clean path URLs (/privacy/customer)
+const HashRouteSync: React.FC = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  React.useLayoutEffect(() => {
+    if (window.location.hash.startsWith('#/privacy')) {
+      const targetPath = window.location.hash.replace(/^#/, '');
+      window.history.replaceState(null, '', targetPath);
+      navigate(targetPath, { replace: true });
+    }
+  }, [location, navigate]);
+
+  return null;
+};
 
 // Protected Route Guard Wrapper
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, loading, onboardingCompleted } = useAuth();
+  const location = useLocation();
+
+  // Failsafe: Privacy and terms pages are ALWAYS public and must NEVER redirect to login or onboarding
+  if (location.pathname.startsWith('/privacy') || location.pathname === '/terms') {
+    return <>{children}</>;
+  }
 
   if (loading) {
     return (
@@ -84,9 +110,10 @@ const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Routes where header should NOT show (every page renders its own custom header)
   const showHeader = false;
 
-  // Pages with no sidebar/navigation tabs
+  // Pages with no sidebar/navigation tabs (Auth pages & Public legal/privacy pages)
+  const isPrivacyPage = location.pathname.startsWith('/privacy');
   const noNavRoutes = ['/splash', '/onboarding', '/login'];
-  const showNav = !noNavRoutes.includes(location.pathname);
+  const showNav = !noNavRoutes.includes(location.pathname) && !isPrivacyPage;
   const isCheckoutFlow = ['/cart', '/checkout'].includes(location.pathname);
 
   return (
@@ -104,7 +131,7 @@ const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         <div className="flex-1 flex flex-col min-w-0 w-full overflow-x-hidden">
           {showHeader && <Header />}
           
-          <main className={`flex-1 w-full min-w-0 overflow-x-hidden pb-24 md:pb-6 ${noNavRoutes.includes(location.pathname) ? '' : isCheckoutFlow ? '' : 'max-w-md sm:max-w-xl md:max-w-4xl px-3 sm:px-4 mx-auto'}`}>
+          <main className={`flex-1 w-full min-w-0 overflow-x-hidden pb-24 md:pb-6 ${noNavRoutes.includes(location.pathname) || isPrivacyPage ? '' : isCheckoutFlow ? '' : 'max-w-md sm:max-w-xl md:max-w-4xl px-3 sm:px-4 mx-auto'}`}>
             {children}
           </main>
 
@@ -146,14 +173,22 @@ const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 export const AppContent: React.FC = () => {
   return (
     <Router>
+      <HashRouteSync />
       <AppLayout>
         <Routes>
-          {/* Splash screen is the main entry point */}
+          {/* Public Auth & Onboarding Routes */}
           <Route path="/splash" element={<Splash />} />
           <Route path="/onboarding" element={<Onboarding />} />
           <Route path="/login" element={<Login />} />
 
-          {/* Autologin handles navigation from splash */}
+          {/* Public Legal & Privacy Routes (Zero Authentication Required) */}
+          <Route path="/terms" element={<Terms />} />
+          <Route path="/privacy" element={<PrivacyHub />} />
+          <Route path="/privacy/customer" element={<CustomerPrivacy />} />
+          <Route path="/privacy/shopkeeper" element={<ShopkeeperPrivacy />} />
+          <Route path="/privacy/rider" element={<RiderPrivacy />} />
+
+          {/* Protected Application Routes (Authentication Required) */}
           <Route path="/" element={
             <ProtectedRoute>
               <Home />
@@ -232,9 +267,6 @@ export const AppContent: React.FC = () => {
             </ProtectedRoute>
           } />
 
-          <Route path="/terms" element={<Terms />} />
-          <Route path="/privacy" element={<Privacy />} />
-
           {/* Catch-all fallback redirect */}
           <Route path="*" element={<Navigate to="/splash" replace />} />
         </Routes>
@@ -245,17 +277,19 @@ export const AppContent: React.FC = () => {
 
 const App: React.FC = () => {
   return (
-    <LanguageProvider>
-      <ThemeProvider>
-        <AuthProvider>
-          <AddressProvider>
-            <CartProvider>
-              <AppContent />
-            </CartProvider>
-          </AddressProvider>
-        </AuthProvider>
-      </ThemeProvider>
-    </LanguageProvider>
+    <HelmetProvider>
+      <LanguageProvider>
+        <ThemeProvider>
+          <AuthProvider>
+            <AddressProvider>
+              <CartProvider>
+                <AppContent />
+              </CartProvider>
+            </AddressProvider>
+          </AuthProvider>
+        </ThemeProvider>
+      </LanguageProvider>
+    </HelmetProvider>
   );
 };
 
