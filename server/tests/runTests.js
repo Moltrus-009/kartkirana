@@ -49,6 +49,14 @@ const setupMockData = async () => {
     schemaVersion: 1
   });
   trackDoc('products', mockProductId);
+
+  await db.collection('coupons').doc('SAVE20').set({
+    code: 'SAVE20', type: 'fixed', value: 20, minOrderValue: 100,
+    status: 'active', active: true, usedCount: 0, usageLimit: 100,
+    userUsageLimit: 1, schemaVersion: 1
+  });
+  trackDoc('coupons', 'SAVE20');
+  trackDoc('couponRedemptions', `SAVE20_${mockUserId}`);
 };
 
 const cleanupMockData = async () => {
@@ -109,7 +117,8 @@ const runAllTests = async () => {
         name: 'Jane Doe',
         details: 'Apartment 4B',
         area: 'Indiranagar',
-        city: 'Bengaluru'
+        city: 'Bengaluru',
+        coords: { lat: 12.9716, lng: 77.5946 }
       },
       couponCode: 'SAVE20', // SAVE20 coupon code mock
       walletCreditsUsed: 0
@@ -158,24 +167,65 @@ const runAllTests = async () => {
     assert(duplicateData.orderId === orderData.orderId, 'Cached orderId must match original');
     console.log('[PASS] Idempotency response validated.');
 
+    const changedPayloadRes = await fetch(`${TEST_BASE_URL}/payments/create-order`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer mock_token_test_cust_99',
+        'Idempotency-Key': 'idem_key_unique_1'
+      },
+      body: JSON.stringify({ ...orderPayload, items: [{ productId: mockProductId, quantity: 2 }] })
+    });
+    assert(changedPayloadRes.status === 409, 'Same idempotency key with a changed cart must return 409');
+
+    const unbackedWalletRes = await fetch(`${TEST_BASE_URL}/payments/create-order`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer mock_token_test_cust_99',
+        'Idempotency-Key': 'idem_wallet_reject_1'
+      },
+      body: JSON.stringify({ ...orderPayload, couponCode: null, walletCreditsUsed: 1 })
+    });
+    assert(unbackedWalletRes.status === 400, 'Client-supplied wallet balance must be rejected');
+
+    const duplicateLineRes = await fetch(`${TEST_BASE_URL}/payments/create-order`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer mock_token_test_cust_99',
+        'Idempotency-Key': 'idem_duplicate_line_1'
+      },
+      body: JSON.stringify({
+        ...orderPayload,
+        couponCode: null,
+        items: [
+          { productId: mockProductId, quantity: 2 },
+          { productId: mockProductId, quantity: 2 }
+        ]
+      })
+    });
+    assert(duplicateLineRes.status === 400, 'Duplicate product lines must be rejected before inventory reservation');
+
     // --- TEST 4: Concurrent Checkout Locks ---
     console.log('\n[TEST 4] Testing checkout locks (concurrency gate)...');
     // Lock the lock manually to simulate active concurrent request
     const lockId = `${mockUserId}_${mockShopId}`;
-    await LockManager.acquireLock(lockId);
+    const lockToken = await LockManager.acquireLock(lockId);
 
     const concurrentRes = await fetch(`${TEST_BASE_URL}/payments/create-order`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer mock_token_test_cust_99',
+        'Idempotency-Key': 'idem_concurrent_lock_1'
       },
       body: JSON.stringify(orderPayload)
     });
 
     assert(concurrentRes.status === 409, 'Concurrent request must be rejected with 409');
     console.log('[PASS] Concurrent checkout attempt safely blocked.');
-    await LockManager.releaseLock(lockId); // release lock
+    await LockManager.releaseLock(lockId, lockToken); // release lock
 
     // --- TEST 5: Payment Signature Verification ---
     console.log('\n[TEST 5] Testing signature verification (success payment path)...');
@@ -199,6 +249,14 @@ const runAllTests = async () => {
     const verifyData = await verifyRes.json();
     assert(verifyData.verified === true, 'Signature must be verified');
 
+    const verifyRetryRes = await fetch(`${TEST_BASE_URL}/payments/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer mock_token_test_cust_99' },
+      body: JSON.stringify(verifyPayload)
+    });
+    const verifyRetryData = await verifyRetryRes.json();
+    assert(verifyRetryRes.status === 200 && verifyRetryData.alreadyVerified === true, 'Payment verification retry must be idempotent');
+
     // Verify stock is finalized (totalStock = 7, reservedStock = 0)
     if (db) {
       const prodSnap = await db.collection('products').doc(mockProductId).get();
@@ -219,9 +277,11 @@ const runAllTests = async () => {
       payload: {
         payment: {
           entity: {
-            id: 'pay_mock_webhook_captured',
+            id: 'pay_mock_payment_123',
             order_id: orderData.gatewayOrderId,
-            amount: 48700,
+            amount: Math.round(orderData.amount * 100),
+            currency: 'INR',
+            status: 'captured',
             method: 'card'
           }
         }
@@ -252,6 +312,18 @@ const runAllTests = async () => {
     assert(dupWebhookData.reason === 'duplicate', 'Duplicate webhook must be ignored with repeat code');
     console.log('[PASS] Webhook processed and replay protection validated.');
 
+    const lateFailureRes = await fetch(`${TEST_BASE_URL}/payments/webhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Razorpay-Signature': 'mock_valid_webhook_signature' },
+      body: JSON.stringify({
+        id: 'evt_late_failure_after_capture', event: 'payment.failed',
+        payload: { payment: { entity: { id: 'pay_mock_payment_123', order_id: orderData.gatewayOrderId, error_description: 'Late duplicate failure' } } }
+      })
+    });
+    assert(lateFailureRes.status === 200, 'Late failure webhook must be acknowledged without reversing capture');
+    const capturedOrderAfterLateFailure = await db.collection('orders').doc(orderData.orderId).get();
+    assert(capturedOrderAfterLateFailure.data().status === 'PLACED', 'Late failure must not reverse a captured order');
+
     // --- TEST 7: Stock Reservation Expiry Timeout Worker ---
     console.log('\n[TEST 7] Testing Stock Reservation timeout cleaning worker...');
     // Create another order, but let's make it expired manually in Firestore
@@ -267,7 +339,8 @@ const runAllTests = async () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer mock_token_test_cust_99'
+        'Authorization': 'Bearer mock_token_test_cust_99',
+        'Idempotency-Key': 'idem_timeout_order_1'
       },
       body: JSON.stringify(orderPayload2)
     });
@@ -304,6 +377,27 @@ const runAllTests = async () => {
       
       const orderSnapAfter = await db.collection('orders').doc(orderData2.orderId).get();
       assert(orderSnapAfter.data().status === 'AUTO_CANCELLED', 'Order must be updated to AUTO_CANCELLED');
+      const paymentSnapAfter = await db.collection('payments').doc(orderData2.paymentId).get();
+      const attemptSnapAfter = await db.collection('paymentAttempts').doc(orderData2.attemptId).get();
+      assert(paymentSnapAfter.data().status === 'EXPIRED', 'Parent payment must be marked EXPIRED');
+      assert(attemptSnapAfter.data().status === 'EXPIRED', 'Payment attempt must be marked EXPIRED');
+
+      const expiredCaptureRes = await fetch(`${TEST_BASE_URL}/payments/webhook`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Razorpay-Signature': 'mock_valid_webhook_signature' },
+        body: JSON.stringify({
+          id: 'evt_capture_after_expiry', event: 'payment.captured',
+          payload: { payment: { entity: {
+            id: 'pay_capture_after_expiry', order_id: orderData2.gatewayOrderId,
+            amount: Math.round(orderData2.amount * 100), currency: 'INR', status: 'captured', method: 'upi'
+          } } }
+        })
+      });
+      assert(expiredCaptureRes.status === 200, 'Captured-after-expiry webhook must be acknowledged');
+      const expiredOrderAfterCapture = await db.collection('orders').doc(orderData2.orderId).get();
+      const expiredPaymentAfterCapture = await db.collection('payments').doc(orderData2.paymentId).get();
+      assert(expiredOrderAfterCapture.data().status === 'AUTO_CANCELLED', 'Late capture must not resurrect an expired order');
+      assert(expiredPaymentAfterCapture.data().status === 'CAPTURED_REVIEW', 'Late captured money must enter finance review');
       console.log('[PASS] Timeout worker cleaned up expired reservation and restored stock.');
     } else {
       console.log('[SKIP] Skipping worker db validation in sandbox mock mode.');
@@ -321,14 +415,27 @@ const runAllTests = async () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer mock_token_admin'
+        'Authorization': 'Bearer mock_token_admin',
+        'Idempotency-Key': 'refund_admin_test_1'
       },
       body: JSON.stringify(refundPayload)
     });
     
     assert(refundRes.status === 200, `Refund post must return 200, got ${refundRes.status}`);
     const refundData = await refundRes.json();
-    assert(refundData.status === 'PROCESSING', 'Refund must return PROCESSING status');
+    assert(refundData.status === 'COMPLETED', 'Mock processed refund must return COMPLETED status');
+
+    const paidCancelRes = await fetch(`${TEST_BASE_URL}/orders/${orderData.orderId}/cancel`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer mock_token_${mockUserId}`
+      },
+      body: JSON.stringify({ reason: 'Paid cancellation regression probe' })
+    });
+    assert(paidCancelRes.status === 409, 'Captured or partially refunded orders must not cancel without a verified refund workflow');
+    const paidOrderAfterCancelAttempt = await db.collection('orders').doc(orderData.orderId).get();
+    assert(paidOrderAfterCancelAttempt.data().status === 'PLACED', 'Rejected paid cancellation must not mutate the order');
     console.log('[PASS] Admin refund pipeline validated.');
 
     // --- TEST 9: Customer Order Cancellation & Reservation Release ---
@@ -352,6 +459,8 @@ const runAllTests = async () => {
     });
     const orderData3 = await createRes3.json();
     trackDoc('orders', orderData3.orderId);
+    trackDoc('payments', orderData3.paymentId);
+    if (orderData3.attemptId) trackDoc('paymentAttempts', orderData3.attemptId);
 
     const cancelRes = await fetch(`${TEST_BASE_URL}/orders/${orderData3.orderId}/cancel`, {
       method: 'POST',
@@ -368,8 +477,42 @@ const runAllTests = async () => {
     if (db) {
       const orderSnap3 = await db.collection('orders').doc(orderData3.orderId).get();
       assert(orderSnap3.data().status === 'CANCELLED', 'Order status must be CANCELLED');
+      assert(orderSnap3.data().paymentStatus === 'cancelled', 'Cancelled order paymentStatus must be cancelled');
+      const paymentSnap3 = await db.collection('payments').doc(orderData3.paymentId).get();
+      const attemptSnap3 = await db.collection('paymentAttempts').doc(orderData3.attemptId).get();
+      assert(paymentSnap3.data().status === 'CANCELLED', 'Pending parent payment must close on cancellation');
+      assert(attemptSnap3.data().status === 'CANCELLED', 'Pending payment attempt must close on cancellation');
       const prodSnap3 = await db.collection('products').doc(mockProductId).get();
       assert(prodSnap3.data().reservedStock === 0, 'Reserved stock must be released to 0');
+
+      const noticesBeforeRetry = await db.collection('notificationQueue').where('referenceId', '==', orderData3.orderId).get();
+      const cancelRetryRes = await fetch(`${TEST_BASE_URL}/orders/${orderData3.orderId}/cancel`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer mock_token_${mockUserId}`
+        },
+        body: JSON.stringify({ reason: 'Changed my mind' })
+      });
+      assert(cancelRetryRes.status === 200, 'Cancellation retry must be idempotently successful');
+      const noticesAfterRetry = await db.collection('notificationQueue').where('referenceId', '==', orderData3.orderId).get();
+      assert(noticesAfterRetry.size === noticesBeforeRetry.size, 'Cancellation retry must not enqueue a duplicate notification');
+
+      const lateFailureAfterCancelRes = await fetch(`${TEST_BASE_URL}/payments/webhook`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Razorpay-Signature': 'mock_valid_webhook_signature' },
+        body: JSON.stringify({
+          id: 'evt_failure_after_customer_cancel', event: 'payment.failed',
+          payload: { payment: { entity: {
+            id: 'pay_failure_after_customer_cancel',
+            order_id: orderData3.gatewayOrderId,
+            error_description: 'Late failure after customer cancellation'
+          } } }
+        })
+      });
+      assert(lateFailureAfterCancelRes.status === 200, 'Late failure after cancellation must be acknowledged');
+      const orderAfterLateFailure = await db.collection('orders').doc(orderData3.orderId).get();
+      assert(orderAfterLateFailure.data().status === 'CANCELLED', 'Late failure must not overwrite CANCELLED order state');
     }
     console.log('[PASS] Customer order cancellation and reservation release validated.');
 

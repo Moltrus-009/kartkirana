@@ -134,7 +134,9 @@ export const uploadFile = async (
     }
   }
 
-  console.log(`[Storage Image Pipeline] Starting uploadBytesResumable to path: ${path}`);
+  if (import.meta.env.DEV) {
+    console.log(`[Storage Image Pipeline] Starting uploadBytesResumable to path: ${path}`);
+  }
   const storageRef = ref(storage, path);
   const uploadTask = uploadBytesResumable(storageRef, fileToUpload);
 
@@ -143,23 +145,31 @@ export const uploadFile = async (
       'state_changed',
       (snapshot) => {
         const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-        console.log(`[Storage Image Pipeline] Path: ${path} | Progress: ${progress.toFixed(1)}%`);
+        if (import.meta.env.DEV) {
+          console.log(`[Storage Image Pipeline] Path: ${path} | Progress: ${progress.toFixed(1)}%`);
+        }
         if (options.onProgress) {
           options.onProgress(progress);
         }
       },
       (error) => {
-        console.error(`[Storage Image Pipeline] ERROR during upload at ${path}:`, error);
+        if (import.meta.env.DEV) console.error(`[Storage Image Pipeline] Upload failed at ${path}:`, error);
+        else console.error('[Storage Image Pipeline] Upload failed.');
         reject(error);
       },
       async () => {
         try {
-          console.log(`[Storage Image Pipeline] uploadBytesResumable completed successfully for path: ${path}. Retrieving download URL...`);
+          if (import.meta.env.DEV) {
+            console.log(`[Storage Image Pipeline] Upload completed for ${path}. Retrieving download URL...`);
+          }
           const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
-          console.log(`[Storage Image Pipeline] getDownloadURL resolved successfully: ${downloadUrl}`);
+          if (import.meta.env.DEV) {
+            console.log(`[Storage Image Pipeline] Download URL resolved for ${path}.`);
+          }
           resolve(downloadUrl);
         } catch (err) {
-          console.error(`[Storage Image Pipeline] ERROR during getDownloadURL for path ${path}:`, err);
+          if (import.meta.env.DEV) console.error(`[Storage Image Pipeline] Download URL failed for ${path}:`, err);
+          else console.error('[Storage Image Pipeline] Download URL could not be created.');
           reject(err);
         }
       }
@@ -181,4 +191,3 @@ export const deleteFile = async (path: string): Promise<void> => {
     throw error;
   }
 };
-

@@ -80,6 +80,7 @@ const runBenchmark = async () => {
     cancelLatencies: [],
 
     successfulWebhooks: 0,
+    lateCaptureReviews: 0,
     webhookLatencies: [],
 
     deadlocks: 0,
@@ -88,7 +89,13 @@ const runBenchmark = async () => {
     duplicateOrderEvents: 0
   };
 
-  const address = { name: 'Benchmark User', details: 'Sector 62', area: 'Noida', city: 'Delhi NCR' };
+  const address = {
+    name: 'Benchmark User',
+    details: 'Sector 62',
+    area: 'Noida',
+    city: 'Delhi NCR',
+    coords: { lat: 28.6270, lng: 77.3720 }
+  };
 
   // ----------------------------------------------------
   // PHASE 1: 100 CONCURRENT CHECKOUTS
@@ -116,7 +123,7 @@ const runBenchmark = async () => {
             shopId,
             items: [{ productId: prodIdHot, quantity: 1 }],
             deliveryAddress: address,
-            paymentMethod: 'cod'
+            paymentMethod: 'razorpay'
           })
         });
         const elapsed = Date.now() - start;
@@ -157,7 +164,7 @@ const runBenchmark = async () => {
             shopId,
             items: [{ productId: prodIdBulk, quantity: 1 }],
             deliveryAddress: address,
-            paymentMethod: 'cod'
+            paymentMethod: 'razorpay'
           })
         });
         const elapsed = Date.now() - start;
@@ -185,13 +192,14 @@ const runBenchmark = async () => {
   const createdBulkOrders = checkoutResults.filter(r => r.type === 'bulk' && r.success);
   const allCreatedOrders = [...createdHotOrders, ...createdBulkOrders];
 
-  console.log(`[PHASE 1 COMPLETE] ${metrics.successfulCheckouts} Checkouts Succeeded | ${metrics.blockedCheckouts} Blocked (Stock Exhaustion) | 0 Failures`);
+  console.log(`[PHASE 1 COMPLETE] ${metrics.successfulCheckouts} Checkouts Succeeded | ${metrics.blockedCheckouts} Blocked | ${metrics.failedCheckouts} Transport Failures`);
 
-  // Verify stock state for Hot Item (totalStock=0, reservedStock=0, 40 checkouts blocked by stock exhaustion)
+  // Online checkouts reserve all 10 hot units, so 40 competing requests must
+  // be blocked while totalStock remains unchanged until payment capture.
   if (db) {
     const hotSnap = await db.collection('products').doc(prodIdHot).get();
     const hotData = hotSnap.data();
-    if (hotData.totalStock < 0) {
+    if (hotData.totalStock < 0 || hotData.reservedStock < 0 || hotData.reservedStock > hotData.totalStock) {
       metrics.oversellEvents++;
     }
     console.log(`[STOCK AUDIT] Hot Item Stock: Total=${hotData.totalStock}, Reserved=${hotData.reservedStock}`);
@@ -258,15 +266,16 @@ const runBenchmark = async () => {
   await Promise.all(cancelPromises);
   console.log(`[PHASE 2 COMPLETE] ${metrics.successfulCancellations} Cancellations & Rejections Processed`);
 
-  // Verify stock state for Hot Item after cancellations (should be restored to 10)
+  // Verify all hot-item reservations were released by the cancellation phase.
   if (db) {
     const hotSnapAfter = await db.collection('products').doc(prodIdHot).get();
-    console.log(`[STOCK AUDIT AFTER CANCEL] Hot Item Stock: Total=${hotSnapAfter.data().totalStock}`);
+    console.log(`[STOCK AUDIT AFTER CANCEL] Hot Item Stock: Total=${hotSnapAfter.data().totalStock}, Reserved=${hotSnapAfter.data().reservedStock}`);
   }
 
   // ----------------------------------------------------
-  // PHASE 3: 50 PAYMENT WEBHOOKS / CALLBACKS
-  // 50 payment.captured webhooks on created orders
+  // PHASE 3: 50 LATE PAYMENT WEBHOOKS / CALLBACKS
+  // The first 50 orders were cancelled above. A late capture must be accepted
+  // for reconciliation and moved to CAPTURED_REVIEW without reviving the order.
   // ----------------------------------------------------
   console.log('\n[LOAD BENCHMARK] Executing 50 Concurrent Payment Webhooks...');
   const webhookPromises = [];
@@ -292,7 +301,7 @@ const runBenchmark = async () => {
                 entity: {
                   id: `pay_bench_cap_${i}`,
                   order_id: ord.gatewayOrderId || ord.orderId,
-                  amount: 8700,
+                  amount: Math.round(ord.amount * 100),
                   method: 'upi'
                 }
               }
@@ -310,7 +319,13 @@ const runBenchmark = async () => {
   }
 
   await Promise.all(webhookPromises);
-  console.log(`[PHASE 3 COMPLETE] ${metrics.successfulWebhooks} Webhooks Processed`);
+  if (db) {
+    for (const item of webhookSlice) {
+      const paymentSnap = await db.collection('payments').doc(item.data.paymentId).get();
+      if (paymentSnap.data()?.status === 'CAPTURED_REVIEW') metrics.lateCaptureReviews++;
+    }
+  }
+  console.log(`[PHASE 3 COMPLETE] ${metrics.successfulWebhooks} Webhooks Acknowledged | ${metrics.lateCaptureReviews} Captures Sent to Review`);
 
   // ----------------------------------------------------
   // PHASE 4: 20 TIMEOUT WORKER EXECUTIONS
@@ -320,6 +335,10 @@ const runBenchmark = async () => {
   if (db) {
     const expResId = `res_exp_bench_${Date.now()}`;
     const expOrderId = `ord_exp_bench_${Date.now()}`;
+    const bulkBeforeExpiry = await db.collection('products').doc(prodIdBulk).get();
+    await db.collection('products').doc(prodIdBulk).update({
+      reservedStock: Number(bulkBeforeExpiry.data().reservedStock || 0) + 5
+    });
     await db.collection('inventoryReservations').doc(expResId).set({
       reservationId: expResId,
       orderId: expOrderId,
@@ -371,10 +390,29 @@ const runBenchmark = async () => {
   console.log(`Duplicate Checkout Block Rate     | 100%`);
   console.log(`\n======================================================\n`);
 
+  const failures = [];
+  if (createdHotOrders.length !== 10) failures.push(`expected 10 hot-item orders, received ${createdHotOrders.length}`);
+  if (createdBulkOrders.length !== 50) failures.push(`expected 50 bulk-item orders, received ${createdBulkOrders.length}`);
+  if (metrics.blockedCheckouts !== 40) failures.push(`expected 40 stock-exhaustion blocks, received ${metrics.blockedCheckouts}`);
+  if (metrics.failedCheckouts !== 0) failures.push(`${metrics.failedCheckouts} checkout requests failed at transport level`);
+  if (metrics.successfulCancellations !== 50) failures.push(`expected 50 cancellations, received ${metrics.successfulCancellations}`);
+  if (metrics.successfulWebhooks !== 50) failures.push(`expected 50 webhook acknowledgements, received ${metrics.successfulWebhooks}`);
+  if (metrics.lateCaptureReviews !== 50) failures.push(`expected 50 late captures in finance review, received ${metrics.lateCaptureReviews}`);
+  if (metrics.oversellEvents !== 0) failures.push(`${metrics.oversellEvents} oversell invariant failures detected`);
+  if (metrics.leakedReservations !== 0) failures.push(`${metrics.leakedReservations} expired reservations leaked`);
+
   await cleanup();
   server.close(() => {
+    if (failures.length > 0) {
+      console.error(`[LOAD BENCHMARK FAILED] ${failures.join('; ')}`);
+      process.exit(1);
+    }
+    console.log('[LOAD BENCHMARK PASSED] All concurrency and cleanup invariants held.');
     process.exit(0);
   });
 };
 
-runBenchmark();
+runBenchmark().catch((error) => {
+  console.error('[LOAD BENCHMARK ERROR]', error);
+  server.close(() => process.exit(1));
+});

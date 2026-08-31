@@ -1,9 +1,8 @@
 import { 
-  RecaptchaVerifier, 
   signInWithPhoneNumber, 
-  ConfirmationResult, 
   User as FirebaseUser,
-  signOut
+  signOut,
+  type ApplicationVerifier
 } from 'firebase/auth';
 import { auth } from '../infrastructure/firebase/firebase';
 import { UserProfile } from '../types';
@@ -15,31 +14,8 @@ export interface PhoneSignInResult {
 }
 
 export const authService = {
-  // Setup Recaptcha Verifier
-  setupRecaptcha(containerId: string): RecaptchaVerifier | null {
-    if (!auth) {
-      console.warn('Firebase Auth is not initialized. Cannot setup Recaptcha.');
-      return null;
-    }
-    try {
-      // Create a ReCAPTCHA verifier. Blinkit uses invisible reCAPTCHA for seamless verification.
-      return new RecaptchaVerifier(auth, containerId, {
-        size: 'invisible',
-        callback: () => {
-          // reCAPTCHA solved automatically
-        },
-        'expired-callback': () => {
-          // Response expired.
-        }
-      });
-    } catch (error) {
-      console.error('Error setting up recaptcha:', error);
-      return null;
-    }
-  },
-
   // Send OTP
-  async sendOTP(phoneWithCountry: string, appVerifier: any): Promise<PhoneSignInResult> {
+  async sendOTP(phoneWithCountry: string, appVerifier: ApplicationVerifier): Promise<PhoneSignInResult> {
     if (!auth) {
       throw new Error('Firebase Auth is not initialized. Please configure API keys.');
     }
@@ -57,18 +33,27 @@ export const authService = {
 
   // Auto Login Check
   async checkPersistedAuth(): Promise<UserProfile | null> {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       if (!auth) return resolve(null);
-      
-      // Guard timeout in case Firebase Auth connection or listener hangs
-      const authTimeout = setTimeout(() => {
-        console.warn('[authService] checkPersistedAuth timed out.');
-        resolve(null);
-      }, 2500);
+      const firebaseAuth = auth;
 
-      const unsubscribe = auth.onAuthStateChanged(async (firebaseUser) => {
-        clearTimeout(authTimeout);
+      let settled = false;
+      let hydrating = false;
+      let unsubscribe = () => {};
+      let authTimeout: ReturnType<typeof setTimeout> | undefined;
+
+      const finish = (callback: (value: any) => void, value: any) => {
+        if (settled) return;
+        settled = true;
+        if (authTimeout) clearTimeout(authTimeout);
         unsubscribe();
+        callback(value);
+      };
+
+      const hydrateProfile = async (firebaseUser: FirebaseUser | null) => {
+        if (settled || hydrating) return;
+        hydrating = true;
+        if (authTimeout) clearTimeout(authTimeout);
         if (firebaseUser && firebaseUser.phoneNumber) {
           try {
             let profile = await dbService.getUserProfile(firebaseUser.uid);
@@ -81,30 +66,35 @@ export const authService = {
                 addresses: [],
               });
             } else {
+              const persistedRole = (profile as UserProfile & { role?: string }).role;
+              if (persistedRole && persistedRole !== 'customer') {
+                await signOut(firebaseAuth);
+                finish(resolve, null);
+                return;
+              }
               profile = await dbService.updateUserProfile(firebaseUser.uid, {
                 lastLogin: new Date().toISOString()
               });
             }
-            resolve(profile);
+            finish(resolve, profile);
           } catch (err) {
-            console.warn('Error fetching/creating user profile in Firestore. Using local fallback.', err);
-            const fallbackProfile: UserProfile = {
-              uid: firebaseUser.uid,
-              name: firebaseUser.displayName || 'Customer',
-              phone: firebaseUser.phoneNumber,
-              email: firebaseUser.email || '',
-              profileImage: firebaseUser.photoURL || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80',
-              addresses: [],
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-              lastLogin: new Date().toISOString(),
-            };
-            resolve(fallbackProfile);
+            finish(reject, err);
           }
         } else {
-          resolve(null);
+          finish(resolve, null);
         }
-      });
+      };
+
+      unsubscribe = firebaseAuth.onAuthStateChanged(
+        firebaseUser => void hydrateProfile(firebaseUser),
+        error => finish(reject, error)
+      );
+
+      // This guards only a listener that never fires. A known persisted user is
+      // still hydrated instead of being incorrectly treated as signed out.
+      authTimeout = setTimeout(() => {
+        void hydrateProfile(firebaseAuth.currentUser);
+      }, 10000);
     });
   },
 

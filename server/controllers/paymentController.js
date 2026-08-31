@@ -13,28 +13,35 @@ const crypto = require('crypto');
 class PaymentController {
   async createOrder(req, res, next) {
     const idempotencyKey = req.header('Idempotency-Key');
-    
+    if (!idempotencyKey || !/^[A-Za-z0-9_-]{16,128}$/.test(idempotencyKey)) {
+      return next(new AppError('A valid Idempotency-Key (16-128 letters, numbers, hyphens, or underscores) is required.', 400));
+    }
+
     // Override userId with the verified token's uid for absolute security
     req.body.userId = req.user.uid;
     const { userId, shopId, items, deliveryAddress, couponCode, walletCreditsUsed, referralCode, preorderSchedule, orderNotes, paymentMethod } = req.body;
+    const requestHash = crypto.createHash('sha256').update(JSON.stringify(req.body)).digest('hex');
+    const tempCartId = `${userId}_${shopId}`;
+    let lockToken = null;
 
-      try {
-        if (idempotencyKey) {
-          const cachedRes = await IdempotencyRepository.findKey(idempotencyKey);
-          if (cachedRes) {
-            console.log(`[IDEMPOTENCY] Found duplicate request for key: ${idempotencyKey}`);
-            return res.status(200).json(cachedRes.response);
-          }
+    try {
+        const cachedRes = await IdempotencyRepository.findKey(idempotencyKey, userId, requestHash);
+        if (cachedRes?.conflict) {
+          return next(new AppError('This checkout retry key was already used with different cart details.', 409));
+        }
+        if (cachedRes) {
+          console.log(`[IDEMPOTENCY] Returning existing checkout for user ${userId}`);
+          return res.status(200).json(cachedRes.response);
         }
 
         const safetyResult = await FraudService.evaluateTransactionSecurity(userId, req.body, req);
         if (!safetyResult.secure) {
           console.warn(`[FRAUD ALERT] Transaction flagged for user ${userId}:`, safetyResult.alerts);
+          return next(new AppError('Checkout was blocked by transaction security checks. Please contact support.', 403));
         }
 
-        const tempCartId = `${userId}_${shopId}`;
         try {
-          await LockManager.acquireLock(tempCartId);
+          lockToken = await LockManager.acquireLock(tempCartId);
         } catch (lockError) {
           return next(new AppError('Another checkout session is currently processing. Please wait.', 409));
         }
@@ -52,23 +59,28 @@ class PaymentController {
           paymentMethod
         );
 
-      await LockManager.releaseLock(tempCartId);
-
-      if (idempotencyKey) {
-        await IdempotencyRepository.saveKey(idempotencyKey, result, userId);
-      }
+      await IdempotencyRepository.saveKey(idempotencyKey, result, userId, requestHash);
 
       res.status(201).json(result);
     } catch (error) {
-      const tempCartId = `${userId}_${shopId}`;
-      await LockManager.releaseLock(tempCartId);
       next(error);
+    } finally {
+      if (lockToken) await LockManager.releaseLock(tempCartId, lockToken);
     }
   }
 
   async verifyPayment(req, res, next) {
     try {
       const result = await PaymentService.verifyPayment(req.body, req.user ? req.user.uid : 'system');
+      res.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async collectCodPayment(req, res, next) {
+    try {
+      const result = await PaymentService.collectCodPayment(req.body.orderId, req.user.uid);
       res.status(200).json(result);
     } catch (error) {
       next(error);
@@ -128,16 +140,54 @@ class PaymentController {
       }
  
       const paymentSnaps = await PaymentRepository.collection.where('orderId', '==', orderId).get();
-      const payments = paymentSnaps.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const payments = paymentSnaps.docs.map(doc => {
+        const value = doc.data();
+        return {
+          id: doc.id,
+          status: value.status,
+          amount: value.amount,
+          currency: value.currency,
+          paymentMethod: value.paymentMethod || value.gateway,
+          gatewayPaymentId: value.gatewayPaymentId || null,
+          capturedAt: value.capturedAt || value.collectedAt || null,
+          refundedAmount: Number(value.refundedAmount || 0)
+        };
+      });
 
       const attemptSnaps = await PaymentAttemptRepository.collection.where('orderId', '==', orderId).get();
-      const attempts = attemptSnaps.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const attempts = attemptSnaps.docs.map(doc => {
+        const value = doc.data();
+        return {
+          id: doc.id,
+          status: value.status,
+          gatewayOrderId: value.gatewayOrderId,
+          gatewayPaymentId: value.gatewayPaymentId || null,
+          failureReason: value.failureReason || null,
+          createdAt: value.createdAt,
+          verifiedAt: value.verifiedAt || null
+        };
+      });
 
       const refundSnaps = await RefundRepository.collection.where('orderId', '==', orderId).get();
-      const refunds = refundSnaps.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const refunds = refundSnaps.docs.map(doc => {
+        const value = doc.data();
+        return {
+          id: doc.id,
+          status: value.status,
+          amount: value.amount,
+          reason: value.reason || null,
+          gatewayRefundId: value.gatewayRefundId || null,
+          gatewayStatus: value.gatewayStatus || null,
+          processedAt: value.processedAt || null,
+          failedAt: value.failedAt || null
+        };
+      });
 
       res.status(200).json({
         orderStatus: order.status,
+        paymentStatus: order.paymentStatus,
+        paid: payments.some(payment => ['CAPTURED', 'CAPTURED_REVIEW', 'COD_COLLECTED', 'PARTIALLY_REFUNDED', 'REFUNDED'].includes(payment.status)),
+        reviewRequired: payments.some(payment => payment.status === 'CAPTURED_REVIEW'),
         amount: order.total,
         payments,
         attempts,
@@ -151,29 +201,36 @@ class PaymentController {
   async refundPayment(req, res, next) {
     const { orderId, amount, reason } = req.body;
     const userId = req.user ? req.user.uid : 'admin';
-
-    if (!db) {
-      return res.status(200).json({ status: 'PROCESSING', mock: true });
+    const idempotencyKey = req.header('Idempotency-Key');
+    if (!idempotencyKey || !/^[A-Za-z0-9_-]{16,128}$/.test(idempotencyKey)) {
+      return next(new AppError('A valid Idempotency-Key is required for refunds.', 400));
     }
-
+    const requestHash = crypto.createHash('sha256').update(JSON.stringify({ orderId, amount, reason })).digest('hex');
+    const scopedKey = `refund_${idempotencyKey}`;
+    const lockId = `refund_${orderId}`;
+    let lockToken = null;
     try {
+      const cached = await IdempotencyRepository.findKey(scopedKey, userId, requestHash);
+      if (cached?.conflict) throw new AppError('This refund retry key was used with different details.', 409);
+      if (cached) return res.status(200).json(cached.response);
+
+      lockToken = await LockManager.acquireLock(lockId);
       const refundId = `rfnd_${crypto.randomBytes(6).toString('hex')}`;
-      let paymentDoc = null;
+      const paymentHint = await PaymentRepository.getByOrderId(orderId);
+      if (!paymentHint) throw new AppError(`No payment document found for order ${orderId}`, 404);
+      let paymentDoc;
       
       await db.runTransaction(async (transaction) => {
         const orderRef = OrderRepository.collection.doc(orderId);
-        const orderSnap = await transaction.get(orderRef);
-        if (!orderSnap.exists) throw new Error(`Order ${orderId} not found`);
-
-        const orderData = orderSnap.data();
-
-        const paymentSnaps = await PaymentRepository.collection.where('orderId', '==', orderId).get();
-        if (paymentSnaps.empty) throw new Error(`No payment document found for order ${orderId}`);
-        paymentDoc = { id: paymentSnaps.docs[0].id, ...paymentSnaps.docs[0].data() };
-
-        if (amount > paymentDoc.amount) {
-          throw new Error('Refund amount exceeds the original payment value.');
+        const paymentRef = PaymentRepository.collection.doc(paymentHint.id);
+        const [orderSnap, paymentSnap] = await Promise.all([transaction.get(orderRef), transaction.get(paymentRef)]);
+        if (!orderSnap.exists || !paymentSnap.exists) throw new AppError('Order payment records are incomplete.', 409);
+        paymentDoc = { id: paymentSnap.id, ...paymentSnap.data() };
+        if (!['CAPTURED', 'CAPTURED_REVIEW', 'PARTIALLY_REFUNDED'].includes(paymentDoc.status)) {
+          throw new AppError(`Only captured payments can be refunded (current: ${paymentDoc.status}).`, 409);
         }
+        const available = Number(paymentDoc.amount) - Number(paymentDoc.refundedAmount || 0) - Number(paymentDoc.pendingRefundAmount || 0);
+        if (amount > available + 0.00001) throw new AppError(`Refund exceeds the available refundable amount of ₹${available.toFixed(2)}.`, 409);
 
         const refundRef = RefundRepository.collection.doc(refundId);
         const refundDoc = {
@@ -183,42 +240,106 @@ class PaymentController {
           reason,
           status: 'REFUND_REQUESTED',
           environment: paymentDoc.environment || 'TEST',
-          gatewayPaymentId: paymentDoc.gatewayPaymentId || paymentDoc.paymentId
+          gatewayPaymentId: paymentDoc.gatewayPaymentId,
+          requestedBy: userId
         };
         transaction.set(refundRef, RefundRepository._prepareDoc(refundDoc, userId, true));
-
-        transaction.update(orderRef, {
-          status: 'REFUNDED',
-          updatedAt: new Date().toISOString(),
-          updatedBy: userId
+        transaction.update(paymentRef, {
+          pendingRefundAmount: Number(paymentDoc.pendingRefundAmount || 0) + amount,
+          updatedAt: new Date().toISOString(), updatedBy: userId
         });
       });
 
       const rzpRef = require('../providers/razorpay/RazorpayProvider');
-      
       try {
-        const refundRes = await rzpRef.createRefund(
-          paymentDoc.gatewayPaymentId || paymentDoc.paymentId, 
-          amount, 
-          reason
-        );
-        await RefundRepository.update(refundId, {
-          status: 'REFUND_COMPLETED',
-          gatewayRefundId: refundRes.id,
-          gatewayResponse: refundRes
-        }, userId);
-        console.log(`[REFUND SUCCESS] Refunded ${amount} for order ${orderId}`);
+        const refundRes = await rzpRef.createRefund(paymentDoc.gatewayPaymentId, amount, reason, refundId);
+        const isProcessed = refundRes.status === 'processed';
+        let finalRefundCompleted = false;
+        await db.runTransaction(async transaction => {
+          const orderRef = OrderRepository.collection.doc(orderId);
+          const paymentRef = PaymentRepository.collection.doc(paymentDoc.id);
+          const refundRef = RefundRepository.collection.doc(refundId);
+          const [orderSnap, paymentSnap, refundSnap] = await Promise.all([
+            transaction.get(orderRef),
+            transaction.get(paymentRef),
+            transaction.get(refundRef)
+          ]);
+          if (!paymentSnap.exists || !refundSnap.exists) {
+            throw new AppError('Refund ledger records are incomplete.', 409);
+          }
+          const currentPayment = paymentSnap.data();
+          const currentRefund = refundSnap.data();
+          const alreadyCompleted = currentRefund.status === 'REFUND_COMPLETED';
+          finalRefundCompleted = alreadyCompleted || isProcessed;
+          const applyCompletion = isProcessed && !alreadyCompleted;
+          const refundedAmount = Number(currentPayment.refundedAmount || 0) + (applyCompletion ? amount : 0);
+          const pendingRefundAmount = Math.max(0, Number(currentPayment.pendingRefundAmount || 0) - (applyCompletion ? amount : 0));
+          const fullyRefunded = refundedAmount >= Number(currentPayment.amount) - 0.00001;
+          transaction.update(refundRef, {
+            status: alreadyCompleted ? 'REFUND_COMPLETED' : (isProcessed ? 'REFUND_COMPLETED' : 'REFUND_PROCESSING'),
+            gatewayRefundId: refundRes.id,
+            gatewayStatus: refundRes.status,
+            ...(applyCompletion ? { processedAt: new Date().toISOString() } : {}),
+            updatedAt: new Date().toISOString(), updatedBy: userId
+          });
+          transaction.update(paymentRef, {
+            status: applyCompletion ? (fullyRefunded ? 'REFUNDED' : 'PARTIALLY_REFUNDED') : currentPayment.status,
+            refundedAmount,
+            pendingRefundAmount,
+            updatedAt: new Date().toISOString(), updatedBy: userId
+          });
+          if (applyCompletion && orderSnap.exists) {
+            const order = orderSnap.data();
+            const now = new Date().toISOString();
+            transaction.update(orderRef, {
+              paymentStatus: fullyRefunded ? 'refunded' : 'partially_refunded',
+              timeline: [...(order.timeline || []), {
+                status: fullyRefunded ? 'PAYMENT_REFUNDED' : 'PAYMENT_PARTIALLY_REFUNDED',
+                timestamp: now,
+                title: fullyRefunded ? 'Payment Refunded' : 'Partial Refund Processed',
+                description: `₹${amount.toFixed(2)} refund processed.`
+              }],
+              updatedAt: now, updatedBy: userId
+            });
+          }
+        });
+        const response = { refundId, status: finalRefundCompleted ? 'COMPLETED' : 'PROCESSING', gatewayRefundId: refundRes.id };
+        await IdempotencyRepository.saveKey(scopedKey, response, userId, requestHash);
+        return res.status(200).json(response);
       } catch (refundError) {
         console.error('[REFUND ERROR] Gateway process failed:', refundError.message);
-        await RefundRepository.update(refundId, {
-          status: 'REFUND_FAILED',
-          failureReason: refundError.message
-        }, userId);
+        let completedDuringFailure = null;
+        await db.runTransaction(async transaction => {
+          const paymentRef = PaymentRepository.collection.doc(paymentDoc.id);
+          const refundRef = RefundRepository.collection.doc(refundId);
+          const [paymentSnap, refundSnap] = await Promise.all([
+            transaction.get(paymentRef),
+            transaction.get(refundRef)
+          ]);
+          if (refundSnap.exists && refundSnap.data().status === 'REFUND_COMPLETED') {
+            completedDuringFailure = refundSnap.data().gatewayRefundId || null;
+            return;
+          }
+          transaction.update(paymentRef, {
+            pendingRefundAmount: Math.max(0, Number(paymentSnap.data().pendingRefundAmount || 0) - amount),
+            updatedAt: new Date().toISOString(), updatedBy: userId
+          });
+          transaction.update(refundRef, {
+            status: 'REFUND_FAILED', failureReason: refundError.message,
+            updatedAt: new Date().toISOString(), updatedBy: userId
+          });
+        });
+        if (completedDuringFailure) {
+          const response = { refundId, status: 'COMPLETED', gatewayRefundId: completedDuringFailure };
+          await IdempotencyRepository.saveKey(scopedKey, response, userId, requestHash);
+          return res.status(200).json(response);
+        }
+        throw new AppError('The payment gateway did not accept the refund. No refundable balance was consumed.', 502);
       }
-
-      res.status(200).json({ refundId, status: 'PROCESSING' });
     } catch (error) {
       next(error);
+    } finally {
+      if (lockToken) await LockManager.releaseLock(lockId, lockToken);
     }
   }
 }

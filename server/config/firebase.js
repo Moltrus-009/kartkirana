@@ -17,8 +17,9 @@ const keyPath = path.join(__dirname, '..', 'serviceAccountKey.json');
 const hasKeyEnv = !!env.FIREBASE_SERVICE_ACCOUNT_KEY;
 const hasKeyFile = fs.existsSync(keyPath);
 const hasAdcEnv = !!process.env.GOOGLE_APPLICATION_CREDENTIALS;
+const isGoogleManagedRuntime = Boolean(process.env.FUNCTION_TARGET || process.env.K_SERVICE || process.env.GOOGLE_CLOUD_PROJECT);
 
-const hasCredentials = hasKeyEnv || hasKeyFile || hasAdcEnv;
+const hasCredentials = hasKeyEnv || hasKeyFile || hasAdcEnv || isGoogleManagedRuntime;
 
 if (explicitMock) {
   console.log('[FIREBASE] Explicit USE_MOCK_DB=true detected. Booting in high-fidelity mock database mode.');

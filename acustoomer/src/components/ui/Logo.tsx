@@ -25,16 +25,34 @@ export const Logo: React.FC<LogoProps> = ({
 
   const current = dimensions[size];
 
-  // The supplied customer artwork already includes the complete brand lockup
-  // and tagline, so rendering it alone keeps the identity consistent.
+  if (!showText) {
+    return (
+      <div
+        aria-label="Kart Kirana"
+        className={`inline-flex shrink-0 items-center justify-center overflow-hidden rounded-[14px] bg-[#050A24] ring-1 ring-blue-400/20 ${className}`}
+        style={{ width: current.width, height: current.height }}
+      >
+        <span className="-skew-x-6 text-sm font-black tracking-[-0.18em]" aria-hidden="true">
+          <span className="text-[#FFC928]">K</span><span className="text-[#36B6F4]">K</span>
+        </span>
+      </div>
+    );
+  }
+
   return (
-    <div className={`inline-flex items-center justify-center ${className}`}>
+    <div className={`inline-flex items-center justify-center ${variant === 'horizontal' ? 'gap-2.5' : 'flex-col'} ${className}`}>
       <img
         src="/logo.jpeg"
-        alt="Kart Kirana customer app"
+        alt="Kart Kirana"
         style={{ width: current.width, height: current.height }}
-        className="shrink-0 rounded-[16px] object-contain transition-transform duration-300 hover:scale-105"
+        className="shrink-0 rounded-[16px] object-contain"
       />
+      {variant === 'horizontal' && (
+        <div className="hidden min-w-0 lg:block text-left leading-none">
+          <strong className={`block whitespace-nowrap text-lg font-black tracking-tight ${textColor}`}>Kart Kirana</strong>
+          <span className="mt-1 block whitespace-nowrap text-[7px] font-black uppercase tracking-[0.18em] text-[#0B74E8]">Har dukaan, ek pehchaan</span>
+        </div>
+      )}
     </div>
   );
 };

@@ -14,8 +14,8 @@ import {
 import type { Unsubscribe } from 'firebase/firestore';
 import { db, isFirebaseActive } from '../lib/firebase';
 import type { OrderStatus } from '../types/orderStatus';
-import { isOrderStatus } from '../types/orderStatus';
-import { MAX_BATCH_SIZE } from '../constants/earnings';
+import { isOrderStatus, normalizeOrderStatus } from '../types/orderStatus';
+import { MAX_BATCH_SIZE, MAX_BATCH_SPREAD_METERS, MIN_BATCH_SIZE } from '../constants/earnings';
 import { uploadFile } from './storageService';
 
 // Helper for local mock storage updates
@@ -31,6 +31,55 @@ const getMockData = <T>(key: string, defaultValue: T): T => {
 const saveMockData = <T>(key: string, data: T) => {
   localStorage.setItem(key, JSON.stringify(data));
   triggerMockDBUpdate();
+};
+
+const validCoordinates = (coords: unknown): coords is { lat: number; lng: number } => {
+  if (!coords || typeof coords !== 'object') return false;
+  const value = coords as { lat?: unknown; lng?: unknown };
+  const lat = Number(value.lat);
+  const lng = Number(value.lng);
+  return Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 && !(lat === 0 && lng === 0);
+};
+
+const distanceBetweenCoordinates = (from: { lat: number; lng: number }, to: { lat: number; lng: number }) => {
+  const radians = (degrees: number) => degrees * Math.PI / 180;
+  const latDelta = radians(to.lat - from.lat);
+  const lngDelta = radians(to.lng - from.lng);
+  const a = Math.sin(latDelta / 2) ** 2 +
+    Math.cos(radians(from.lat)) * Math.cos(radians(to.lat)) * Math.sin(lngDelta / 2) ** 2;
+  return 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
+
+const validateBatchOrders = (
+  batch: BatchDocument,
+  orders: Array<{ id: string; data: OrderDocument }>,
+  riderId: string
+) => {
+  if (batch.orderIds.length < MIN_BATCH_SIZE || batch.orderIds.length > MAX_BATCH_SIZE) {
+    return `A batch must contain ${MIN_BATCH_SIZE} to ${MAX_BATCH_SIZE} orders.`;
+  }
+  if (new Set(batch.orderIds).size !== batch.orderIds.length) return 'This batch contains a duplicate order.';
+  if (orders.length !== batch.orderIds.length) return 'One or more orders in this batch no longer exist.';
+
+  for (const order of orders) {
+    const data = order.data;
+    if (data.batchId !== batch.id || data.currentRiderId !== riderId) return 'This batch assignment has changed.';
+    if (data.riderId || data.rider) return 'One or more orders were already accepted.';
+    if (!isOrderStatus(data.status, 'SEARCHING_RIDER', 'SHOP_ACCEPTED')) {
+      return 'One or more orders are no longer available.';
+    }
+    if (batch.shopId && data.shopId !== batch.shopId) return 'All batch orders must come from the same shop.';
+    if (!validCoordinates(data.deliveryAddress?.coords)) return 'A delivery location is missing from this batch.';
+  }
+
+  for (let first = 0; first < orders.length; first += 1) {
+    for (let second = first + 1; second < orders.length; second += 1) {
+      if (distanceBetweenCoordinates(orders[first].data.deliveryAddress.coords, orders[second].data.deliveryAddress.coords) > MAX_BATCH_SPREAD_METERS) {
+        return 'The delivery points are too far apart for one batch.';
+      }
+    }
+  }
+  return null;
 };
 
 export interface UserProfileDoc {
@@ -105,6 +154,7 @@ export interface OrderDocument {
     progress: number;
   } | null;
   riderId?: string | null;
+  currentRiderId?: string | null;
   batchId?: string | null;
   timeline?: { status: string; timestamp: string; title: string; desc: string }[];
   prescriptionUrl?: string;
@@ -129,6 +179,8 @@ export interface RouteStop {
 
 export interface BatchDocument {
   id: string;
+  shopId?: string;
+  shopName?: string;
   riderId: string;
   status: 'assigned' | 'accepted' | 'in_progress' | 'completed' | 'rejected';
   orderIds: string[];
@@ -138,6 +190,8 @@ export interface BatchDocument {
   stops: RouteStop[];
   currentStopIndex: number;
   createdAt: string;
+  updatedAt?: string;
+  maxDeliverySpreadMeters?: number;
 }
 
 // User Profile CRUD
@@ -239,13 +293,11 @@ export async function updateRiderLocation(
   progress?: number
 ): Promise<void> {
   const simpleCoords = { lat: coords.lat, lng: coords.lng };
-  
-  // 1. Update in user profile
-  await updateUserProfile(uid, { coords: simpleCoords });
-
   const now = new Date().toISOString();
 
-  // 2. Update in riders collection
+  // The rider document is the source of truth for online dispatch. Do not
+  // make a separate profile write first: a failed profile write used to stop
+  // the active order location update as well.
   if (isFirebaseActive() && db) {
     try {
       const riderRef = doc(db, 'riders', uid);
@@ -265,13 +317,21 @@ export async function updateRiderLocation(
     }
   }
 
-  // 3. Update in each active order document
+  // Mirror only the minimum live-tracking fields into active orders. Customers
+  // are allowed to read their order but must never need access to the private
+  // rider profile document to see the live marker.
   if (isFirebaseActive() && db) {
     try {
       const batch = writeBatch(db);
       for (const orderId of activeOrderIds) {
         const orderRef = doc(db, 'orders', orderId);
-        const updateFields: any = { 'rider.coords': simpleCoords };
+        const updateFields: any = {
+          'rider.coords': simpleCoords,
+          'rider.locationUpdatedAt': now,
+          'rider.heading': coords.heading ?? 0,
+          'rider.speed': coords.speed ?? 0,
+          updatedAt: now
+        };
         if (progress !== undefined) {
           updateFields['rider.progress'] = progress;
         }
@@ -306,6 +366,14 @@ export async function updateRiderLocation(
 }
 
 // Order Operations
+
+const RIDER_STATUS_TRANSITIONS: Partial<Record<OrderStatus, OrderStatus[]>> = {
+  RIDER_ASSIGNED: ['ARRIVED_AT_SHOP'],
+  ARRIVED_AT_SHOP: ['PICKED_UP'],
+  PICKED_UP: ['OUT_FOR_DELIVERY'],
+  OUT_FOR_DELIVERY: ['DELIVERED'],
+  DELIVERED: ['COMPLETED']
+};
 
 export async function getOrders(): Promise<OrderDocument[]> {
   if (isFirebaseActive() && db) {
@@ -364,32 +432,42 @@ export async function updateOrderStatus(
   if (isFirebaseActive() && db) {
     try {
       const oRef = doc(db, 'orders', orderId);
-      const snap = await getDoc(oRef);
-      if (snap.exists()) {
+      await runTransaction(db, async (transaction) => {
+        const snap = await transaction.get(oRef);
+        if (!snap.exists()) throw new Error('This order no longer exists.');
+
         const orderData = snap.data() as OrderDocument;
-        const timeline = orderData.timeline || [];
-        timeline.push({ status, timestamp: now, title, desc });
-        
+        const currentStatus = normalizeOrderStatus(orderData.status) || orderData.status;
+        const allowedNext = RIDER_STATUS_TRANSITIONS[currentStatus as OrderStatus] || [];
+        if (!allowedNext.includes(status)) {
+          throw new Error(`Cannot change an order from ${orderData.status} to ${status}. Refresh the delivery and try again.`);
+        }
+
+        const timeline = [
+          ...(orderData.timeline || []),
+          { status, timestamp: now, title, desc }
+        ];
         const updateFields: any = { status, timeline, updatedAt: now };
-        if (riderCoords) updateFields['rider.coords'] = riderCoords;
+        if (riderCoords) {
+          updateFields['rider.coords'] = riderCoords;
+          updateFields['rider.locationUpdatedAt'] = now;
+        }
         if (riderProgress !== undefined) updateFields['rider.progress'] = riderProgress;
+        transaction.update(oRef, updateFields);
 
-        await updateDoc(oRef, updateFields);
-
-        // Write notification to Customer
         if (orderData.userId) {
-          const notifId = `notif_${Math.floor(100000 + Math.random() * 900000)}`;
-          const customerNotifRef = doc(db, 'users', orderData.userId, 'notifications', notifId);
-          await setDoc(customerNotifRef, {
+          const notifId = `notif_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          transaction.set(doc(db!, 'users', orderData.userId, 'notifications', notifId), {
             id: notifId,
-            title: title,
+            title,
             body: desc,
             createdAt: now,
             read: false,
-            type: 'order'
+            type: 'order',
+            orderId
           });
         }
-      }
+      });
       return;
     } catch (e) {
       console.error("Error updating order status:", e);
@@ -424,6 +502,103 @@ export async function updateOrderStatus(
     };
     saveMockData('hs_orders', orders);
   }
+}
+
+/**
+ * Advances every order in one batch stage inside a single Firestore
+ * transaction and, when requested, advances the route document in the same
+ * commit. This prevents a multi-order pickup/drop from leaving half the
+ * batch on the old status after a network interruption.
+ */
+export async function updateBatchOrderStatuses(
+  batchId: string,
+  orderIds: string[],
+  status: OrderStatus,
+  options: {
+    riderCoords?: { lat: number; lng: number };
+    riderProgress?: number;
+    batchFields?: Partial<BatchDocument>;
+  } = {}
+): Promise<void> {
+  const uniqueOrderIds = [...new Set(orderIds)];
+  if (uniqueOrderIds.length === 0) throw new Error('This route stop has no linked orders.');
+  const now = new Date().toISOString();
+  const labels: Partial<Record<OrderStatus, { title: string; desc: string }>> = {
+    ARRIVED_AT_SHOP: { title: 'Arrived at Shop', desc: 'Rider has arrived at the merchant store.' },
+    PICKED_UP: { title: 'Order Picked Up', desc: 'Rider has picked up your package and is starting delivery.' },
+    OUT_FOR_DELIVERY: { title: 'Out for Delivery', desc: 'Your order is on the way to your location.' },
+    DELIVERED: { title: 'Delivered', desc: 'Order delivered successfully by the partner.' },
+    COMPLETED: { title: 'Order Completed', desc: 'Order has been marked as completed.' }
+  };
+  const message = labels[status] || { title: 'Status Update', desc: `Order updated to ${status}` };
+
+  if (isFirebaseActive() && db) {
+    const batchRef = doc(db, 'batches', batchId);
+    const orderRefs = uniqueOrderIds.map(orderId => doc(db!, 'orders', orderId));
+    await runTransaction(db, async transaction => {
+      const [batchSnapshot, orderSnapshots] = await Promise.all([
+        transaction.get(batchRef),
+        Promise.all(orderRefs.map(orderRef => transaction.get(orderRef)))
+      ]);
+      if (!batchSnapshot.exists()) throw new Error('This delivery batch no longer exists.');
+      const batch = batchSnapshot.data() as BatchDocument;
+      if (!['accepted', 'in_progress'].includes(batch.status)) {
+        throw new Error('This delivery batch is not active.');
+      }
+
+      orderSnapshots.forEach((snapshot, index) => {
+        if (!snapshot.exists()) throw new Error('One of the batch orders no longer exists.');
+        const order = snapshot.data() as OrderDocument;
+        if (order.batchId !== batchId || order.riderId !== batch.riderId) {
+          throw new Error('A batch order assignment has changed. Refresh the route.');
+        }
+
+        const current = normalizeOrderStatus(order.status) || order.status;
+        if (current === status) return;
+        const allowedNext = RIDER_STATUS_TRANSITIONS[current as OrderStatus] || [];
+        if (!allowedNext.includes(status)) {
+          throw new Error(`Cannot change batch order ${snapshot.id} from ${order.status} to ${status}.`);
+        }
+
+        const timeline = [...(order.timeline || []), { status, timestamp: now, title: message.title, desc: message.desc }];
+        const updateFields: Record<string, unknown> = { status, timeline, updatedAt: now };
+        if (options.riderCoords) {
+          updateFields['rider.coords'] = options.riderCoords;
+          updateFields['rider.locationUpdatedAt'] = now;
+        }
+        if (options.riderProgress !== undefined) updateFields['rider.progress'] = options.riderProgress;
+        transaction.update(orderRefs[index], updateFields);
+
+        if (order.userId) {
+          const notificationRef = doc(db!, 'users', order.userId, 'notifications', `notif_${snapshot.id}_${status}`);
+          transaction.set(notificationRef, {
+            id: `notif_${snapshot.id}_${status}`,
+            title: message.title,
+            body: message.desc,
+            createdAt: now,
+            read: false,
+            type: 'order',
+            orderId: snapshot.id
+          });
+        }
+      });
+
+      if (options.batchFields) {
+        transaction.update(batchRef, { ...options.batchFields, updatedAt: now });
+      }
+    });
+    return;
+  }
+
+  const orders = getMockData<OrderDocument[]>('hs_orders', []);
+  uniqueOrderIds.forEach(orderId => {
+    const order = orders.find(candidate => candidate.id === orderId);
+    if (!order || isOrderStatus(order.status, status)) return;
+    order.status = status;
+    order.timeline = [...(order.timeline || []), { status, timestamp: now, title: message.title, desc: message.desc }];
+  });
+  saveMockData('hs_orders', orders);
+  if (options.batchFields) await updateBatch(batchId, options.batchFields);
 }
 
 export async function assignRiderToOrder(
@@ -512,7 +687,7 @@ export async function createBatch(batch: BatchDocument): Promise<void> {
   const orders = getMockData<OrderDocument[]>('hs_orders', []);
   const updatedOrders = orders.map(o => {
     if (batch.orderIds.includes(o.id)) {
-      return { ...o, batchId: batch.id };
+      return { ...o, batchId: batch.id, currentRiderId: batch.riderId };
     }
     return o;
   });
@@ -667,6 +842,7 @@ export async function updateRiderOnlineStatus(
           uid: riderId,
           fullName: userProfile?.fullName || 'Rider Partner',
           phone: userProfile?.phone || '',
+          documentStatus: userProfile?.documentStatus || 'pending',
           vehicleType: userProfile?.vehicleType || 'Bike',
           vehicleNumber: userProfile?.vehicleNumber || 'UP-16-AM-9999',
           coords: coords || { lat: 28.5835, lng: 77.3142 },
@@ -691,7 +867,43 @@ export async function acceptOrderTransaction(
   riderDetails: { uid: string; name: string; phone: string; coords: { lat: number; lng: number } }
 ): Promise<{ success: boolean; message: string }> {
   if (!isFirebaseActive()) {
-    return { success: true, message: 'Local Mock acceptance succeeded!' };
+    const orders = getMockData<OrderDocument[]>('hs_orders', []);
+    const index = orders.findIndex(order => order.id === orderId);
+    if (index < 0) return { success: false, message: 'Order does not exist.' };
+
+    const order = orders[index];
+    if (order.rider || order.riderId) {
+      return { success: false, message: 'Order already accepted by another rider.' };
+    }
+    if (!isOrderStatus(order.status, 'SEARCHING_RIDER', 'SHOP_ACCEPTED')) {
+      return { success: false, message: 'Order is no longer available for acceptance.' };
+    }
+
+    const now = new Date().toISOString();
+    orders[index] = {
+      ...order,
+      status: 'RIDER_ASSIGNED',
+      riderId: riderDetails.uid,
+      currentRiderId: riderDetails.uid,
+      rider: {
+        uid: riderDetails.uid,
+        name: riderDetails.name,
+        phone: riderDetails.phone,
+        coords: riderDetails.coords,
+        progress: 0
+      },
+      timeline: [
+        ...(order.timeline || []),
+        {
+          status: 'RIDER_ASSIGNED',
+          timestamp: now,
+          title: 'Delivery Executive Assigned',
+          desc: `${riderDetails.name} is on the way to pick up your order.`
+        }
+      ]
+    };
+    saveMockData('hs_orders', orders);
+    return { success: true, message: 'Local mock order successfully assigned.' };
   }
 
   const orderRef = doc(db!, 'orders', orderId);
@@ -731,6 +943,7 @@ export async function acceptOrderTransaction(
         status,
         timeline,
         riderId: riderDetails.uid,
+        currentRiderId: riderDetails.uid,
         rider: {
           uid: riderDetails.uid,
           name: riderDetails.name,
@@ -750,7 +963,8 @@ export async function acceptOrderTransaction(
         body: timelineEntry.desc,
         createdAt: now,
         read: false,
-        type: 'order'
+        type: 'order',
+        orderId
       });
 
       return { success: true, message: 'Order successfully accepted!' };
@@ -780,24 +994,17 @@ export async function acceptBatchTransaction(
     if (batch.status !== 'assigned' || batch.riderId !== riderId) {
       return { success: false, message: 'This batch is no longer available.' };
     }
-    if (batch.orderIds.length === 0 || batch.orderIds.length > MAX_BATCH_SIZE) {
-      return { success: false, message: `A batch must contain 1 to ${MAX_BATCH_SIZE} orders.` };
-    }
-
     const now = new Date().toISOString();
-    batches[batchIndex] = { ...batch, status: 'accepted' };
-    saveMockData('hs_batches', batches);
-
     const orders = getMockData<OrderDocument[]>('hs_orders', []);
-    const unavailableOrder = batch.orderIds.some(orderId => {
-      const order = orders.find(candidate => candidate.id === orderId);
-      return !order || order.riderId || order.rider || !isOrderStatus(order.status, 'SEARCHING_RIDER', 'SHOP_ACCEPTED');
-    });
-    if (unavailableOrder) {
-      batches[batchIndex] = { ...batch, status: 'assigned' };
-      saveMockData('hs_batches', batches);
-      return { success: false, message: 'One or more orders in this batch are no longer available.' };
-    }
+    const batchOrders = batch.orderIds
+      .map(orderId => orders.find(candidate => candidate.id === orderId))
+      .filter((order): order is OrderDocument => Boolean(order))
+      .map(order => ({ id: order.id, data: order }));
+    const validationError = validateBatchOrders(batch, batchOrders, riderId);
+    if (validationError) return { success: false, message: validationError };
+
+    batches[batchIndex] = { ...batch, status: 'accepted', updatedAt: now };
+    saveMockData('hs_batches', batches);
 
     const updatedOrders = orders.map(order => {
       if (!batch.orderIds.includes(order.id)) return order;
@@ -812,6 +1019,7 @@ export async function acceptBatchTransaction(
         status: 'RIDER_ASSIGNED' as OrderStatus,
         timeline,
         riderId,
+        currentRiderId: riderId,
         rider: { uid: riderId, ...riderDetails, progress: 0 },
         batchId,
         updatedAt: now
@@ -838,53 +1046,107 @@ export async function acceptBatchTransaction(
       if (batchData.riderId !== riderId) {
         return { success: false, message: 'This batch is assigned to another rider.' };
       }
-      if (batchData.orderIds.length > MAX_BATCH_SIZE) {
-        return { success: false, message: `Batch exceeds the maximum of ${MAX_BATCH_SIZE} orders.` };
-      }
+      const normalizedBatch = { ...batchData, id: batchId };
+      const orderRefs = normalizedBatch.orderIds.map(orderId => doc(db!, 'orders', orderId));
+      const orderSnapshots = await Promise.all(orderRefs.map(orderRef => transaction.get(orderRef)));
+      const batchOrders = orderSnapshots
+        .filter(snapshot => snapshot.exists())
+        .map(snapshot => ({ id: snapshot.id, data: { id: snapshot.id, ...snapshot.data() } as OrderDocument }));
+      const validationError = validateBatchOrders(normalizedBatch, batchOrders, riderId);
+      if (validationError) return { success: false, message: validationError };
 
-      // Update batch status to accepted
-      transaction.update(batchRef, {
-        status: 'accepted',
-        riderId: riderId,
-        updatedAt: now
+      // All reads are complete. Commit the batch lock and every order together.
+      transaction.update(batchRef, { status: 'accepted', updatedAt: now });
+      orderSnapshots.forEach((orderSnapshot, index) => {
+        const order = orderSnapshot.data() as OrderDocument;
+        const timeline = [...(order.timeline || []), {
+          status: 'RIDER_ASSIGNED',
+          timestamp: now,
+          title: 'Delivery Executive Assigned',
+          desc: `${riderDetails.name} is on the way to pick up your order.`
+        }];
+        transaction.update(orderRefs[index], {
+          status: 'RIDER_ASSIGNED',
+          timeline,
+          riderId,
+          currentRiderId: riderId,
+          rider: {
+            uid: riderId,
+            name: riderDetails.name,
+            phone: riderDetails.phone,
+            coords: riderDetails.coords,
+            progress: 0
+          },
+          batchId,
+          updatedAt: now
+        });
       });
-
-      // Update status of all orders in this batch to accepted
-      for (const orderId of batchData.orderIds) {
-        const orderRef = doc(db!, 'orders', orderId);
-        const orderSnap = await transaction.get(orderRef);
-        if (orderSnap.exists()) {
-          const order = orderSnap.data();
-          const timeline = order.timeline || [];
-          timeline.push({
-            status: 'RIDER_ASSIGNED',
-            timestamp: now,
-            title: 'Delivery Executive Assigned',
-            desc: `${riderDetails.name} is on the way to pick up your order.`
-          });
-          transaction.update(orderRef, {
-            status: 'RIDER_ASSIGNED',
-            timeline,
-            riderId,
-            rider: {
-              uid: riderId,
-              name: riderDetails.name,
-              phone: riderDetails.phone,
-              coords: riderDetails.coords,
-              progress: 0
-            },
-            batchId: batchId,
-            updatedAt: now
-          });
-        }
-      }
 
       return { success: true, message: 'Batch successfully accepted!' };
     });
 
     return result;
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('[acceptBatchTransaction] Failed:', error);
-    return { success: false, message: error?.message || 'Transaction failed.' };
+    return { success: false, message: error instanceof Error ? error.message : 'Transaction failed.' };
+  }
+}
+
+/** Atomically releases a targeted batch when its rider declines it. */
+export async function rejectBatchTransaction(
+  batchId: string,
+  riderId: string
+): Promise<{ success: boolean; message: string }> {
+  const now = new Date().toISOString();
+  if (!isFirebaseActive()) {
+    const batches = getMockData<BatchDocument[]>('hs_batches', []);
+    const batchIndex = batches.findIndex(batch => batch.id === batchId);
+    if (batchIndex < 0 || batches[batchIndex].riderId !== riderId || batches[batchIndex].status !== 'assigned') {
+      return { success: false, message: 'This batch is no longer available.' };
+    }
+    const orderIds = batches[batchIndex].orderIds;
+    batches[batchIndex] = { ...batches[batchIndex], status: 'rejected', updatedAt: now };
+    saveMockData('hs_batches', batches);
+    const orders = getMockData<OrderDocument[]>('hs_orders', []).map(order =>
+      orderIds.includes(order.id)
+        ? { ...order, batchId: null, currentRiderId: null }
+        : order
+    );
+    saveMockData('hs_orders', orders);
+    return { success: true, message: 'Batch declined.' };
+  }
+
+  try {
+    return await runTransaction(db!, async transaction => {
+      const batchRef = doc(db!, 'batches', batchId);
+      const batchSnapshot = await transaction.get(batchRef);
+      if (!batchSnapshot.exists()) return { success: false, message: 'This batch is no longer available.' };
+      const batch = { id: batchId, ...batchSnapshot.data() } as BatchDocument;
+      if (batch.status !== 'assigned' || batch.riderId !== riderId) {
+        return { success: false, message: 'This batch is no longer available.' };
+      }
+      const orderRefs = batch.orderIds.map(orderId => doc(db!, 'orders', orderId));
+      const orderSnapshots = await Promise.all(orderRefs.map(orderRef => transaction.get(orderRef)));
+      if (orderSnapshots.some(snapshot => !snapshot.exists())) {
+        return { success: false, message: 'One or more batch orders no longer exist.' };
+      }
+      if (orderSnapshots.some(snapshot => {
+        const data = snapshot.data();
+        return !data || data.batchId !== batchId || data.currentRiderId !== riderId || Boolean(data.riderId);
+      })) {
+        return { success: false, message: 'This batch assignment has already changed.' };
+      }
+
+      transaction.update(batchRef, { status: 'rejected', updatedAt: now });
+      orderRefs.forEach(orderRef => transaction.update(orderRef, {
+        batchId: null,
+        currentRiderId: null,
+        updatedAt: now,
+      }));
+      return { success: true, message: 'Batch declined.' };
+    });
+  } catch (error: unknown) {
+    console.error('[rejectBatchTransaction] Failed:', error);
+    return { success: false, message: error instanceof Error ? error.message : 'Unable to decline this batch.' };
   }
 }

@@ -11,7 +11,7 @@ import { authRepository } from '../../infrastructure/repositories/authRepository
 import { userRepository } from '../../infrastructure/repositories/userRepository';
 import { auth, db } from '../../infrastructure/firebase/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, query, setDoc, updateDoc, where } from 'firebase/firestore';
+import { addDoc, collection, doc, getDoc, getDocs, query, updateDoc, where, writeBatch } from 'firebase/firestore';
 import type { ApplicationVerifier } from 'firebase/auth';
 import type { OrderBatch, OnlineRider } from '../../domain/repositories/OrderRepository';
 import { logger } from '../logger/logger';
@@ -63,15 +63,28 @@ export interface ReviewDocument {
 export interface OfferDocument {
   id: string;
   shopId: string;
-  code: string;
+  code?: string;
+  title: string;
   description: string;
+  offerType: 'sale' | 'loyalty' | 'addon' | 'subscription';
   discountType: 'percentage' | 'flat' | 'bogo' | 'free_delivery';
   value: number;
   minOrder: number;
   maxDiscount?: number;
+  scope: 'order' | 'products';
+  productIds: string[];
+  audience: 'all' | 'selected_customers' | 'subscribers';
+  buyQuantity?: number;
+  getQuantity?: number;
+  subscriptionPrice?: number;
+  billingPeriod?: 'monthly' | 'quarterly';
+  targetCustomerIds?: string[];
   startDate: string;
   endDate: string;
   isActive: boolean;
+  automatic: true;
+  promotionVersion: 1;
+  createdAt?: string;
 }
 
 export interface InventoryLog {
@@ -183,10 +196,13 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   },
 
   logoutOwner: async () => {
-    await authRepository.logout();
-    ordersUnsubscribe?.();
-    ordersUnsubscribe = null;
-    set({ user: null, shop: null, products: [], orders: [], reviews: [], offers: [], logs: [], notifications: [] });
+    try {
+      await authRepository.logout();
+    } finally {
+      ordersUnsubscribe?.();
+      ordersUnsubscribe = null;
+      set({ user: null, shop: null, products: [], orders: [], reviews: [], offers: [], logs: [], notifications: [], loading: false });
+    }
   },
 
   updateShop: async (fields) => {
@@ -312,12 +328,20 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       desc: notes || `Order status updated to ${status}`,
     }];
 
-    // Update local state immediately for fast UI feedback
+    const previousOrders = get().orders;
+    // Update locally for immediate feedback, but retain the exact previous
+    // snapshot so a rejected security-rule/transition write never leaves the
+    // merchant seeing a status that Firestore did not accept.
     set(state => ({
       orders: state.orders.map(o => o.id === orderId ? { ...o, status, timeline: updatedTimeline, updatedAt: new Date().toISOString() } : o)
     }));
 
-    await orderRepository.updateOrderStatus(orderId, status, updatedTimeline);
+    try {
+      await orderRepository.updateOrderStatus(orderId, status, updatedTimeline);
+    } catch (error) {
+      set({ orders: previousOrders });
+      throw error;
+    }
   },
 
   getOnlineRidersList: async () => {
@@ -350,17 +374,37 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     const { shop } = get();
     if (!shop) return;
     const newId = doc(collection(requireDb(), 'offers')).id;
+    const { targetCustomerIds = [], ...persistedOffer } = offerData;
     const newOffer: OfferDocument = {
-      ...offerData,
+      ...persistedOffer,
       id: newId,
-      shopId: shop.id
+      shopId: shop.id,
+      createdAt: new Date().toISOString(),
+      targetCustomerIds,
     };
-    await setDoc(doc(requireDb(), 'offers', newId), newOffer);
+    const database = requireDb();
+    const batch = writeBatch(database);
+    const { targetCustomerIds: _targets, ...publicOffer } = newOffer;
+    batch.set(doc(database, 'offers', newId), publicOffer);
+    targetCustomerIds.forEach(userId => {
+      batch.set(doc(database, 'offerTargets', `${newId}_${userId}`), {
+        offerId: newId,
+        shopId: shop.id,
+        userId,
+        createdAt: new Date().toISOString(),
+      });
+    });
+    await batch.commit();
     set(state => ({ offers: [...state.offers, newOffer] }));
   },
 
   removePromoOffer: async (id) => {
-    await deleteDoc(doc(requireDb(), 'offers', id));
+    const database = requireDb();
+    const targets = await getDocs(query(collection(database, 'offerTargets'), where('offerId', '==', id)));
+    const batch = writeBatch(database);
+    batch.delete(doc(database, 'offers', id));
+    targets.docs.forEach(target => batch.delete(target.ref));
+    await batch.commit();
     set(state => ({ offers: state.offers.filter(o => o.id !== id) }));
   },
 
@@ -446,15 +490,25 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
         useDiagnostics.getState().updateProvider('Shop Profile', 'Loaded', shopDoc.name);
         
         const database = requireDb();
-        const [prods, ords, reviewSnapshot, offerSnapshot, logSnapshot] = await Promise.all([
+        const [prods, ords, reviewSnapshot, offerSnapshot, offerTargetSnapshot, logSnapshot] = await Promise.all([
           withTimeout(productRepository.fetchProductsByShop(shopDoc.id), 5000, 'Fetch products timed out'),
           withTimeout(orderRepository.fetchOrdersByShop(shopDoc.id), 5000, 'Fetch orders timed out'),
           withTimeout(getDocs(query(collection(database, 'reviews'), where('shopId', '==', shopDoc.id))), 5000, 'Fetch reviews timed out'),
           withTimeout(getDocs(query(collection(database, 'offers'), where('shopId', '==', shopDoc.id))), 5000, 'Fetch offers timed out'),
+          withTimeout(getDocs(query(collection(database, 'offerTargets'), where('shopId', '==', shopDoc.id))), 5000, 'Fetch offer targets timed out'),
           withTimeout(getDocs(query(collection(database, 'inventoryLogs'), where('shopId', '==', shopDoc.id))), 5000, 'Fetch inventory logs timed out'),
         ]);
         const revs = reviewSnapshot.docs.map((entry) => ({ id: entry.id, ...entry.data() }) as ReviewDocument);
-        const offs = offerSnapshot.docs.map((entry) => ({ id: entry.id, ...entry.data() }) as OfferDocument);
+        const targetsByOffer = offerTargetSnapshot.docs.reduce<Record<string, string[]>>((map, entry) => {
+          const target = entry.data() as { offerId?: string; userId?: string };
+          if (target.offerId && target.userId) map[target.offerId] = [...(map[target.offerId] || []), target.userId];
+          return map;
+        }, {});
+        const offs = offerSnapshot.docs.map((entry) => ({
+          id: entry.id,
+          ...entry.data(),
+          targetCustomerIds: targetsByOffer[entry.id] || [],
+        }) as OfferDocument);
         const logEntries = logSnapshot.docs.map((entry) => ({ id: entry.id, ...entry.data() }) as InventoryLog);
         
         // Low Stock warnings
@@ -528,6 +582,12 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
           useDiagnostics.getState().updateProvider('Merchant Profile', 'Waiting', 'Fetching from Firestore...');
           const profile = await withTimeout(userRepository.fetchProfile(firebaseUser.uid), 5000, 'Fetch user profile timed out');
           if (profile) {
+            if (profile.role !== 'owner' && profile.role !== 'employee') {
+              logger.warn('Startup', 'Rejected a persisted Firebase session that is not a merchant account.');
+              await authRepository.logout();
+              set({ user: null, shop: null, products: [], orders: [], reviews: [], offers: [], logs: [], notifications: [], loading: false });
+              return;
+            }
             logger.info('Startup', `Fetched Merchant profile successfully for UID ${firebaseUser.uid}`);
             useDiagnostics.getState().addEvent('Merchant Profile Loaded', 'SUCCESS', JSON.stringify(profile));
             useDiagnostics.getState().updateProvider('Merchant Profile', 'Loaded', profile.fullName);

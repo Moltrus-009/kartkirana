@@ -45,7 +45,7 @@
     },
     {
       "client_info": {
-        "mobilesdk_app_id": "1:555627629169:android:a123bc45de67fg89hi01jk",
+        "mobilesdk_app_id": "1:555627629169:android:a64379cf5986b7667869d0",
         "android_client_info": {
           "package_name": "com.kartkirana.rider"
         }
@@ -64,7 +64,7 @@
     },
     {
       "client_info": {
-        "mobilesdk_app_id": "1:555627629169:android:b234cd56ef78gh90ij12kl",
+        "mobilesdk_app_id": "1:555627629169:android:7924253419d87fd97869d0",
         "android_client_info": {
           "package_name": "com.kartkirana.partner"
         }

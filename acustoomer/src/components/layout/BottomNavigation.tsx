@@ -30,8 +30,8 @@ export const BottomNavigation: React.FC = () => {
     { name: 'Profile', label: language === 'hi' ? 'प्रोफ़ाइल' : 'Profile', icon: UserIcon, path: '/profile' }
   ];
 
-  // Don't show bottom navigation on Splash, Onboarding, Login, Cart, or Checkout
-  const hideTabs = ['/splash', '/onboarding', '/login', '/cart', '/checkout'].includes(location.pathname);
+  const hideTabs = ['/splash', '/onboarding', '/login', '/cart', '/checkout', '/order-success'].includes(location.pathname)
+    || location.pathname.startsWith('/orders/track/');
   if (hideTabs) return null;
 
   // Show floating cart badge if we have items, and we are not on cart/checkout/splash/login/onboarding
@@ -42,68 +42,79 @@ export const BottomNavigation: React.FC = () => {
       {/* Real-time Floating Cart Action Badge */}
       <AnimatePresence>
         {showFloatingCart && (
-          <motion.button
+          <motion.div
             key="floating-cart"
-            initial={{ scale: 0.4, opacity: 0, y: 80 }}
-            animate={{ scale: 1, opacity: 1, y: 0 }}
-            exit={{ scale: 0.4, opacity: 0, y: 80 }}
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={() => navigate('/cart')}
-            className="fixed bottom-[84px] md:bottom-8 left-4 right-4 md:left-auto md:right-10 z-50 flex items-center justify-between md:justify-start gap-4 px-5 py-3.5 bg-gradient-to-r from-[#1E88E5] to-[#1565C0] text-white rounded-2xl md:rounded-full shadow-lg shadow-[#1565C0]/30 border border-[#90CAF9]/20 btn-glossy cursor-pointer"
+            initial={{ opacity: 0, y: 80 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 80 }}
+            className="floating-cart-shell pointer-events-none fixed inset-x-0 z-50 flex justify-center"
           >
-            <div className="flex items-center gap-3">
-              <div className="relative flex items-center justify-center bg-white/10 p-2 rounded-xl border border-white/10">
-                <ShoppingCart className="h-5 w-5 text-white" />
-                <span className={`absolute -top-2 -right-2 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-[#FFB300] px-1.5 text-[9px] font-black text-black ring-2 ring-[#1565C0] ${bounceTrigger ? 'animate-cart-bounce' : ''}`}>
-                  {cartCount}
-                </span>
+            <motion.button
+              whileTap={{ scale: 0.98 }}
+              onClick={() => navigate('/cart')}
+              className="btn-glossy pointer-events-auto flex w-full max-w-[440px] min-w-0 items-center justify-between gap-2.5 rounded-2xl border border-[#90CAF9]/20 bg-gradient-to-r from-[#1E88E5] to-[#1565C0] px-4 py-3 text-white shadow-lg shadow-[#1565C0]/30 md:max-w-max md:rounded-full md:px-5"
+            >
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="relative flex shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/10 p-2">
+                  <ShoppingCart className="h-5 w-5 text-white" />
+                  <span className={`absolute -right-2 -top-2 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-[#FFB300] px-1.5 text-[9px] font-black text-black ring-2 ring-[#1565C0] ${bounceTrigger ? 'animate-cart-bounce' : ''}`}>
+                    {cartCount}
+                  </span>
+                </div>
+                <div className="flex min-w-0 flex-col text-left">
+                  <span className="truncate text-sm font-black leading-none">₹{priceBreakdown.grandTotal}</span>
+                  <span className="mt-1 truncate text-[9px] font-bold uppercase leading-none tracking-wider text-[#E2E8F0]">{cartCount} {cartCount === 1 ? 'item' : 'items'} added</span>
+                </div>
               </div>
-              <div className="flex flex-col text-left">
-                <span className="text-sm font-black leading-none">₹{priceBreakdown.grandTotal}</span>
-                <span className="text-[9px] font-bold uppercase tracking-wider text-[#E2E8F0] leading-none mt-1">{cartCount} {cartCount === 1 ? 'item' : 'items'} added</span>
+              <div className="flex shrink-0 items-center gap-1 rounded-xl border border-white/10 bg-white/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-wider transition-all hover:bg-white/20 sm:text-xs">
+                <span>View Cart</span>
+                <ArrowRight className="h-4 w-4" />
               </div>
-            </div>
-            <div className="flex items-center gap-1 font-black text-xs uppercase tracking-wider bg-white/10 px-3.5 py-1.5 rounded-xl border border-white/10 hover:bg-white/20 transition-all">
-              <span>View Cart</span>
-              <ArrowRight className="h-4 w-4" />
-            </div>
-          </motion.button>
+            </motion.button>
+          </motion.div>
         )}
       </AnimatePresence>
 
       {/* Bottom Nav Bar */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 md:hidden bg-white dark:bg-[#1E293B] border-t border-[#E2E8F0] dark:border-[#334155] pb-safe shadow-[0_-4px_16px_-4px_rgba(46,125,50,0.06)] transition-colors">
-        <div className="max-w-xl mx-auto flex items-center justify-around py-1">
+      <nav aria-label="Primary navigation" className="fixed inset-x-0 bottom-0 z-40 border-t border-[#E2E8F0] bg-white/96 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_-18px_rgba(5,10,36,0.5)] backdrop-blur-xl transition-colors dark:border-[#334155] dark:bg-[#111A33]/96 md:hidden">
+        <div className="bottom-nav-safe mx-auto flex w-full max-w-xl items-center justify-around py-1">
           {tabs.map(tab => {
             const Icon = tab.icon;
-            const isActive = location.pathname === tab.path || 
-              (tab.path !== '/' && location.pathname.startsWith(tab.path));
+            const isActive = tab.path === '/'
+              ? location.pathname === '/'
+              : tab.path === '/search'
+                ? ['/search', '/category/', '/shop/', '/product/'].some(path => location.pathname === path || location.pathname.startsWith(path))
+                : tab.path === '/orders'
+                  ? location.pathname.startsWith('/orders') || location.pathname === '/preorders'
+                  : location.pathname.startsWith(tab.path) || (tab.path === '/profile' && location.pathname === '/wishlist');
             
             return (
               <button
                 key={tab.name}
+                type="button"
+                aria-label={tab.label}
+                aria-current={isActive ? 'page' : undefined}
                 onClick={() => navigate(tab.path)}
-                className={`relative flex flex-col items-center justify-center pt-2.5 pb-3 px-3.5 rounded-2xl transition-all cursor-pointer
+                className={`relative flex min-h-15 min-w-16 flex-col items-center justify-center px-3.5 pt-2 pb-2.5 rounded-2xl transition-all cursor-pointer
                   ${isActive 
                     ? 'text-[#1565C0] dark:text-[#1E88E5] font-black' 
                     : 'text-gray-400 dark:text-[#64748B] hover:text-[#1E88E5]'
                   }`}
               >
                 <div className="relative p-0.5">
-                  <Icon className={`h-5.5 w-5.5 transition-transform duration-200 ${isActive ? 'scale-110 stroke-[2.5px]' : 'stroke-[2px]'}`} />
+                  <Icon className={`h-5.5 w-5.5 transition-transform duration-200 ${isActive ? 'stroke-[2.5px]' : 'stroke-[2px]'}`} />
                 </div>
                 <span className="text-[10px] font-bold mt-1 tracking-wide">
                   {tab.label}
                 </span>
                 {isActive && (
-                  <span className="absolute bottom-1 w-5 h-0.75 rounded-full bg-[#1565C0] dark:bg-[#1E88E5] shadow-[0_0_8px_rgba(46,125,50,0.6)] animate-pulse" />
+                  <span className="absolute bottom-0.5 h-0.75 w-5 rounded-full bg-[#0B74E8]" />
                 )}
               </button>
             );
           })}
         </div>
-      </div>
+      </nav>
     </>
   );
 };

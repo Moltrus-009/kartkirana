@@ -24,21 +24,21 @@ export const Onboarding: React.FC = () => {
       description: 'Get fresh groceries, daily essentials, and quick snacks delivered from nearby shops straight to your doorstep.',
       image: 'https://images.unsplash.com/photo-1604719312566-8912e9227c6a?auto=format&fit=crop&w=600&q=80',
       icon: <Zap className="h-6 w-6 text-white" />,
-      color: 'from-[#3E9E0A] to-[#72C61D]'
+      color: 'from-[#0758C7] to-[#0B74E8]'
     },
     {
       title: 'Multiple Category Shops Connected',
       description: 'Why just food? Shop stationery, electronics, medicines, sports gear, fashion, and hardware from verified local merchants.',
       image: 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=600&q=80',
       icon: <Store className="h-6 w-6 text-white" />,
-      color: 'from-[#72C61D] to-[#A7E62A]'
+      color: 'from-[#0B74E8] to-[#36B6F4]'
     },
     {
       title: 'Interactive Preorders & Live Tracking',
       description: 'Schedule orders, book preorder slots for seasonal produce, and track your delivery rider in real-time with zero anxiety.',
       image: 'https://images.unsplash.com/photo-1528698827591-e19ccd7bc23d?auto=format&fit=crop&w=600&q=80',
       icon: <Compass className="h-6 w-6 text-white" />,
-      color: 'from-[#72C61D] to-[#FFD83D]'
+      color: 'from-[#0B74E8] to-[#FFC928]'
     }
   ];
 
@@ -65,7 +65,7 @@ export const Onboarding: React.FC = () => {
         {currentSlide < slides.length - 1 && (
           <button
             onClick={handleFinish}
-            className="text-sm font-black text-gray-400 hover:text-[#72C61D] transition-colors cursor-pointer"
+            className="text-sm font-black text-gray-400 hover:text-[#0B74E8] transition-colors cursor-pointer"
           >
             Skip
           </button>
@@ -117,7 +117,7 @@ export const Onboarding: React.FC = () => {
               key={idx}
               className={`h-2 rounded-full transition-all duration-300
                 ${idx === currentSlide 
-                  ? 'w-6 bg-[#72C61D]' 
+                  ? 'w-6 bg-[#0B74E8]'
                   : 'w-2 bg-[#2D2D2D]'
                 }`}
             />

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { Bike, ShieldCheck, ArrowRight } from 'lucide-react';
 import { auth, hasValidConfig } from '../lib/firebase';
-import { RecaptchaVerifier } from 'firebase/auth';
+import { recaptchaManager } from '../lib/recaptchaManager';
 
 interface LoginProps {
   onOpenTerms?: () => void;
@@ -21,8 +21,8 @@ export const Login: React.FC<LoginProps> = ({ onOpenTerms, onOpenPrivacy }) => {
   const [resendTimer, setResendTimer] = useState(30);
   const [confirmationResult, setConfirmationResult] = useState<any>(null);
   const [fullName, setFullName] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
-  const recaptchaRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number | null>(null);
 
   // OTP resend countdown timer
@@ -44,16 +44,16 @@ export const Login: React.FC<LoginProps> = ({ onOpenTerms, onOpenPrivacy }) => {
   // Cleanup recaptcha verifier on unmount
   useEffect(() => {
     return () => {
-      if ((window as any).recaptchaVerifier) {
-        try {
-          (window as any).recaptchaVerifier.clear();
-          (window as any).recaptchaVerifier = null;
-        } catch (e) {
-          console.error("Error clearing recaptcha verifier:", e);
-        }
-      }
+      recaptchaManager.clear();
     };
   }, []);
+
+  const createRecaptchaVerifier = () => {
+    if (!hasValidConfig || !auth) return null;
+    const verifier = recaptchaManager.setup(auth, 'recaptcha-container');
+    if (!verifier) setError('Security verification could not be initialized. Refresh the app and try again.');
+    return verifier;
+  };
 
   const handleSendOTP = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -70,34 +70,23 @@ export const Login: React.FC<LoginProps> = ({ onOpenTerms, onOpenPrivacy }) => {
     // fail before an OTP can be sent.
     const formattedPhone = `+91${phoneNumber.trim()}`;
 
-    // Initialize recaptcha verifier if on firebase mode
-    let verifier = null;
-    if (hasValidConfig && auth) {
-      if (!(window as any).recaptchaVerifier && recaptchaRef.current) {
-        try {
-          (window as any).recaptchaVerifier = new RecaptchaVerifier(auth, recaptchaRef.current, {
-            size: 'invisible',
-            callback: () => {
-              // reCAPTCHA solved
-            }
-          });
-        } catch (err: any) {
-          console.error("Recaptcha initialization failed:", err);
-          setError("Failed to initialize reCAPTCHA: " + err.message);
-          return;
-        }
-      }
-      verifier = (window as any).recaptchaVerifier;
-    }
+    const verifier = createRecaptchaVerifier();
+    if (hasValidConfig && auth && !verifier) return;
 
-    const res = await sendOTP(formattedPhone, verifier);
-    if (res.success) {
-      setConfirmationResult(res.confirmationResult);
-      setStep('otp');
-      setResendTimer(30);
-      setInfo(res.message);
-    } else {
-      setError(res.message);
+    setSubmitting(true);
+    try {
+      const res = await sendOTP(formattedPhone, verifier);
+      if (res.success) {
+        setConfirmationResult(res.confirmationResult);
+        setStep('otp');
+        setResendTimer(30);
+        setInfo(res.message);
+      } else {
+        setError(res.message);
+        recaptchaManager.clear();
+      }
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -113,9 +102,18 @@ export const Login: React.FC<LoginProps> = ({ onOpenTerms, onOpenPrivacy }) => {
 
     // Generic designation instead of mock name fallback
     const defaultName = fullName.trim() || 'Rider Partner';
-    const res = await verifyOTP(confirmationResult, otpCode.trim(), defaultName);
-    if (!res.success) {
-      setError(res.message);
+    if (!confirmationResult) {
+      setError('The OTP session has expired. Please request a new code.');
+      setStep('phone');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const res = await verifyOTP(confirmationResult, otpCode.trim(), defaultName);
+      if (!res.success) setError(res.message);
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -126,30 +124,31 @@ export const Login: React.FC<LoginProps> = ({ onOpenTerms, onOpenPrivacy }) => {
     setResendTimer(30);
     const formattedPhone = `+91${phoneNumber.trim()}`;
 
-    // Initialize recaptcha verifier if on firebase mode
-    let verifier = null;
-    if (hasValidConfig && auth) {
-      if (!(window as any).recaptchaVerifier && recaptchaRef.current) {
-        try {
-          (window as any).recaptchaVerifier = new RecaptchaVerifier(auth, recaptchaRef.current, {
-            size: 'invisible',
-            callback: () => {}
-          });
-        } catch (err: any) {
-          console.error("Recaptcha initialization failed:", err);
-          setError("Failed to initialize reCAPTCHA: " + err.message);
-          return;
-        }
-      }
-      verifier = (window as any).recaptchaVerifier;
-    }
+    const verifier = createRecaptchaVerifier();
+    if (hasValidConfig && auth && !verifier) return;
 
-    const res = await sendOTP(formattedPhone, verifier);
-    if (res.success) {
-      setInfo("OTP code resent successfully!");
-    } else {
-      setError(res.message);
+    setSubmitting(true);
+    try {
+      const res = await sendOTP(formattedPhone, verifier);
+      if (res.success) {
+        setConfirmationResult(res.confirmationResult);
+        setInfo('OTP code resent successfully!');
+      } else {
+        setError(res.message);
+        setResendTimer(0);
+        recaptchaManager.clear();
+      }
+    } finally {
+      setSubmitting(false);
     }
+  };
+
+  const handleChangeNumber = () => {
+    setStep('phone');
+    setOtpCode('');
+    setConfirmationResult(null);
+    setInfo(null);
+    setError(null);
   };
 
   return (
@@ -223,10 +222,10 @@ export const Login: React.FC<LoginProps> = ({ onOpenTerms, onOpenPrivacy }) => {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || submitting}
               className="w-full py-3.5 bg-primary hover:bg-primary-hover text-white rounded-xl font-black text-xs uppercase tracking-widest transition-all shadow-md active:scale-98 flex items-center justify-center space-x-2 cursor-pointer"
             >
-              <span>Send OTP Code</span>
+              <span>{submitting ? 'Sending OTP...' : 'Send OTP Code'}</span>
               <ArrowRight className="h-4.5 w-4.5" />
             </button>
 
@@ -291,10 +290,10 @@ export const Login: React.FC<LoginProps> = ({ onOpenTerms, onOpenPrivacy }) => {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || submitting}
               className="w-full py-3.5 bg-success hover:bg-success-hover text-white rounded-xl font-black text-xs uppercase tracking-widest transition-all shadow-md active:scale-98 flex items-center justify-center space-x-2 cursor-pointer"
             >
-              <span>Verify & Login</span>
+              <span>{submitting ? 'Verifying...' : 'Verify & Login'}</span>
               <ShieldCheck className="h-4.5 w-4.5" />
             </button>
 
@@ -302,7 +301,7 @@ export const Login: React.FC<LoginProps> = ({ onOpenTerms, onOpenPrivacy }) => {
             <div className="flex justify-between items-center text-[10px] font-extrabold uppercase text-slate-400">
               <button 
                 type="button" 
-                onClick={() => setStep('phone')}
+                onClick={handleChangeNumber}
                 className="hover:text-primary transition cursor-pointer"
               >
                 Change Number
@@ -311,7 +310,7 @@ export const Login: React.FC<LoginProps> = ({ onOpenTerms, onOpenPrivacy }) => {
               <button
                 type="button"
                 onClick={handleResend}
-                disabled={resendTimer > 0}
+                disabled={resendTimer > 0 || submitting}
                 className={`${resendTimer > 0 ? 'text-slate-400 cursor-not-allowed' : 'text-primary hover:underline cursor-pointer'}`}
               >
                 {resendTimer > 0 ? `Resend OTP in ${resendTimer}s` : 'Resend OTP Code'}
@@ -320,7 +319,7 @@ export const Login: React.FC<LoginProps> = ({ onOpenTerms, onOpenPrivacy }) => {
           </form>
         )}
 
-        <div id="recaptcha-container" ref={recaptchaRef}></div>
+        <div id="recaptcha-container"></div>
 
         <div className="text-[10px] text-slate-400 font-semibold text-center mt-6 pt-4 border-t border-slate-100 dark:border-zinc-800">
           By logging in, you agree to our{' '}

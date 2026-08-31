@@ -6,9 +6,12 @@ import { ProductCard } from '../components/product/ProductCard';
 import { ShopCard } from '../components/shop/ShopCard';
 import { Button } from '../components/ui/Button';
 import { useShops, useProducts } from '../hooks/useData';
+import { useAuth } from '../context/AuthContext';
+import { CUSTOMER_STORAGE_KEYS, getCustomerStorageItem, setCustomerStorageItem } from '../utils/customerStorage';
 
 export const Search: React.FC = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   const [query, setQuery] = useState('');
   const { shops: allShops } = useShops();
@@ -31,9 +34,9 @@ export const Search: React.FC = () => {
 
   useEffect(() => {
     // Load recent search terms on mount
-    const saved = JSON.parse(localStorage.getItem('recent_searches') || '[]');
+    const saved = JSON.parse(getCustomerStorageItem(CUSTOMER_STORAGE_KEYS.recentSearches, user?.uid) || '[]');
     setRecentSearches(saved);
-  }, []);
+  }, [user?.uid]);
 
   // Filter and sort logic
   useEffect(() => {
@@ -92,14 +95,15 @@ export const Search: React.FC = () => {
     setQuery(searchTerm);
 
     // Save recent
-    const list = JSON.parse(localStorage.getItem('recent_searches') || '[]');
+    if (!user?.uid) return;
+    const list = JSON.parse(getCustomerStorageItem(CUSTOMER_STORAGE_KEYS.recentSearches, user.uid) || '[]');
     const filtered = [searchTerm, ...list.filter((s: string) => s !== searchTerm)].slice(0, 5);
     setRecentSearches(filtered);
-    localStorage.setItem('recent_searches', JSON.stringify(filtered));
+    setCustomerStorageItem(CUSTOMER_STORAGE_KEYS.recentSearches, user.uid, JSON.stringify(filtered));
   };
 
   const clearRecent = () => {
-    localStorage.setItem('recent_searches', '[]');
+    setCustomerStorageItem(CUSTOMER_STORAGE_KEYS.recentSearches, user?.uid, '[]');
     setRecentSearches([]);
   };
 
@@ -144,7 +148,7 @@ export const Search: React.FC = () => {
             onClick={() => setShowFilters(!showFilters)}
             className={`p-3.5 rounded-2xl border transition-colors cursor-pointer
               ${showFilters
-                ? 'border-blue-500 bg-blue-50 dark:bg-emerald-950/30 text-blue-600'
+                ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/30 text-blue-600'
                 : 'border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 text-gray-400'
               }`}
           >
@@ -174,7 +178,7 @@ export const Search: React.FC = () => {
                   onClick={() => setSortBy(opt.id as any)}
                   className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer
                     ${sortBy === opt.id
-                      ? 'border-blue-500 bg-blue-50 dark:bg-emerald-950/20 text-blue-600'
+                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/20 text-blue-600'
                       : 'border-gray-100 dark:border-slate-800 text-gray-500 dark:text-gray-400'
                     }`}
                 >
@@ -259,7 +263,7 @@ export const Search: React.FC = () => {
                 <button
                   key={i}
                   onClick={() => handleSearchSubmit(term)}
-                  className="px-3.5 py-2 rounded-xl bg-blue-50/50 dark:bg-emerald-950/10 border border-blue-100/50 dark:border-emerald-950 text-xs font-bold text-blue-600 dark:text-blue-400 hover:bg-blue-500 hover:text-white transition-all cursor-pointer"
+                  className="px-3.5 py-2 rounded-xl bg-blue-50/50 dark:bg-blue-950/20 border border-blue-100/50 dark:border-blue-900/40 text-xs font-bold text-blue-600 dark:text-blue-400 hover:bg-blue-500 hover:text-white transition-all cursor-pointer"
                 >
                   {term}
                 </button>

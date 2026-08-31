@@ -1,20 +1,24 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Heart, ShoppingBag, ShoppingCart } from 'lucide-react';
+import { ArrowLeft, Heart, ShoppingCart } from 'lucide-react';
 import { dbService } from '../services/dbService';
 import { Product } from '../types';
 import { useCart } from '../context/CartContext';
 import { Button } from '../components/ui/Button';
+import { useAuth } from '../context/AuthContext';
+import { CUSTOMER_STORAGE_KEYS, getCustomerStorageItem, setCustomerStorageItem } from '../utils/customerStorage';
+import { SafeImage } from '../components/ui/SafeImage';
 
 export const Wishlist: React.FC = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { addToCart } = useCart();
   const [wishlistItems, setWishlistItems] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchWishlistItems = async () => {
+  const fetchWishlistItems = useCallback(async () => {
     try {
-      const ids: string[] = JSON.parse(localStorage.getItem('wishlist_products') || '[]');
+      const ids: string[] = JSON.parse(getCustomerStorageItem(CUSTOMER_STORAGE_KEYS.wishlist, user?.uid) || '[]');
       const allProducts = await dbService.getProducts();
       const filtered = allProducts.filter(p => ids.includes(p.id));
       setWishlistItems(filtered);
@@ -23,7 +27,7 @@ export const Wishlist: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user?.uid]);
 
   useEffect(() => {
     fetchWishlistItems();
@@ -37,12 +41,13 @@ export const Wishlist: React.FC = () => {
     return () => {
       window.removeEventListener('wishlist_updated', handleWishUpdate);
     };
-  }, []);
+  }, [fetchWishlistItems]);
 
   const handleRemove = (productId: string) => {
-    const ids: string[] = JSON.parse(localStorage.getItem('wishlist_products') || '[]');
+    if (!user?.uid) return;
+    const ids: string[] = JSON.parse(getCustomerStorageItem(CUSTOMER_STORAGE_KEYS.wishlist, user.uid) || '[]');
     const updated = ids.filter(id => id !== productId);
-    localStorage.setItem('wishlist_products', JSON.stringify(updated));
+    setCustomerStorageItem(CUSTOMER_STORAGE_KEYS.wishlist, user.uid, JSON.stringify(updated));
     // Trigger update
     fetchWishlistItems();
   };
@@ -105,7 +110,7 @@ export const Wishlist: React.FC = () => {
                 </button>
 
                 <div className="aspect-square w-full my-2 overflow-hidden flex items-center justify-center rounded-xl bg-gray-50 dark:bg-slate-850">
-                  <img src={product.image} alt={product.name} className="h-full w-full object-contain p-1" />
+                  <SafeImage src={product.image} alt={product.name} className="h-full w-full object-contain p-1" fallback="📦" />
                 </div>
               </div>
 

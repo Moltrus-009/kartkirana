@@ -283,11 +283,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ userProfile: profile });
       return profile;
     } catch (err: any) {
-      console.warn('[useAppStore] Failed fetching user profile. Falling back to local mock cache.', err);
-      const mockUsers = JSON.parse(localStorage.getItem('mock_users') || '{}');
-      const profile = mockUsers[uid] || null;
-      set({ userProfile: profile });
-      return profile;
+      set({ userProfile: null });
+      if (import.meta.env.DEV) {
+        console.warn('[useAppStore] Failed fetching user profile.', err);
+      }
+      throw err;
     } finally {
       set(state => ({ loading: { ...state.loading, userProfile: false } }));
     }
@@ -314,6 +314,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         lastLogin: new Date().toISOString(),
       }),
       ...updates,
+      role: 'customer',
       updatedAt: new Date().toISOString(),
     };
 
@@ -323,18 +324,20 @@ export const useAppStore = create<AppState>((set, get) => ({
         mockUsers[uid] = updated;
         localStorage.setItem('mock_users', JSON.stringify(mockUsers));
       } else {
-        await userRepository.updateProfile(uid, updates);
+        await userRepository.updateProfile(uid, {
+          ...updates,
+          role: 'customer',
+          updatedAt: updated.updatedAt
+        });
       }
 
       set({ userProfile: updated });
       return updated;
     } catch (err: any) {
-      console.warn('[useAppStore] Failed updating user profile. Saving to local storage fallback.', err);
-      const mockUsers = JSON.parse(localStorage.getItem('mock_users') || '{}');
-      mockUsers[uid] = updated;
-      localStorage.setItem('mock_users', JSON.stringify(mockUsers));
-      set({ userProfile: updated });
-      return updated;
+      if (import.meta.env.DEV) {
+        console.warn('[useAppStore] Failed updating user profile.', err);
+      }
+      throw err;
     } finally {
       set(state => ({ loading: { ...state.loading, userProfile: false } }));
     }

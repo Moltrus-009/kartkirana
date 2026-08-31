@@ -7,6 +7,16 @@ export const shopRepository: ShopRepository = {
     if (!db) return [];
     const colRef = collection(db, 'shops');
     const snap = await getDocs(colRef);
-    return snap.docs.map(d => ({ id: d.id, ...d.data() } as Shop));
+    return snap.docs.map(d => {
+      const data = d.data();
+      const status = String(data.status || '').toLowerCase();
+      return {
+        id: d.id,
+        ...data,
+        // Shopkeeper/admin use `status`; retain `isOpen` only as a legacy
+        // fallback so every client agrees on whether checkout is available.
+        isOpen: status ? status === 'open' : data.isOpen !== false
+      } as Shop;
+    });
   }
 };

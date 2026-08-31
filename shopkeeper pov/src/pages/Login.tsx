@@ -20,6 +20,7 @@ export default function Login() {
   const [step, setStep] = useState<'details' | 'verify'>('details'); // details -> verify
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const showDevelopmentTestControls = import.meta.env.DEV && new URLSearchParams(window.location.search).has('show-dev-controls');
 
   const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
@@ -33,6 +34,8 @@ export default function Login() {
       return () => clearTimeout(timer);
     }
   }, [step]);
+
+  useEffect(() => () => recaptchaManager.clear(), []);
 
   const handleOtpDigitChange = (index: number, val: string) => {
     const newVal = val.replace(/\D/g, '').slice(-1); // keep only last character if multiple typed
@@ -73,6 +76,7 @@ export default function Login() {
 
   const handleSendOTP = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitting) return;
     setError(null);
     setSuccess(null);
 
@@ -92,6 +96,7 @@ export default function Login() {
       return;
     }
 
+    setSubmitting(true);
     try {
       const res = await triggerOTP(phone, verifier);
       if (res.success) {
@@ -99,14 +104,19 @@ export default function Login() {
         setStep('verify');
       } else {
         setError(res.error || 'Failed to send OTP. Please check your credentials.');
+        recaptchaManager.clear();
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong while sending SMS.');
+      recaptchaManager.clear();
+    } finally {
+      setSubmitting(false);
     }
   };
 
   const handleVerifyOTP = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitting) return;
     setError(null);
     setSuccess(null);
 
@@ -116,6 +126,7 @@ export default function Login() {
       return;
     }
 
+    setSubmitting(true);
     try {
       const res = await verifyOTP(phone, mergedOtp);
       if (res.success) {
@@ -128,6 +139,8 @@ export default function Login() {
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Verification failed.');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -223,10 +236,10 @@ export default function Login() {
  
               <button
                 type="submit"
-                disabled={loading}
+                disabled={loading || submitting}
                 className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white text-xs font-black rounded-xl uppercase tracking-wider shadow-lg shadow-blue-500/10 transition-all duration-200 cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
               >
-                {loading ? 'Requesting Code...' : 'Request OTP Code'}
+                {submitting ? 'Requesting Code...' : 'Request OTP Code'}
               </button>
             </form>
           ) : (
@@ -263,18 +276,18 @@ export default function Login() {
               <div className="flex gap-3">
                 <button
                   type="button"
-                  onClick={() => { setStep('details'); setError(null); setOtpDigits(['', '', '', '', '', '']); }}
+                  onClick={() => { setStep('details'); setError(null); setSuccess(null); setOtpDigits(['', '', '', '', '', '']); }}
                   className="w-1/3 py-3 border border-slate-200 hover:bg-slate-50 text-[10px] font-black uppercase rounded-xl transition cursor-pointer text-center text-slate-500"
                 >
                   Back
                 </button>
                 <button
                   type="submit"
-                  disabled={loading}
+                  disabled={loading || submitting}
                   className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-black uppercase rounded-xl tracking-wider shadow-md hover:shadow-lg transition cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
                 >
                   <KeyRound className="h-3.5 w-3.5" />
-                  {loading ? 'Verifying...' : 'Verify & Continue'}
+                  {submitting ? 'Verifying...' : 'Verify & Continue'}
                 </button>
               </div>
             </form>

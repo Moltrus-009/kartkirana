@@ -1,6 +1,7 @@
 const ProductRepository = require('../repositories/ProductRepository');
 const ReservationRepository = require('../repositories/ReservationRepository');
 const crypto = require('crypto');
+const { AppError } = require('../utils/errors');
 
 class InventoryService {
   /**
@@ -18,7 +19,7 @@ class InventoryService {
     for (const productId of quantities.keys()) {
       const productRef = ProductRepository.collection.doc(productId);
       const productSnap = await transaction.get(productRef);
-      if (!productSnap.exists) throw new Error(`Product ID "${productId}" no longer exists.`);
+      if (!productSnap.exists) throw new AppError(`Product ID "${productId}" no longer exists.`, 404);
       snapshots.set(productId, { productRef, productSnap });
     }
 
@@ -30,7 +31,7 @@ class InventoryService {
       const availableStock = totalStock - reservedStock;
 
       if (availableStock < quantity) {
-        throw new Error(`Insufficient stock for "${product.name}". Available: ${availableStock}, Requested: ${quantity}`);
+        throw new AppError(`Insufficient stock for "${product.name}". Available: ${availableStock}, Requested: ${quantity}`, 409);
       }
 
       const nextStock = totalStock - quantity;
@@ -44,21 +45,23 @@ class InventoryService {
   }
 
   async reserveInventory(transaction, orderId, items, expiresAt, userId = 'system') {
-    // Pre-fetch all product snapshots to execute all reads before writes
-    const snapsMap = {};
+    const quantities = new Map();
     for (const item of items) {
       const productId = item.productId || item.id;
-      if (!snapsMap[productId]) {
-        const productRef = ProductRepository.collection.doc(productId);
-        snapsMap[productId] = await transaction.get(productRef);
-      }
+      quantities.set(productId, (quantities.get(productId) || 0) + item.quantity);
     }
 
-    for (const item of items) {
-      const productId = item.productId || item.id;
-      const productSnap = snapsMap[productId];
+    // Pre-fetch every unique product before issuing writes.
+    const snapsMap = new Map();
+    for (const productId of quantities.keys()) {
+      const productRef = ProductRepository.collection.doc(productId);
+      snapsMap.set(productId, await transaction.get(productRef));
+    }
+
+    for (const [productId, quantity] of quantities) {
+      const productSnap = snapsMap.get(productId);
       if (!productSnap.exists) {
-        throw new Error(`Product ID "${productId}" no longer exists.`);
+        throw new AppError(`Product ID "${productId}" no longer exists.`, 404);
       }
 
       const pData = productSnap.data();
@@ -66,12 +69,12 @@ class InventoryService {
       const reservedStock = pData.reservedStock ?? 0;
       const availableStock = totalStock - reservedStock;
 
-      if (availableStock < item.quantity) {
-        throw new Error(`Insufficient stock for "${pData.name}". Available: ${availableStock}, Requested: ${item.quantity}`);
+      if (availableStock < quantity) {
+        throw new AppError(`Insufficient stock for "${pData.name}". Available: ${availableStock}, Requested: ${quantity}`, 409);
       }
 
       // Increment reservedStock atomically in transaction
-      await ProductRepository.adjustStockInTransaction(transaction, productId, item.quantity, true, productSnap);
+      await ProductRepository.adjustStockInTransaction(transaction, productId, quantity, true, productSnap);
 
       const reservationId = `res_${crypto.randomBytes(8).toString('hex')}`;
       const reservationData = {
@@ -79,7 +82,7 @@ class InventoryService {
         orderId,
         productId,
         productName: pData.name,
-        quantity: item.quantity,
+        quantity,
         expiresAt,
         status: 'ACTIVE'
       };
@@ -101,20 +104,29 @@ class InventoryService {
     // Note: Since Firestore queries within transactions must happen before any writes, we fetch reservations via Repository first
     const reservations = await ReservationRepository.getActiveReservationsByOrderId(orderId);
     
-    // Pre-fetch all product snapshots
-    const snapsMap = {};
+    const quantities = new Map();
+    for (const reservation of reservations) {
+      quantities.set(
+        reservation.productId,
+        (quantities.get(reservation.productId) || 0) + reservation.quantity
+      );
+    }
+
+    // Pre-fetch all product snapshots.
+    const snapsMap = new Map();
     for (const res of reservations) {
-      if (!snapsMap[res.productId]) {
+      if (!snapsMap.has(res.productId)) {
         const productRef = ProductRepository.collection.doc(res.productId);
-        snapsMap[res.productId] = await transaction.get(productRef);
+        snapsMap.set(res.productId, await transaction.get(productRef));
       }
     }
 
-    for (const res of reservations) {
-      const productSnap = snapsMap[res.productId];
-      // Decrement totalStock and reservedStock on success
-      await ProductRepository.adjustStockInTransaction(transaction, res.productId, -res.quantity, false, productSnap);
+    for (const [productId, quantity] of quantities) {
+      const productSnap = snapsMap.get(productId);
+      await ProductRepository.adjustStockInTransaction(transaction, productId, -quantity, false, productSnap);
+    }
 
+    for (const res of reservations) {
       const resRef = ReservationRepository.collection.doc(res.reservationId);
       transaction.update(resRef, {
         status: 'FINALIZED',
@@ -126,21 +138,30 @@ class InventoryService {
 
   async releaseReservation(transaction, orderId, status = 'RELEASED', userId = 'system') {
     const reservations = await ReservationRepository.getActiveReservationsByOrderId(orderId);
-    
-    // Pre-fetch all product snapshots
-    const snapsMap = {};
+
+    const quantities = new Map();
+    for (const reservation of reservations) {
+      quantities.set(
+        reservation.productId,
+        (quantities.get(reservation.productId) || 0) + reservation.quantity
+      );
+    }
+
+    // Pre-fetch all product snapshots.
+    const snapsMap = new Map();
     for (const res of reservations) {
-      if (!snapsMap[res.productId]) {
+      if (!snapsMap.has(res.productId)) {
         const productRef = ProductRepository.collection.doc(res.productId);
-        snapsMap[res.productId] = await transaction.get(productRef);
+        snapsMap.set(res.productId, await transaction.get(productRef));
       }
     }
 
-    for (const res of reservations) {
-      const productSnap = snapsMap[res.productId];
-      // Release reservedStock
-      await ProductRepository.adjustStockInTransaction(transaction, res.productId, -res.quantity, true, productSnap);
+    for (const [productId, quantity] of quantities) {
+      const productSnap = snapsMap.get(productId);
+      await ProductRepository.adjustStockInTransaction(transaction, productId, -quantity, true, productSnap);
+    }
 
+    for (const res of reservations) {
       const resRef = ReservationRepository.collection.doc(res.reservationId);
       transaction.update(resRef, {
         status,

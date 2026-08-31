@@ -20,7 +20,7 @@ export function mapFirebaseError(err: any): string {
     case 'auth/network-request-failed':
       return 'Network connection lost. Please check your internet connection and retry.';
     case 'auth/invalid-app-credential':
-      return 'App verification failed. Please try again or access via localhost.';
+      return 'App verification failed. Please try again.';
     case 'auth/missing-verification-id':
       return 'Invalid verification session id. Please re-trigger phone signup.';
     case 'auth/missing-verification-code':

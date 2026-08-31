@@ -55,7 +55,7 @@ export const Header: React.FC = () => {
             >
               <span className="text-xs font-black text-slate-900 dark:text-white flex items-center gap-1 leading-none">
                 {selectedAddress?.name || 'Set Location'}
-                <ChevronDown className="h-3.5 w-3.5 text-[#72C61D]" />
+                <ChevronDown className="h-3.5 w-3.5 text-[#0B74E8]" />
               </span>
               <span className="text-[9px] font-bold text-slate-500 dark:text-[#B8B8B8] block truncate mt-1">
                 {selectedAddress ? `${selectedAddress.details}, ${selectedAddress.area}` : 'Click here to pick location'}
@@ -99,7 +99,7 @@ export const Header: React.FC = () => {
               type="text"
               readOnly={routerLocation.pathname !== '/search'}
               placeholder="Search products, shops, groceries..."
-              className="w-full pl-10 pr-4 py-3 rounded-2xl bg-[#161616] border border-[#2D2D2D] text-sm font-semibold text-white placeholder-[#757575] outline-none focus:border-[#72C61D] transition-all cursor-pointer"
+              className="w-full pl-10 pr-4 py-3 rounded-2xl bg-[#111A33] border border-[#334155] text-sm font-semibold text-white placeholder-[#94A3B8] outline-none focus:border-[#36B6F4] transition-all cursor-pointer"
             />
           </div>
         )}
@@ -135,7 +135,7 @@ export const Header: React.FC = () => {
                 onClick={() => handleSelectAddress(addr.id)}
                 className={`p-4 rounded-2xl border transition-all cursor-pointer flex items-start gap-3
                   ${addr.id === selectedAddress?.id 
-                    ? 'border-blue-500 bg-blue-50/20 dark:bg-emerald-950/20' 
+                    ? 'border-blue-500 bg-blue-50/20 dark:bg-blue-950/20'
                     : 'border-gray-100 dark:border-slate-800 hover:bg-gray-50 dark:hover:bg-slate-850'
                   }`}
               >
@@ -146,7 +146,7 @@ export const Header: React.FC = () => {
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-bold text-gray-800 dark:text-gray-200">{addr.name}</span>
                     {addr.isDefault && (
-                      <span className="px-1.5 py-0.5 rounded bg-blue-100 dark:bg-emerald-950 text-blue-600 dark:text-blue-400 text-[8px] font-bold uppercase">
+                      <span className="px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400 text-[8px] font-bold uppercase">
                         Default
                       </span>
                     )}

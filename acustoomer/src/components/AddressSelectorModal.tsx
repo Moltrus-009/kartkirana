@@ -6,6 +6,8 @@ import { LocationMap } from './LocationMap';
 import { UserAddress } from '../types';
 import { locationService } from '../services/locationService';
 import { Compass, MapPin, Navigation, Search, Check, Info } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import { CUSTOMER_STORAGE_KEYS, getCustomerStorageItem } from '../utils/customerStorage';
 
 interface AddressSelectorModalProps {
   isOpen: boolean;
@@ -50,6 +52,7 @@ export const AddressSelectorModal: React.FC<AddressSelectorModalProps> = ({
   onSave,
   initialAddress = null
 }) => {
+  const { user } = useAuth();
   // Address fields states
   const [addressName, setAddressName] = useState('Home'); // Home, Work, Other
   const [addressDetails, setAddressDetails] = useState(''); // Flat, house, building
@@ -226,7 +229,7 @@ export const AddressSelectorModal: React.FC<AddressSelectorModalProps> = ({
         setPlaceId('');
         
         // Read cached coordinates if available
-        const lastKnown = localStorage.getItem('shop_app_last_known_address');
+        const lastKnown = getCustomerStorageItem(CUSTOMER_STORAGE_KEYS.selectedAddress, user?.uid);
         if (lastKnown) {
           try {
             const parsed = JSON.parse(lastKnown);
@@ -248,7 +251,7 @@ export const AddressSelectorModal: React.FC<AddressSelectorModalProps> = ({
       setSearchQuery('');
       setGpsAccuracy(null);
     }
-  }, [isOpen, initialAddress]);
+  }, [isOpen, initialAddress, user?.uid]);
 
   // Autocomplete Suggestions Query (Google Places or OSM Nominatim)
   useEffect(() => {

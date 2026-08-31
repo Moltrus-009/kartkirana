@@ -1,4 +1,10 @@
 const { db } = require('../config/firebase');
+const { getMessaging } = require('firebase-admin/messaging');
+
+const isInvalidRegistrationToken = (error) => [
+  'messaging/invalid-registration-token',
+  'messaging/registration-token-not-registered'
+].includes(error?.code);
 
 const processNotificationQueue = async () => {
   if (!db) return;
@@ -24,16 +30,72 @@ const processNotificationQueue = async () => {
       
       try {
         if (task.userId && task.userId !== 'riders_broadcast') {
-          const notifId = `notif_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-          await db.collection('users').doc(task.userId).collection('notifications').doc(notifId).set({
+          // The queue document is the delivery idempotency key. If a scheduled
+          // invocation stops after writing the notification but before marking
+          // the task SENT, the retry overwrites the same notification instead
+          // of showing the customer a duplicate.
+          const notifId = `notif_${task.id}`;
+          const userRef = db.collection('users').doc(task.userId);
+          const riderRef = db.collection('riders').doc(task.userId);
+          const [userSnapshot, riderSnapshot] = await Promise.all([userRef.get(), riderRef.get()]);
+          const fcmToken = (userSnapshot.exists ? userSnapshot.data().fcmToken : null) ||
+            (riderSnapshot.exists ? riderSnapshot.data().fcmToken : null);
+
+          await userRef.collection('notifications').doc(notifId).set({
             id: notifId,
             title: task.title,
             body: task.body,
             createdAt: new Date().toISOString(),
             read: false,
             type: 'order',
-            referenceId: task.referenceId || ''
+            referenceId: task.referenceId || '',
+            orderId: task.referenceId || ''
           });
+
+          // Firestore notifications keep the in-app inbox reliable. FCM is
+          // additionally required to wake Android/web riders while the app is
+          // backgrounded or closed.
+          if (fcmToken) {
+            try {
+              await getMessaging().send({
+                token: fcmToken,
+                notification: {
+                  title: task.title,
+                  body: task.body
+                },
+                data: {
+                  type: String(task.userType || 'order'),
+                  referenceId: String(task.referenceId || '')
+                },
+                android: {
+                  priority: 'high',
+                  notification: {
+                    channelId: 'kart_kirana_orders',
+                    sound: 'default',
+                    tag: task.referenceId ? `order_${task.referenceId}` : task.id
+                  }
+                },
+                webpush: {
+                  headers: { Urgency: 'high' },
+                  notification: {
+                    tag: task.referenceId ? `order_${task.referenceId}` : task.id,
+                    renotify: true
+                  }
+                }
+              });
+            } catch (pushError) {
+              if (isInvalidRegistrationToken(pushError)) {
+                console.warn(`[NOTIFICATION WORKER] Removing stale FCM token for user ${task.userId}.`);
+                const staleTokenUpdate = { fcmToken: null, updatedAt: new Date().toISOString() };
+                await Promise.all([
+                  userSnapshot.exists ? userRef.update(staleTokenUpdate) : Promise.resolve(),
+                  riderSnapshot.exists ? riderRef.update(staleTokenUpdate) : Promise.resolve()
+                ]);
+              } else {
+                throw pushError;
+              }
+            }
+          }
         }
 
         await taskRef.update({

@@ -7,6 +7,8 @@ import { logger } from '../core/logger/logger';
 import { mapFirebaseError } from '../core/errors/errors';
 import { networkManager } from '../services/networkManager';
 import { recaptchaManager } from '../services/recaptchaManager';
+import { clearLegacySharedCustomerStorage } from '../utils/customerStorage';
+import { auth, IS_MOCK_MODE } from '../infrastructure/firebase/firebase';
 
 interface AuthContextType {
   user: UserProfile | null;
@@ -44,7 +46,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         console.warn('Auth initialization timed out, running failsafe.');
         setLoading(false);
       }
-    }, 3000);
+    }, 12000);
 
     const initAuth = async () => {
       try {
@@ -71,8 +73,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => {
       active = false;
       clearTimeout(safetyTimeout);
+      recaptchaManager.clear();
     };
   }, []);
+
+  useEffect(() => {
+    if (user?.uid) clearLegacySharedCustomerStorage();
+  }, [user?.uid]);
 
   const completeOnboarding = () => {
     setOnboardingCompleted(true);
@@ -84,19 +91,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const sendOTPCode = async (phoneNumber: string, containerId?: string): Promise<boolean> => {
     setLoading(true);
     setError(null);
-    logger.info('Auth', `Sending OTP code request for: ${phoneNumber}`);
+    const maskedPhone = phoneNumber.replace(/.(?=.{4})/g, '•');
+    logger.info('Auth', `Sending OTP code request for ${maskedPhone}`);
 
     // If an existing verification session is active, invalidate it and clean recaptcha
     if (confirmResult) {
       logger.info('Auth', 'Invalidating previous OTP session.');
       setConfirmResult(null);
       setVerificationId(null);
-      recaptchaManager.clear();
     }
     
     // Setup a timeout promise to reject after 30 seconds
+    let timeoutId = 0;
     const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => {
+      timeoutId = window.setTimeout(() => {
         reject(new Error('Verification request timed out. Please check your network connection or Firebase configuration.'));
       }, 30000);
     });
@@ -108,10 +116,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       const cleanPhone = phoneNumber.replace(/\D/g, '').slice(-10);
-      const isBypassNum = cleanPhone === '9999999999' || cleanPhone.endsWith('99999') || cleanPhone.endsWith('11111') || cleanPhone.endsWith('88888');
+      const isBypassNum = IS_MOCK_MODE && (
+        cleanPhone === '9999999999' ||
+        cleanPhone.endsWith('99999') ||
+        cleanPhone.endsWith('11111') ||
+        cleanPhone.endsWith('88888')
+      );
 
       if (isBypassNum) {
-        logger.info('Auth', `[Phone Auth Mock] Sending mock OTP for bypass/sandbox phone number: ${phoneNumber}`);
+        logger.info('Auth', `[Phone Auth Mock] Sending mock OTP for ${maskedPhone}`);
         setVerificationId('mock-verification-id');
         setConfirmResult({
           verificationId: 'mock-verification-id',
@@ -130,9 +143,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return true;
       }
 
-      let verifier = null;
-      if (containerId) {
-        verifier = authService.setupRecaptcha(containerId);
+      if (!auth) {
+        throw Object.assign(new Error('Firebase Auth is not initialized.'), { code: 'auth/app-not-authorized' });
+      }
+      const verifier = recaptchaManager.setup(auth, containerId || 'recaptcha-container');
+      if (!verifier) {
+        throw Object.assign(new Error('reCAPTCHA could not be initialized.'), { code: 'auth/captcha-check-failed' });
       }
       
       const sendPromise = authService.sendOTP(phoneNumber, verifier);
@@ -140,7 +156,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       setVerificationId(result.verificationId);
       setConfirmResult(result);
-      logger.info('Auth', `OTP verification session created: ${result.verificationId}`);
+      logger.info('Auth', 'OTP verification session created.');
       return true;
     } catch (err: any) {
       logger.error('Auth', 'Error during sendOTPCode:', err);
@@ -148,13 +164,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       recaptchaManager.clear(); // Clear Recaptcha on failure to allow instant retry
       return false;
     } finally {
+      window.clearTimeout(timeoutId);
       setLoading(false);
     }
   };
 
   const verifyOTPCode = async (otp: string, signupProfile?: { name: string; email: string }): Promise<boolean> => {
     // Dev login bypass support
-    if (otp === '123456') {
+    if (IS_MOCK_MODE && otp === '123456') {
       const devUid = 'dev-customer-uid';
       let profile: UserProfile | null = null;
       try {
@@ -210,9 +227,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const firebaseUser = await confirmResult.confirm(otp);
       logger.info('Auth', `OTP confirmation successful. Firebase UID: ${firebaseUser.uid}`);
-      
-      // Fetch or create profile directly from the resolved firebaseUser credentials
-      let profile: UserProfile | null = null;
+
+      // Fetch or create profile directly from the resolved Firebase credentials.
+      let profile: UserProfile | null;
       try {
         profile = await dbService.getUserProfile(firebaseUser.uid);
         if (!profile) {
@@ -222,26 +239,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             email: signupProfile?.email || (firebaseUser as any).email || '',
           });
         } else {
+          const persistedRole = (profile as UserProfile & { role?: string }).role;
+          if (persistedRole && persistedRole !== 'customer') {
+            await authService.logout().catch(() => undefined);
+            throw new Error('This mobile number belongs to a partner account. Please use the correct Kart Kirana partner app.');
+          }
           profile = await dbService.updateUserProfile(firebaseUser.uid, {
             lastLogin: new Date().toISOString(),
             ...(signupProfile ? { name: signupProfile.name, email: signupProfile.email } : {})
           });
         }
       } catch (err) {
-        logger.warn('Auth', 'Error syncing profile to database during verification. Using fallback.');
+        logger.error('Auth', 'Profile synchronization failed after OTP verification.', err);
+        await authService.logout().catch(() => undefined);
+        throw err;
       }
 
-      const targetProfile = profile || {
-        uid: firebaseUser.uid,
-        name: signupProfile?.name || (firebaseUser as any).displayName || 'Customer',
-        phone: firebaseUser.phoneNumber || '',
-        email: signupProfile?.email || (firebaseUser as any).email || '',
-        profileImage: (firebaseUser as any).photoURL || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80',
-        addresses: [],
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        lastLogin: new Date().toISOString(),
-      };
+      if (!profile) {
+        throw new Error('Customer profile could not be loaded.');
+      }
+      const targetProfile = profile;
 
       setUser(targetProfile);
       useAppStore.getState().setUserProfile(targetProfile);
@@ -269,13 +286,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       useAppStore.getState().clearCache();
       
       await authService.logout();
+    } catch (err: any) {
+      setError('Sign out could not reach Firebase, but the local session was cleared.');
+    } finally {
       setUser(null);
       useAppStore.getState().setUserProfile(null);
       setVerificationId(null);
       setConfirmResult(null);
-    } catch (err: any) {
-      setError('Sign out failed');
-    } finally {
+      recaptchaManager.clear();
       setLoading(false);
     }
   };

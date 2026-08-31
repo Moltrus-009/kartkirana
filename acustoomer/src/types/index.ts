@@ -17,6 +17,7 @@ export interface UserAddress {
 
 export interface UserProfile {
   uid: string;
+  role?: 'customer';
   name: string;
   phone: string;
   email: string;
@@ -53,6 +54,47 @@ export interface Coupon {
   maxDiscount?: number;
   description: string;
   expiryDate: string;
+  /** Server-calculated preview. Checkout always validates again on the server. */
+  validatedDiscount?: number;
+  freeDelivery?: boolean;
+}
+
+export interface ShopPromotion {
+  id: string;
+  shopId: string;
+  title: string;
+  description: string;
+  offerType: 'sale' | 'loyalty' | 'addon' | 'subscription';
+  discountType: 'percentage' | 'flat' | 'bogo' | 'free_delivery';
+  value: number;
+  minOrder: number;
+  maxDiscount?: number;
+  scope: 'order' | 'products';
+  productIds: string[];
+  audience: 'all' | 'selected_customers' | 'subscribers';
+  buyQuantity?: number;
+  getQuantity?: number;
+  subscriptionPrice?: number;
+  billingPeriod?: 'monthly' | 'quarterly';
+  startDate: string;
+  endDate: string;
+  isActive: boolean;
+  automatic: true;
+  promotionVersion: 1;
+  /** Client-resolved eligibility. The server always validates it again. */
+  eligible: boolean;
+}
+
+export interface AppliedPromotion {
+  promotionId: string;
+  offerType: ShopPromotion['offerType'];
+  title: string;
+  description: string;
+  discountType: ShopPromotion['discountType'];
+  discount: number;
+  isFreeDelivery: boolean;
+  saving: number;
+  freeItems: Array<{ productId: string; name: string; quantity: number }>;
 }
 
 export interface PromoBanner {
@@ -107,6 +149,7 @@ export interface CartItem {
   isPreorder: boolean;
   preorderDate?: string;
   preorderSlot?: string;
+  preorderTime?: string;
 }
 
 export interface PriceBreakdown {
@@ -117,6 +160,7 @@ export interface PriceBreakdown {
   platformFee: number;
   packagingFee?: number;
   grandTotal: number;
+  appliedPromotion?: AppliedPromotion | null;
 }
 
 export type OrderStatus =
@@ -159,6 +203,8 @@ export interface Order {
   updatedAt: string;
   preorderDate?: string;
   preorderSlot?: string;
+  preorderTime?: string;
+  appliedPromotion?: AppliedPromotion | null;
   rider?: {
     name: string;
     phone: string;

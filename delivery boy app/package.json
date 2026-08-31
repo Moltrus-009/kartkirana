@@ -10,10 +10,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@capacitor-firebase/app-check": "^8.4.0",
     "@capacitor/android": "^8.4.1",
     "@capacitor/cli": "^8.4.1",
     "@capacitor/core": "^8.4.1",
     "@capacitor/geolocation": "^8.2.0",
+    "@capacitor/push-notifications": "^8.1.2",
     "canvas-confetti": "^1.9.4",
     "firebase": "^12.15.0",
     "leaflet": "^1.9.4",

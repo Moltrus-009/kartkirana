@@ -22,6 +22,7 @@ let app: any;
 let auth: ReturnType<typeof getAuth> | null = null;
 let db: ReturnType<typeof getFirestore> | null = null;
 let storage: ReturnType<typeof getStorage> | null = null;
+let appCheck: ReturnType<typeof initializeAppCheck> | null = null;
 
 try {
   if (hasValidConfig && typeof window !== 'undefined') {
@@ -36,7 +37,7 @@ try {
     // Never initialize App Check with a placeholder: Firebase rejects it with 403s.
     if (appCheckSiteKey) {
       try {
-        initializeAppCheck(app, {
+        appCheck = initializeAppCheck(app, {
           provider: new ReCaptchaEnterpriseProvider(appCheckSiteKey),
           isTokenAutoRefreshEnabled: true
         });
@@ -72,4 +73,4 @@ try {
   console.error("Failed to initialize Firebase App in admin:", error);
 }
 
-export { auth, db, storage, hasValidConfig };
+export { auth, db, storage, appCheck, hasValidConfig };

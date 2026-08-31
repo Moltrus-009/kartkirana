@@ -18,14 +18,14 @@ export const Button: React.FC<ButtonProps> = ({
   disabled,
   ...props
 }) => {
-  const baseStyles = 'inline-flex items-center justify-center font-extrabold rounded-full transition-all duration-300 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-sm';
+  const baseStyles = 'inline-flex min-h-10 items-center justify-center gap-2 rounded-xl font-extrabold transition-all duration-200 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer';
   
   const variants = {
-    primary: 'bg-gradient-to-br from-[#1E88E5] to-[#0B74E8] hover:from-[#0B74E8] hover:to-[#0758C7] text-white shadow-md shadow-[#0B74E8]/25 hover:shadow-lg hover:shadow-[#0B74E8]/35 active:scale-[0.98] btn-glossy border border-[#90CAF9]/20',
-    secondary: 'bg-white dark:bg-[#1E293B] border border-[#0B74E8] text-[#0B74E8] dark:text-[#90CAF9] hover:bg-[#E2E8F0] dark:hover:bg-[#1E293B] active:scale-[0.98] shadow-sm',
-    outline: 'border border-[#0B74E8]/40 text-[#0B74E8] dark:text-[#90CAF9] bg-transparent hover:bg-[#0B74E8]/10 active:scale-[0.98]',
+    primary: 'border border-[#0B74E8] bg-[#0B74E8] text-white shadow-sm shadow-[#0B74E8]/20 hover:border-[#0758C7] hover:bg-[#0758C7] hover:shadow-md active:scale-[0.98]',
+    secondary: 'bg-white dark:bg-[#1E293B] border border-[#0B74E8]/50 text-[#0758C7] dark:text-[#90CAF9] hover:bg-blue-50 dark:hover:bg-blue-950/30 active:scale-[0.98] shadow-sm',
+    outline: 'border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 bg-transparent hover:border-[#0B74E8] hover:text-[#0B74E8] active:scale-[0.98]',
     ghost: 'hover:bg-gray-150 dark:hover:bg-[#1E293B] text-gray-600 dark:text-[#94A3B8] hover:text-gray-900 dark:hover:text-white active:scale-[0.98]',
-    danger: 'bg-gradient-to-r from-[#D32F2F] to-[#C62828] hover:from-[#C62828] hover:to-[#B71C1C] text-white shadow-md shadow-red-500/10 active:scale-[0.98]'
+    danger: 'border border-[#D32F2F] bg-[#D32F2F] hover:bg-[#B71C1C] text-white shadow-sm shadow-red-500/10 active:scale-[0.98]'
   };
 
   const sizes = {

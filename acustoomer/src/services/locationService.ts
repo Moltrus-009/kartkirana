@@ -1,4 +1,9 @@
 import { logger } from '../core/logger/logger';
+import {
+  CUSTOMER_STORAGE_KEYS,
+  getCustomerStorageItem,
+  setCustomerStorageItem
+} from '../utils/customerStorage';
 
 export interface LocationCoords {
   lat: number;
@@ -12,18 +17,25 @@ type ErrorCallback = (err: GeolocationPositionError | Error) => void;
 class LocationService {
   private activeWatchId: number | null = null;
   private cachedLocation: LocationCoords | null = null;
-  private cacheKey = 'shop_app_last_known_address';
+  private activeUserId: string | null = null;
+  private readonly cacheKey = CUSTOMER_STORAGE_KEYS.locationCoords;
 
-  constructor() {
-    this.loadCache();
+  setActiveUser(userId: string | null): void {
+    if (this.activeUserId === userId) return;
+    this.activeUserId = userId;
+    this.cachedLocation = null;
+    if (userId) this.loadCache();
   }
 
   private loadCache() {
     try {
-      const stored = localStorage.getItem(this.cacheKey);
+      const stored = getCustomerStorageItem(this.cacheKey, this.activeUserId);
       if (stored) {
-        this.cachedLocation = JSON.parse(stored);
-        logger.info('Location', 'Loaded cached coordinates from localStorage:', this.cachedLocation);
+        const parsed = JSON.parse(stored);
+        if (Number.isFinite(parsed?.lat) && Number.isFinite(parsed?.lng)) {
+          this.cachedLocation = { lat: parsed.lat, lng: parsed.lng, accuracy: parsed.accuracy };
+          logger.info('Location', 'Loaded cached coordinates from localStorage:', this.cachedLocation);
+        }
       }
     } catch (err) {
       logger.warn('Location', 'Failed to read cached coordinates:', err);
@@ -33,7 +45,7 @@ class LocationService {
   private saveCache(coords: LocationCoords) {
     try {
       this.cachedLocation = coords;
-      localStorage.setItem(this.cacheKey, JSON.stringify(coords));
+      setCustomerStorageItem(this.cacheKey, this.activeUserId, JSON.stringify(coords));
     } catch (err) {
       logger.warn('Location', 'Failed to cache coordinates:', err);
     }
@@ -50,11 +62,12 @@ class LocationService {
   }
 
   async getCurrentLocation(
-    options: { enableHighAccuracy?: boolean; timeoutMs?: number; maxRetries?: number } = {}
+    options: { enableHighAccuracy?: boolean; timeoutMs?: number; maxRetries?: number; maximumAgeMs?: number } = {}
   ): Promise<LocationCoords> {
-    const useHighAccuracy = true; // Enforced high accuracy
-    const timeout = options.timeoutMs ?? 15000;
-    const maxRetries = options.maxRetries ?? 1;
+    const useHighAccuracy = options.enableHighAccuracy ?? true;
+    const timeout = options.timeoutMs ?? 8000;
+    const maxRetries = options.maxRetries ?? 0;
+    const maximumAge = options.maximumAgeMs ?? 60000;
 
     logger.info('Location', `Fetching high-accuracy location. MaxRetries: ${maxRetries}`);
 
@@ -71,7 +84,7 @@ class LocationService {
             resolve(coords);
           },
           (err) => reject(err),
-          { enableHighAccuracy: useHighAccuracy, timeout: timeout, maximumAge: 0 }
+          { enableHighAccuracy: useHighAccuracy, timeout, maximumAge }
         );
       });
 

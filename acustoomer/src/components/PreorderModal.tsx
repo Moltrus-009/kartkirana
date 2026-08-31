@@ -1,23 +1,30 @@
-import React, { useState } from 'react';
-import { Calendar, Clock, Check, X, Sparkles } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Calendar, Check, Clock, Sparkles } from 'lucide-react';
 import { Dialog } from './ui/Dialog';
 import { Button } from './ui/Button';
+import {
+  PREORDER_SLOTS,
+  PreorderSchedule,
+  addLocalDays,
+  getAvailablePreorderSlots,
+  getDefaultPreorderSchedule,
+  isValidPreorderSchedule,
+  toLocalDateInput,
+} from '../utils/preorder';
 
 interface PreorderModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: (schedule: { date: string; slot: string; time: string }) => void;
+  onConfirm: (schedule: PreorderSchedule) => void | Promise<void>;
   initialDate?: string;
   initialSlot?: string;
   initialTime?: string;
+  maxDaysAhead?: number;
+  confirmLabel?: string;
+  isSaving?: boolean;
 }
 
-export const PREORDER_SLOTS = [
-  { id: '09-11', label: '09:00 AM - 11:00 AM', period: 'Morning Slot', subTimes: ['09:00 AM', '09:30 AM', '10:00 AM', '10:30 AM'] },
-  { id: '12-02', label: '12:00 PM - 02:00 PM', period: 'Afternoon Slot', subTimes: ['12:00 PM', '12:30 PM', '01:00 PM', '01:30 PM'] },
-  { id: '03-05', label: '03:00 PM - 05:00 PM', period: 'Evening Slot', subTimes: ['03:00 PM', '03:30 PM', '04:00 PM', '04:30 PM'] },
-  { id: '06-08', label: '06:00 PM - 08:00 PM', period: 'Night Slot', subTimes: ['06:00 PM', '06:30 PM', '07:00 PM', '07:30 PM'] }
-];
+export { PREORDER_SLOTS };
 
 export const PreorderModal: React.FC<PreorderModalProps> = ({
   isOpen,
@@ -25,168 +32,158 @@ export const PreorderModal: React.FC<PreorderModalProps> = ({
   onConfirm,
   initialDate,
   initialSlot,
-  initialTime
+  initialTime,
+  maxDaysAhead = 7,
+  confirmLabel = 'Save delivery slot',
+  isSaving = false,
 }) => {
-  const todayStr = new Date().toISOString().split('T')[0];
-  const tomorrowDate = new Date();
-  tomorrowDate.setDate(tomorrowDate.getDate() + 1);
-  const tomorrowStr = tomorrowDate.toISOString().split('T')[0];
+  const [schedule, setSchedule] = useState<PreorderSchedule>(() => getDefaultPreorderSchedule({
+    date: initialDate,
+    slot: initialSlot,
+    time: initialTime,
+  }));
 
-  const dayAfterDate = new Date();
-  dayAfterDate.setDate(dayAfterDate.getDate() + 2);
-  const dayAfterStr = dayAfterDate.toISOString().split('T')[0];
+  useEffect(() => {
+    if (isOpen) setSchedule(getDefaultPreorderSchedule({ date: initialDate, slot: initialSlot, time: initialTime }));
+  }, [isOpen, initialDate, initialSlot, initialTime]);
 
-  const [selectedDate, setSelectedDate] = useState<string>(initialDate || tomorrowStr);
-  const [selectedSlot, setSelectedSlot] = useState<string>(initialSlot || '09:00 AM - 11:00 AM');
-  const [selectedTime, setSelectedTime] = useState<string>(initialTime || '09:30 AM');
+  const today = toLocalDateInput();
+  const maxDate = addLocalDays(maxDaysAhead);
+  const quickDates = [
+    { label: 'Today', value: today },
+    { label: 'Tomorrow', value: addLocalDays(1) },
+    { label: 'Day after', value: addLocalDays(2) },
+  ];
+  const availableSlots = useMemo(() => getAvailablePreorderSlots(schedule.date), [schedule.date]);
+  const activeSlot = PREORDER_SLOTS.find(slot => slot.label === schedule.slot) || availableSlots[0];
 
-  const activeSlotObj = PREORDER_SLOTS.find(s => s.label === selectedSlot) || PREORDER_SLOTS[0];
-
-  const handleSelectSlot = (slotLabel: string) => {
-    setSelectedSlot(slotLabel);
-    const found = PREORDER_SLOTS.find(s => s.label === slotLabel);
-    if (found && found.subTimes.length > 0) {
-      setSelectedTime(found.subTimes[1] || found.subTimes[0]);
+  const selectDate = (date: string) => {
+    const slots = getAvailablePreorderSlots(date);
+    const nextSlot = slots.find(slot => slot.label === schedule.slot) || slots[0];
+    if (!nextSlot) {
+      const tomorrow = addLocalDays(1);
+      const firstTomorrowSlot = getAvailablePreorderSlots(tomorrow)[0];
+      setSchedule({ date: tomorrow, slot: firstTomorrowSlot.label, time: firstTomorrowSlot.subTimes[0] });
+      return;
     }
+    setSchedule({ date, slot: nextSlot.label, time: nextSlot.subTimes[0] });
   };
 
-  const handleConfirm = () => {
-    onConfirm({
-      date: selectedDate,
-      slot: selectedSlot,
-      time: selectedTime
-    });
+  const selectSlot = (slotLabel: string) => {
+    const slot = PREORDER_SLOTS.find(item => item.label === slotLabel);
+    if (slot) setSchedule(current => ({ ...current, slot: slot.label, time: slot.subTimes[0] }));
+  };
+
+  const handleConfirm = async () => {
+    if (!isValidPreorderSchedule(schedule) || isSaving) return;
+    await onConfirm(schedule);
     onClose();
   };
 
   return (
-    <Dialog isOpen={isOpen} onClose={onClose} title="📅 Schedule Pre-Order Slot">
-      <div className="flex flex-col gap-5 text-left text-xs">
-        
-        {/* Banner */}
-        <div className="bg-gradient-to-r from-[#1E88E5]/10 to-[#0B74E8]/10 border border-[#0B74E8]/20 p-3.5 rounded-2xl flex items-center gap-3 text-gray-800 dark:text-gray-200">
-          <Sparkles className="h-5 w-5 text-[#FFC928] shrink-0" />
-          <p className="text-[11px] font-bold leading-relaxed">
-            Select a <span className="text-[#0B74E8] font-black">2-Hour Delivery Slot</span> and preferred time. Your pre-order request will be sent directly to the merchant shopkeeper.
+    <Dialog isOpen={isOpen} onClose={onClose} title="Schedule delivery">
+      <div className="flex flex-col gap-5 text-left">
+        <div className="flex items-start gap-3 rounded-2xl border border-blue-100 bg-blue-50 p-3.5 text-slate-700 dark:border-blue-900/50 dark:bg-blue-950/25 dark:text-slate-200">
+          <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-[#FFC928]" />
+          <p className="text-[11px] font-semibold leading-relaxed">
+            Pick one reliable two-hour window. We keep a short preparation buffer for same-day orders.
           </p>
         </div>
 
-        {/* 1. Date Selection */}
-        <div className="space-y-2">
-          <label className="text-[10px] font-black uppercase text-gray-400 dark:text-[#94A3B8] tracking-wider flex items-center gap-1.5">
-            <Calendar className="h-3.5 w-3.5 text-[#0B74E8]" /> Select Delivery Date
-          </label>
+        <section className="space-y-2.5">
+          <h4 className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">
+            <Calendar className="h-3.5 w-3.5 text-[#0B74E8]" /> Delivery date
+          </h4>
           <div className="grid grid-cols-3 gap-2">
-            {[
-              { label: 'Today', val: todayStr },
-              { label: 'Tomorrow', val: tomorrowStr },
-              { label: 'Day After', val: dayAfterStr }
-            ].map(d => (
-              <button
-                key={d.val}
-                type="button"
-                onClick={() => setSelectedDate(d.val)}
-                className={`py-2.5 px-3 rounded-xl border text-center transition-all cursor-pointer font-bold ${
-                  selectedDate === d.val
-                    ? 'bg-[#0B74E8] text-white border-[#0B74E8] shadow-md shadow-[#0B74E8]/20'
-                    : 'bg-white dark:bg-[#1E293B] border-gray-200 dark:border-[#334155] text-gray-700 dark:text-gray-300 hover:border-[#0B74E8]'
-                }`}
-              >
-                <div className="text-[11px] font-black">{d.label}</div>
-                <div className="text-[9px] opacity-80 mt-0.5">{d.val}</div>
-              </button>
-            ))}
-          </div>
-
-          <div className="mt-2 flex items-center gap-2">
-            <span className="text-[10px] font-bold text-gray-400">Or pick custom date:</span>
-            <input
-              type="date"
-              value={selectedDate}
-              min={todayStr}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="bg-white dark:bg-[#1E293B] border border-gray-200 dark:border-[#334155] rounded-lg px-2.5 py-1 text-xs font-bold text-gray-800 dark:text-white outline-none focus:border-[#0B74E8]"
-            />
-          </div>
-        </div>
-
-        {/* 2. 2-Hour Slot Selection */}
-        <div className="space-y-2">
-          <label className="text-[10px] font-black uppercase text-gray-400 dark:text-[#94A3B8] tracking-wider flex items-center gap-1.5">
-            <Clock className="h-3.5 w-3.5 text-[#0B74E8]" /> Select 2-Hour Window Slot
-          </label>
-          <div className="grid grid-cols-2 gap-2.5">
-            {PREORDER_SLOTS.map(slot => {
-              const isSelected = selectedSlot === slot.label;
+            {quickDates.map(date => {
+              const disabled = date.value > maxDate || (date.value === today && getAvailablePreorderSlots(date.value).length === 0);
+              const selected = schedule.date === date.value;
               return (
                 <button
-                  key={slot.id}
+                  key={date.value}
                   type="button"
-                  onClick={() => handleSelectSlot(slot.label)}
-                  className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
-                    isSelected
-                      ? 'bg-gradient-to-br from-[#1E88E5]/15 to-[#0B74E8]/15 border-[#0B74E8] text-[#0B74E8] dark:text-[#60A5FA] ring-2 ring-[#0B74E8]/30 font-black'
-                      : 'bg-white dark:bg-[#1E293B] border-gray-200 dark:border-[#334155] text-gray-700 dark:text-gray-300 hover:border-[#0B74E8]'
-                  }`}
+                  disabled={disabled}
+                  onClick={() => selectDate(date.value)}
+                  className={`min-h-14 rounded-xl border px-2 py-2 text-center transition disabled:cursor-not-allowed disabled:opacity-40 ${selected
+                    ? 'border-[#0B74E8] bg-[#0B74E8] text-white shadow-sm'
+                    : 'border-slate-200 bg-white text-slate-700 hover:border-blue-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200'}`}
                 >
-                  <div className="flex items-center justify-between">
-                    <span className="text-[9px] font-black uppercase tracking-wider text-gray-400 dark:text-[#94A3B8]">
-                      {slot.period}
-                    </span>
-                    {isSelected && <Check className="h-4 w-4 text-[#0B74E8] shrink-0" />}
-                  </div>
-                  <div className="text-xs font-black mt-1 text-gray-900 dark:text-white">
-                    {slot.label}
-                  </div>
+                  <span className="block text-[11px] font-black">{date.label}</span>
+                  <span className="mt-0.5 block text-[9px] opacity-75">{date.value.slice(5)}</span>
                 </button>
               );
             })}
           </div>
-        </div>
-
-        {/* 3. Specific Preferred Time Picker */}
-        <div className="space-y-2">
-          <label className="text-[10px] font-black uppercase text-gray-400 dark:text-[#94A3B8] tracking-wider flex items-center gap-1.5">
-            ⏱️ Preferred Time inside Slot
+          <label className="flex items-center justify-between gap-3 text-[10px] font-bold text-slate-500">
+            Choose another date
+            <input
+              aria-label="Custom delivery date"
+              type="date"
+              value={schedule.date}
+              min={today}
+              max={maxDate}
+              onChange={event => selectDate(event.target.value)}
+              className="min-h-10 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-800 outline-none focus:border-[#0B74E8] focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+            />
           </label>
-          <div className="flex flex-wrap gap-2">
-            {activeSlotObj.subTimes.map(t => (
-              <button
-                key={t}
-                type="button"
-                onClick={() => setSelectedTime(t)}
-                className={`px-3 py-1.5 rounded-xl border text-xs font-black transition-all cursor-pointer ${
-                  selectedTime === t
-                    ? 'bg-[#FFC928] text-slate-950 border-[#FFC928] shadow-sm'
-                    : 'bg-white dark:bg-[#1E293B] border-gray-200 dark:border-[#334155] text-gray-700 dark:text-gray-300 hover:border-[#FFC928]'
-                }`}
-              >
-                {t}
-              </button>
-            ))}
+        </section>
+
+        <section className="space-y-2.5">
+          <h4 className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">
+            <Clock className="h-3.5 w-3.5 text-[#0B74E8]" /> Two-hour window
+          </h4>
+          <div className="grid grid-cols-2 gap-2.5">
+            {availableSlots.map(slot => {
+              const selected = schedule.slot === slot.label;
+              return (
+                <button
+                  key={slot.id}
+                  type="button"
+                  onClick={() => selectSlot(slot.label)}
+                  className={`min-h-16 rounded-2xl border p-3 text-left transition ${selected
+                    ? 'border-[#0B74E8] bg-blue-50 text-[#0758C7] ring-2 ring-blue-100 dark:bg-blue-950/30 dark:text-blue-300 dark:ring-blue-900/40'
+                    : 'border-slate-200 bg-white text-slate-700 hover:border-blue-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200'}`}
+                >
+                  <span className="flex items-center justify-between text-[9px] font-black uppercase tracking-wide text-slate-500">
+                    {slot.period}{selected && <Check className="h-3.5 w-3.5 text-[#0B74E8]" />}
+                  </span>
+                  <span className="mt-1 block text-[11px] font-black">{slot.label}</span>
+                </button>
+              );
+            })}
           </div>
+        </section>
+
+        {activeSlot && (
+          <section className="space-y-2.5">
+            <h4 className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Preferred arrival time</h4>
+            <div className="flex flex-wrap gap-2">
+              {activeSlot.subTimes.map(time => (
+                <button
+                  key={time}
+                  type="button"
+                  onClick={() => setSchedule(current => ({ ...current, time }))}
+                  className={`min-h-9 rounded-xl border px-3 text-xs font-black transition ${schedule.time === time
+                    ? 'border-[#FFC928] bg-[#FFC928] text-[#071128]'
+                    : 'border-slate-200 bg-white text-slate-600 hover:border-[#FFC928] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200'}`}
+                >
+                  {time}
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
+
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3.5 dark:border-slate-700 dark:bg-slate-950">
+          <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400">Your delivery window</span>
+          <strong className="mt-1 block text-xs text-[#0758C7] dark:text-blue-300">
+            {schedule.date} · {schedule.slot}{schedule.time ? ` · preferred ${schedule.time}` : ''}
+          </strong>
         </div>
 
-        {/* Selected Summary Card */}
-        <div className="bg-[#F8FAFC] dark:bg-[#0F172A] p-3.5 rounded-2xl border border-gray-200 dark:border-[#334155] space-y-1">
-          <span className="text-[9px] font-black uppercase text-gray-400 tracking-wider block">Assigned Slot Summary</span>
-          <div className="text-xs font-black text-[#0B74E8] dark:text-[#60A5FA]">
-            📅 {selectedDate} • 🕒 {selectedSlot} ({selectedTime})
-          </div>
-        </div>
-
-        {/* Action Button */}
-        <div className="pt-2">
-          <Button
-            variant="primary"
-            fullWidth
-            onClick={handleConfirm}
-            className="py-3 text-xs font-black uppercase tracking-wider rounded-xl"
-          >
-            Confirm & Save Pre-Order Slot
-          </Button>
-        </div>
-
+        <Button fullWidth onClick={handleConfirm} isLoading={isSaving} disabled={!isValidPreorderSchedule(schedule)} className="min-h-12">
+          {confirmLabel}
+        </Button>
       </div>
     </Dialog>
   );

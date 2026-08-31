@@ -2,6 +2,13 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import { UserAddress } from '../types';
 import { useAppStore } from '../core/store/useAppStore';
 import { locationService } from '../services/locationService';
+import { useAuth } from './AuthContext';
+import {
+  CUSTOMER_STORAGE_KEYS,
+  getCustomerStorageItem,
+  removeCustomerStorageItem,
+  setCustomerStorageItem
+} from '../utils/customerStorage';
 
 interface AddressContextType {
   addresses: UserAddress[];
@@ -15,8 +22,19 @@ interface AddressContextType {
 
 const AddressContext = createContext<AddressContextType | undefined>(undefined);
 
-const LOCAL_STORAGE_KEY = 'shop_app_addresses';
-const LAST_KNOWN_ADDR_KEY = 'shop_app_last_known_address';
+const LOCAL_STORAGE_KEY = CUSTOMER_STORAGE_KEYS.addresses;
+const LAST_KNOWN_ADDR_KEY = CUSTOMER_STORAGE_KEYS.selectedAddress;
+const CURRENT_LOCATION_ID = 'addr_current_gps';
+
+const isCompleteAddress = (value: Partial<UserAddress> | null): value is UserAddress => Boolean(
+  value?.id &&
+  value?.name &&
+  typeof value?.details === 'string' &&
+  typeof value?.area === 'string' &&
+  typeof value?.city === 'string' &&
+  Number.isFinite(value?.lat) &&
+  Number.isFinite(value?.lng)
+);
 
 const parseGoogleAddress = (result: any) => {
   const comps = result.address_components || [];
@@ -49,14 +67,24 @@ const parseGoogleAddress = (result: any) => {
 };
 
 export const AddressProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user, loading: authLoading } = useAuth();
   const [addresses, setAddresses] = useState<UserAddress[]>([]);
   const [selectedAddress, setSelectedAddress] = useState<UserAddress | null>(null);
   const lastGeocodeTimeRef = useRef<number>(0);
 
-  // Initialize from LocalStorage
+  // Reload only the authenticated customer's addresses on an account change.
   useEffect(() => {
-    const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
-    const lastKnown = localStorage.getItem(LAST_KNOWN_ADDR_KEY);
+    if (authLoading) return;
+    if (!user?.uid) {
+      setAddresses([]);
+      setSelectedAddress(null);
+      locationService.setActiveUser(null);
+      return;
+    }
+
+    locationService.setActiveUser(user.uid);
+    const saved = getCustomerStorageItem(LOCAL_STORAGE_KEY, user.uid);
+    const lastKnown = getCustomerStorageItem(LAST_KNOWN_ADDR_KEY, user.uid);
     
     let parsed: UserAddress[] = [];
     if (saved) {
@@ -66,14 +94,15 @@ export const AddressProvider: React.FC<{ children: React.ReactNode }> = ({ child
       // Start with empty list to avoid Noida fallbacks
       parsed = [];
       setAddresses(parsed);
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(parsed));
+      setCustomerStorageItem(LOCAL_STORAGE_KEY, user.uid, JSON.stringify(parsed));
     }
 
     // Set selected address based on last known or default
     if (lastKnown) {
       try {
         const lastKnownAddr = JSON.parse(lastKnown) as UserAddress;
-        setSelectedAddress(lastKnownAddr);
+        const def = parsed.find(a => a.isDefault) || parsed[0] || null;
+        setSelectedAddress(isCompleteAddress(lastKnownAddr) ? lastKnownAddr : def);
       } catch {
         const def = parsed.find(a => a.isDefault) || parsed[0] || null;
         setSelectedAddress(def);
@@ -82,15 +111,17 @@ export const AddressProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const def = parsed.find(a => a.isDefault) || parsed[0] || null;
       setSelectedAddress(def);
     }
-  }, []);
+  }, [authLoading, user?.uid]);
 
   const saveToStorage = (list: UserAddress[]) => {
     setAddresses(list);
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(list));
+    setCustomerStorageItem(LOCAL_STORAGE_KEY, user?.uid, JSON.stringify(list));
     const active = list.find(a => a.isDefault) || list[0] || null;
     setSelectedAddress(active);
     if (active) {
-      localStorage.setItem(LAST_KNOWN_ADDR_KEY, JSON.stringify(active));
+      setCustomerStorageItem(LAST_KNOWN_ADDR_KEY, user?.uid, JSON.stringify(active));
+    } else {
+      removeCustomerStorageItem(LAST_KNOWN_ADDR_KEY, user?.uid);
     }
   };
 
@@ -139,7 +170,7 @@ export const AddressProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const found = addresses.find(a => a.id === id);
     if (found) {
       setSelectedAddress(found);
-      localStorage.setItem(LAST_KNOWN_ADDR_KEY, JSON.stringify(found));
+      setCustomerStorageItem(LAST_KNOWN_ADDR_KEY, user?.uid, JSON.stringify(found));
     }
   };
 
@@ -213,17 +244,88 @@ export const AddressProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Continuous background GPS watcher to automatically refresh active location on movement
   useEffect(() => {
-    if (!navigator.geolocation) return;
+    if (authLoading || !user?.uid || !navigator.geolocation) return;
+    const userId = user.uid;
 
     const options = {
       enableHighAccuracy: true,
       timeout: 15000,
-      maximumAge: 10000
+      maximumAge: 30000
     };
 
-    const watchId = navigator.geolocation.watchPosition(
-      async (position) => {
+    let active = true;
+
+    const handlePosition = async (position: GeolocationPosition) => {
+        if (!active) return;
         const { latitude, longitude } = position.coords;
+        localStorage.setItem('location_permission_prompted', 'true');
+
+        let persistedAddress: UserAddress | null = null;
+        try {
+          persistedAddress = JSON.parse(getCustomerStorageItem(LAST_KNOWN_ADDR_KEY, userId) || 'null');
+        } catch {
+          persistedAddress = null;
+        }
+
+        // Automatically activate the first successful GPS result. Respect a manually selected address.
+        if (!isCompleteAddress(persistedAddress)) {
+          const provisionalAddress: UserAddress = {
+            id: CURRENT_LOCATION_ID,
+            name: 'Current Location',
+            details: 'Location detected automatically',
+            area: 'Resolving nearby area…',
+            city: '',
+            pinCode: '',
+            lat: latitude,
+            lng: longitude,
+            isDefault: true
+          };
+
+          setAddresses((currentAddresses) => {
+            const next = [
+              ...currentAddresses
+                .filter(address => address.id !== CURRENT_LOCATION_ID)
+                .map(address => ({ ...address, isDefault: false })),
+              provisionalAddress
+            ];
+            setCustomerStorageItem(LOCAL_STORAGE_KEY, userId, JSON.stringify(next));
+            return next;
+          });
+          setSelectedAddress(provisionalAddress);
+          setCustomerStorageItem(LAST_KNOWN_ADDR_KEY, userId, JSON.stringify(provisionalAddress));
+
+          // Refine the visible address in the background without holding up app startup.
+          if (Date.now() - lastGeocodeTimeRef.current > 35000) {
+            lastGeocodeTimeRef.current = Date.now();
+            void detectCurrentLocation()
+              .then((detected) => {
+                if (!active) return;
+                let latestAddress: UserAddress | null = null;
+                try {
+                  latestAddress = JSON.parse(getCustomerStorageItem(LAST_KNOWN_ADDR_KEY, userId) || 'null');
+                } catch {
+                  latestAddress = null;
+                }
+                if (latestAddress?.id !== CURRENT_LOCATION_ID) return;
+
+                const resolvedAddress: UserAddress = {
+                  ...detected,
+                  id: CURRENT_LOCATION_ID,
+                  isDefault: true
+                };
+                setAddresses((currentAddresses) => {
+                  const next = currentAddresses.some(address => address.id === CURRENT_LOCATION_ID)
+                    ? currentAddresses.map(address => address.id === CURRENT_LOCATION_ID ? resolvedAddress : { ...address, isDefault: false })
+                    : [...currentAddresses.map(address => ({ ...address, isDefault: false })), resolvedAddress];
+                  setCustomerStorageItem(LOCAL_STORAGE_KEY, userId, JSON.stringify(next));
+                  return next;
+                });
+                setSelectedAddress(resolvedAddress);
+                setCustomerStorageItem(LAST_KNOWN_ADDR_KEY, userId, JSON.stringify(resolvedAddress));
+              })
+              .catch(err => console.warn('[AddressContext] Background address resolution failed:', err));
+          }
+        }
         
         setSelectedAddress((current) => {
           if (!current) return null;
@@ -247,6 +349,7 @@ export const AddressProvider: React.FC<{ children: React.ReactNode }> = ({ child
                   fetch(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${latitude},${longitude}&key=${googleKey}`)
                     .then(res => res.ok ? res.json() : null)
                     .then(data => {
+                      if (!active) return;
                       if (data && data.results && data.results[0]) {
                         const parsed = parseGoogleAddress(data.results[0]);
                         const resolved = {
@@ -256,7 +359,7 @@ export const AddressProvider: React.FC<{ children: React.ReactNode }> = ({ child
                           lng: longitude
                         };
                         setSelectedAddress(resolved);
-                        localStorage.setItem(LAST_KNOWN_ADDR_KEY, JSON.stringify(resolved));
+                        setCustomerStorageItem(LAST_KNOWN_ADDR_KEY, userId, JSON.stringify(resolved));
                       }
                     })
                     .catch(err => console.warn('Background Google geocoding error:', err));
@@ -267,6 +370,7 @@ export const AddressProvider: React.FC<{ children: React.ReactNode }> = ({ child
                   )
                     .then((res) => (res.ok ? res.json() : null))
                     .then((data) => {
+                      if (!active) return;
                       if (data && data.address) {
                         const addr = data.address;
                         const area = addr.suburb || addr.neighbourhood || addr.village || addr.quarter || 'Local Area';
@@ -285,7 +389,7 @@ export const AddressProvider: React.FC<{ children: React.ReactNode }> = ({ child
                         };
                         
                         setSelectedAddress(resolved);
-                        localStorage.setItem(LAST_KNOWN_ADDR_KEY, JSON.stringify(resolved));
+                        setCustomerStorageItem(LAST_KNOWN_ADDR_KEY, userId, JSON.stringify(resolved));
                       }
                     })
                     .catch((err) => console.warn('Background watch geocoding throttled:', err));
@@ -298,17 +402,30 @@ export const AddressProvider: React.FC<{ children: React.ReactNode }> = ({ child
           
           return current;
         });
-      },
-      (err) => {
+      };
+
+    const handleError = (err: GeolocationPositionError) => {
         console.warn('[AddressContext] Background GPS watch error:', err);
-      },
+      };
+
+    // Get a fast cached/network position first, then refine continuously with high accuracy.
+    navigator.geolocation.getCurrentPosition(
+      handlePosition,
+      handleError,
+      { enableHighAccuracy: false, timeout: 5000, maximumAge: 300000 }
+    );
+
+    const watchId = navigator.geolocation.watchPosition(
+      handlePosition,
+      handleError,
       options
     );
 
     return () => {
+      active = false;
       navigator.geolocation.clearWatch(watchId);
     };
-  }, []);
+  }, [authLoading, user?.uid]);
 
   // Synchronize store shop distances whenever selectedAddress changes
   useEffect(() => {

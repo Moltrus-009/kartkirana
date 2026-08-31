@@ -11,29 +11,98 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
-    function isAppCheckVerified() {
-      return true;
-    }
-
     function isAdmin() {
       return isSignedIn() && (
-        request.auth.token.admin == true ||
-        request.auth.token.role in ['super_admin', 'admin', 'operations', 'support', 'finance', 'marketing', 'logistics', 'merchant_success', 'analyst']
+        request.auth.token.get('admin', false) == true ||
+        request.auth.token.get('role', '') in ['super_admin', 'admin']
       );
     }
 
     function isRider() {
       return isSignedIn() && (
-        request.auth.token.role == 'rider' || 
-        exists(/databases/$(database)/documents/riders/$(request.auth.uid)) ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'rider')
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'rider' &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.documentStatus == 'verified') ||
+        (exists(/databases/$(database)/documents/riders/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/riders/$(request.auth.uid)).data.documentStatus == 'verified')
+      );
+    }
+
+    function isCustomerRecord(data) {
+      return (
+        (!data.keys().hasAny(['role']) || data.role == 'customer') &&
+        !data.keys().hasAny(['shopId', 'accountStatus', 'admin', 'riderId'])
+      );
+    }
+
+    function isValidCustomerProfile(userId, data) {
+      return data.keys().hasAll([
+        'uid', 'role', 'name', 'phone', 'email', 'profileImage', 'addresses',
+        'createdAt', 'updatedAt', 'lastLogin'
+      ]) && data.keys().hasOnly([
+        'uid', 'role', 'name', 'phone', 'email', 'profileImage', 'addresses',
+        'createdAt', 'updatedAt', 'lastLogin', 'savedPaymentMethods',
+        'notificationPreferences'
+      ]) &&
+      data.uid == userId && data.role == 'customer' &&
+      data.phone == request.auth.token.phone_number &&
+      data.name is string && data.name.size() <= 120 &&
+      data.phone is string && data.phone.size() >= 10 && data.phone.size() <= 20 &&
+      data.email is string && data.email.size() <= 320 &&
+      data.profileImage is string && data.profileImage.size() <= 2048 &&
+      data.addresses is list && data.addresses.size() <= 20 &&
+      data.createdAt is string && data.updatedAt is string && data.lastLogin is string &&
+      (!data.keys().hasAny(['savedPaymentMethods']) || data.savedPaymentMethods is list) &&
+      (!data.keys().hasAny(['notificationPreferences']) || data.notificationPreferences is map);
+    }
+
+    function isPublicOffer(data) {
+      return data.isActive == true && data.automatic == true && data.promotionVersion == 1;
+    }
+
+    function isValidMerchantOrderTransition(beforeStatus, afterStatus) {
+      return (
+        (beforeStatus == 'PLACED' && afterStatus == 'SHOP_ACCEPTED') ||
+        (beforeStatus == 'PLACED' && afterStatus == 'SHOP_REJECTED') ||
+        (beforeStatus == 'ORDER_PLACED' && afterStatus == 'SHOP_ACCEPTED') ||
+        (beforeStatus == 'ORDER_PLACED' && afterStatus == 'SHOP_REJECTED') ||
+        (beforeStatus == 'ready_for_pickup' && afterStatus == 'SEARCHING_RIDER') ||
+        (beforeStatus == 'READY_FOR_PICKUP' && afterStatus == 'SEARCHING_RIDER') ||
+        (beforeStatus == 'SHOP_ACCEPTED' && afterStatus == 'SEARCHING_RIDER')
+      );
+    }
+
+    function isAssignedRiderNotification(userId, data) {
+      return isRider() &&
+        data.type == 'order' &&
+        data.orderId is string &&
+        existsAfter(/databases/$(database)/documents/orders/$(data.orderId)) &&
+        getAfter(/databases/$(database)/documents/orders/$(data.orderId)).data.userId == userId &&
+        (
+          getAfter(/databases/$(database)/documents/orders/$(data.orderId)).data.riderId == request.auth.uid ||
+          getAfter(/databases/$(database)/documents/orders/$(data.orderId)).data.currentRiderId == request.auth.uid
+        );
+    }
+
+    function isMerchant() {
+      return isSignedIn() && (
+        request.auth.token.get('role', '') == 'owner' ||
+        (exists(/databases/$(database)/documents/merchants/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/merchants/$(request.auth.uid)).data.role in ['owner', 'employee'] &&
+         get(/databases/$(database)/documents/merchants/$(request.auth.uid)).data.shopId != null) ||
+        // Temporary compatibility for merchant profiles created before the
+        // dedicated merchants collection was introduced.
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'owner' &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.shopId != null)
       );
     }
 
     function isShopOwner(shopId) {
       return isSignedIn() && (
-        request.auth.token.shopId == shopId ||
+        request.auth.token.get('shopId', '') == shopId ||
+        (exists(/databases/$(database)/documents/merchants/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/merchants/$(request.auth.uid)).data.shopId == shopId) ||
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.shopId == shopId) ||
         (shopId != '' && shopId != null && exists(/databases/$(database)/documents/shops/$(shopId)) && 
@@ -41,22 +110,106 @@ service cloud.firestore {
       );
     }
 
+    function isValidShopOffer(data) {
+      return data.keys().hasAll([
+        'id', 'shopId', 'title', 'description', 'offerType', 'discountType',
+        'value', 'minOrder', 'scope', 'productIds', 'audience',
+        'startDate', 'endDate', 'isActive', 'automatic', 'promotionVersion'
+      ]) && data.keys().hasOnly([
+        'id', 'shopId', 'title', 'description', 'offerType', 'discountType',
+        'value', 'minOrder', 'maxDiscount', 'scope', 'productIds', 'audience',
+        'buyQuantity', 'getQuantity', 'subscriptionPrice', 'billingPeriod',
+        'startDate', 'endDate', 'isActive', 'automatic', 'promotionVersion', 'createdAt'
+      ]) &&
+      data.id is string && data.shopId is string &&
+      data.title is string && data.title.size() > 0 && data.title.size() <= 80 &&
+      data.description is string && data.description.size() > 0 && data.description.size() <= 240 &&
+      data.offerType in ['sale', 'loyalty', 'addon', 'subscription'] &&
+      data.discountType in ['percentage', 'flat', 'bogo', 'free_delivery'] &&
+      data.scope in ['order', 'products'] &&
+      data.audience in ['all', 'selected_customers', 'subscribers'] &&
+      data.value is number && data.value >= 0 && data.value <= 100000 &&
+      data.minOrder is number && data.minOrder >= 0 && data.minOrder <= 1000000 &&
+      data.productIds is list && data.productIds.size() <= 100 &&
+      data.startDate is string && data.endDate is string &&
+      data.startDate <= data.endDate && data.isActive is bool &&
+      data.automatic == true && data.promotionVersion == 1 &&
+      (data.discountType != 'percentage' || (data.value > 0 && data.value <= 90)) &&
+      (data.discountType != 'flat' || data.value > 0) &&
+      (data.discountType != 'bogo' || data.offerType == 'addon') &&
+      (!data.keys().hasAny(['maxDiscount']) || (data.maxDiscount is number && data.maxDiscount >= 0 && data.maxDiscount <= 100000)) &&
+      (data.offerType != 'loyalty' || data.audience == 'selected_customers') &&
+      (data.offerType != 'addon' || (
+        data.discountType == 'bogo' && data.scope == 'products' && data.productIds.size() > 0 &&
+        data.keys().hasAll(['buyQuantity', 'getQuantity']) &&
+        data.buyQuantity is number && data.buyQuantity >= 1 && data.buyQuantity <= 10 &&
+        data.getQuantity is number && data.getQuantity >= 1 && data.getQuantity <= 5
+      )) &&
+      (data.offerType != 'subscription' || (
+        data.audience == 'subscribers' &&
+        data.keys().hasAll(['subscriptionPrice', 'billingPeriod']) &&
+        data.subscriptionPrice is number && data.subscriptionPrice >= 0 && data.subscriptionPrice <= 100000 &&
+        data.billingPeriod in ['monthly', 'quarterly']
+      )) &&
+      (!data.keys().hasAny(['createdAt']) || data.createdAt is string);
+    }
+
     // --- Users Collection ---
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
+
+      // The users collection is customer-only. Shopkeeper and Rider profiles
+      // live in merchants/{uid} and riders/{uid}, respectively.
+      allow create: if isOwner(userId) && isValidCustomerProfile(userId, request.resource.data);
+
+      allow update: if isAdmin() || (
+        isOwner(userId) &&
+        isCustomerRecord(resource.data) &&
+        request.resource.data.uid == resource.data.uid &&
+        request.resource.data.phone == resource.data.phone &&
+        request.resource.data.role == 'customer' &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'role', 'name', 'email', 'profileImage', 'addresses', 'lastLogin',
+          'updatedAt', 'savedPaymentMethods', 'notificationPreferences'
+        ])
+      );
       
-      // Merchant profiles are self-provisioned after verified phone authentication.
-      // Privileged platform roles and financial fields remain server-managed.
-      allow create: if isOwner(userId) && 
-        request.resource.data.uid == userId &&
-        request.resource.data.role == 'owner' &&
-        request.resource.data.shopId == null &&
-        request.resource.data.accountStatus == 'pending' &&
+      allow delete: if isAdmin();
+
+      // Notifications Subcollection
+      match /notifications/{notificationId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow create: if isOwner(userId) || isAdmin() || isAssignedRiderNotification(userId, request.resource.data);
+        allow update, delete: if isOwner(userId) || isAdmin();
+      }
+    }
+
+    // Shopkeeper profiles are separate from Customer and Rider profiles. A
+    // single authenticated phone/UID may therefore own one document in each.
+    match /merchants/{merchantId} {
+      allow read: if isOwner(merchantId) || isAdmin();
+      allow create: if isOwner(merchantId) &&
+        request.resource.data.uid == merchantId &&
+        request.resource.data.phone == request.auth.token.phone_number &&
+        request.resource.data.role in ['owner', 'employee'] &&
+        (
+          (request.resource.data.role == 'owner' &&
+           request.resource.data.shopId == null &&
+           request.resource.data.accountStatus == 'pending') ||
+          (request.resource.data.shopId != null &&
+           exists(/databases/$(database)/documents/shops/$(request.resource.data.shopId)) &&
+           get(/databases/$(database)/documents/shops/$(request.resource.data.shopId)).data.ownerId == request.auth.uid)
+        ) &&
         !request.resource.data.keys().hasAny(['admin', 'riderId', 'walletBalance', 'earnings', 'commission']);
-      
-      allow update: if (
-        isOwner(userId) && 
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fullName', 'lastLogin', 'shopId']) &&
+      allow update: if isAdmin() || (
+        isOwner(merchantId) &&
+        request.resource.data.uid == resource.data.uid &&
+        request.resource.data.phone == resource.data.phone &&
+        request.resource.data.role == resource.data.role &&
+        request.resource.data.accountStatus == resource.data.accountStatus &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'fullName', 'email', 'lastLogin', 'shopId', 'profileImage'
+        ]) &&
         (
           request.resource.data.shopId == resource.data.shopId ||
           (
@@ -66,17 +219,8 @@ service cloud.firestore {
             getAfter(/databases/$(database)/documents/shops/$(request.resource.data.shopId)).data.ownerId == request.auth.uid
           )
         )
-      ) || isAdmin();
-      
+      );
       allow delete: if isAdmin();
-
-      // Notifications Subcollection
-      match /notifications/{notificationId} {
-        allow read: if isOwner(userId) || isAdmin();
-        // Allow write by signed in system roles writing order-type notifications
-        allow create: if isSignedIn();
-        allow update, delete: if isOwner(userId) || isAdmin();
-      }
     }
 
     // --- Shops Collection ---
@@ -106,23 +250,43 @@ service cloud.firestore {
         isAdmin()
       );
       
-      allow create: if isSignedIn() && (
-        request.resource.data.userId == request.auth.uid ||
-        isAdmin()
-      );
+      // Production orders are created by the Admin SDK payment backend.
+      allow create: if isAdmin();
       
       allow update: if isSignedIn() && (
         isAdmin() || 
-        (isShopOwner(resource.data.shopId) && 
-         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'timeline', 'notes', 'batchId', 'rider', 'riderId', 'updatedAt', 'paymentStatus', 'riderName', 'riderPhone'])) ||
-        (resource.data.userId == request.auth.uid && 
-         resource.data.status != 'DELIVERED' && 
-         resource.data.status != 'COMPLETED' && 
-         (request.resource.data.status == 'cancelled' || request.resource.data.status == 'CANCELLED') && 
-         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt', 'timeline'])) ||
-        (isRider() && 
-         (resource.data.riderId == request.auth.uid || resource.data.riderId == null || resource.data.currentRiderId == request.auth.uid) &&
-         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'timeline', 'rider', 'riderId', 'paymentStatus', 'updatedAt', 'currentRiderId']))
+        (isShopOwner(resource.data.shopId) &&
+         isValidMerchantOrderTransition(resource.data.status, request.resource.data.status) &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'timeline', 'notes', 'updatedAt'])) ||
+        (isRider() && (
+          // Atomic acceptance for an unassigned single order or targeted batch order.
+          (resource.data.riderId == null &&
+           (resource.data.currentRiderId == null || resource.data.currentRiderId == request.auth.uid) &&
+           request.resource.data.riderId == request.auth.uid &&
+           request.resource.data.currentRiderId == request.auth.uid &&
+           resource.data.status in ['SHOP_ACCEPTED', 'SEARCHING_RIDER'] &&
+           request.resource.data.status == 'RIDER_ASSIGNED' &&
+           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'timeline', 'rider', 'riderId', 'updatedAt', 'currentRiderId'])) ||
+          // The assigned rider advances delivery states and sends GPS heartbeats.
+          ((resource.data.riderId == request.auth.uid || resource.data.currentRiderId == request.auth.uid) &&
+           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'timeline', 'rider', 'riderId', 'updatedAt', 'currentRiderId']) &&
+           (
+             (resource.data.status == 'RIDER_ASSIGNED' && request.resource.data.status == 'ARRIVED_AT_SHOP') ||
+             (resource.data.status == 'ARRIVED_AT_SHOP' && request.resource.data.status == 'PICKED_UP') ||
+             (resource.data.status == 'PICKED_UP' && request.resource.data.status == 'OUT_FOR_DELIVERY') ||
+             (resource.data.status == 'OUT_FOR_DELIVERY' && request.resource.data.status == 'DELIVERED') ||
+             (resource.data.status == 'DELIVERED' && request.resource.data.status == 'COMPLETED') ||
+             request.resource.data.status == resource.data.status
+           )) ||
+          // Declining a targeted batch releases its orders without changing order state.
+          (resource.data.riderId == null &&
+           resource.data.currentRiderId == request.auth.uid &&
+           request.resource.data.riderId == resource.data.riderId &&
+           request.resource.data.currentRiderId == null &&
+           request.resource.data.batchId == null &&
+           request.resource.data.status == resource.data.status &&
+           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['batchId', 'currentRiderId', 'updatedAt']))
+        ))
       );
       
       allow delete: if isAdmin();
@@ -156,10 +320,9 @@ service cloud.firestore {
     match /reviews/{reviewId} {
       allow read: if true;
       allow create: if isSignedIn() && 
-        isAppCheckVerified() && 
         request.resource.data.userId == request.auth.uid;
         
-      allow update: if isSignedIn() && isAppCheckVerified() && (
+      allow update: if isSignedIn() && (
         isAdmin() ||
         (resource.data.userId == request.auth.uid && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['reply', 'isReported', 'reportReason'])) ||
         (isShopOwner(resource.data.shopId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reply', 'isReported', 'reportReason']))
@@ -183,7 +346,7 @@ service cloud.firestore {
     // --- Inventory Logs Collection ---
     match /inventoryLogs/{logId} {
       allow read: if isSignedIn() && (isShopOwner(resource.data.shopId) || isAdmin());
-      allow create: if isSignedIn() && isAppCheckVerified() && (isShopOwner(request.resource.data.shopId) || isAdmin());
+      allow create: if isSignedIn() && (isShopOwner(request.resource.data.shopId) || isAdmin());
       allow update, delete: if isAdmin();
     }
 
@@ -223,22 +386,99 @@ service cloud.firestore {
 
     // --- Riders Collection ---
     match /riders/{riderId} {
-      allow read: if isOwner(riderId) || isAdmin();
-      allow write: if isOwner(riderId) || isAdmin();
+      allow read: if isOwner(riderId) || isMerchant() || isAdmin();
+      allow create: if isOwner(riderId) &&
+        request.resource.data.uid == riderId &&
+        request.resource.data.role == 'rider' &&
+        request.resource.data.phone == request.auth.token.phone_number &&
+        request.resource.data.documentStatus == 'pending' &&
+        request.resource.data.status == 'offline' &&
+        !request.resource.data.keys().hasAny(['earnings', 'commission', 'walletBalance']);
+      allow update: if isAdmin() || (
+        isOwner(riderId) &&
+        request.resource.data.uid == resource.data.uid &&
+        request.resource.data.role == resource.data.role &&
+        request.resource.data.phone == resource.data.phone &&
+        request.resource.data.documentStatus == resource.data.documentStatus &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'fullName', 'email', 'vehicleType', 'vehicleNumber', 'status', 'coords',
+          'lastLogin', 'avatarUrl', 'dlUrl', 'aadhaarUrl', 'rcUrl', 'fcmToken',
+          'online', 'latitude', 'longitude', 'heading', 'speed', 'accuracy',
+          'timestamp', 'updatedAt'
+        ]) &&
+        (resource.data.documentStatus == 'verified' || request.resource.data.status == 'offline')
+      );
+      allow delete: if isAdmin();
     }
 
     // --- Batches Collection ---
     match /batches/{batchId} {
-      allow read: if isSignedIn() && (request.auth.token.role in ['owner', 'rider'] || isAdmin());
-      allow write: if isSignedIn() && (request.auth.token.role == 'owner' || isAdmin());
+      allow read: if isSignedIn() && (
+        isShopOwner(resource.data.shopId) ||
+        (isRider() && resource.data.riderId == request.auth.uid) ||
+        isAdmin()
+      );
+      allow create: if isSignedIn() && (
+        isAdmin() ||
+        (isShopOwner(request.resource.data.shopId) &&
+         request.resource.data.status == 'assigned' &&
+         request.resource.data.orderIds is list &&
+         request.resource.data.orderIds.size() >= 2 &&
+         request.resource.data.orderIds.size() <= 3 &&
+         exists(/databases/$(database)/documents/riders/$(request.resource.data.riderId)))
+      );
+      allow delete: if isAdmin();
+      allow update: if isSignedIn() && (
+        isAdmin() ||
+        (isShopOwner(resource.data.shopId) &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']) &&
+         request.resource.data.status == 'rejected') ||
+        (isRider() && resource.data.riderId == request.auth.uid &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'stops', 'currentStopIndex', 'updatedAt']) &&
+          request.resource.data.status in ['accepted', 'in_progress', 'completed', 'rejected'])
+      );
     }
 
     // --- Offers Collection ---
     match /offers/{offerId} {
-      allow read: if true;
-      allow create: if (isSignedIn() && isShopOwner(request.resource.data.shopId)) || isAdmin();
-      allow update: if (isSignedIn() && isShopOwner(resource.data.shopId) && isShopOwner(request.resource.data.shopId)) || isAdmin();
+      allow read: if isPublicOffer(resource.data) ||
+        (isSignedIn() && isShopOwner(resource.data.shopId)) ||
+        isAdmin();
+      allow create: if offerId == request.resource.data.id && isValidShopOffer(request.resource.data) && ((isSignedIn() && isShopOwner(request.resource.data.shopId)) || isAdmin());
+      allow update: if offerId == request.resource.data.id && request.resource.data.id == resource.data.id && isValidShopOffer(request.resource.data) && ((isSignedIn() && isShopOwner(resource.data.shopId) && isShopOwner(request.resource.data.shopId)) || isAdmin());
       allow delete: if (isSignedIn() && isShopOwner(resource.data.shopId)) || isAdmin();
+    }
+
+    // Customer targeting is deliberately separate from public offer documents.
+    // This prevents one shopper from seeing another shopper's loyalty selection.
+    match /offerTargets/{targetId} {
+      allow read: if isSignedIn() && (
+        resource.data.userId == request.auth.uid ||
+        isShopOwner(resource.data.shopId) ||
+        isAdmin()
+      );
+      allow create: if isSignedIn() &&
+        isShopOwner(request.resource.data.shopId) &&
+        request.resource.data.keys().hasOnly(['offerId', 'shopId', 'userId', 'createdAt']) &&
+        request.resource.data.keys().hasAll(['offerId', 'shopId', 'userId']) &&
+        request.resource.data.offerId is string &&
+        request.resource.data.userId is string && request.resource.data.userId.size() > 0 &&
+        (!request.resource.data.keys().hasAny(['createdAt']) || request.resource.data.createdAt is string) &&
+        targetId == request.resource.data.offerId + '_' + request.resource.data.userId &&
+        existsAfter(/databases/$(database)/documents/offers/$(request.resource.data.offerId)) &&
+        getAfter(/databases/$(database)/documents/offers/$(request.resource.data.offerId)).data.shopId == request.resource.data.shopId;
+      allow update: if false;
+      allow delete: if isSignedIn() && (isShopOwner(resource.data.shopId) || isAdmin());
+    }
+
+    match /shopSubscriptions/{membershipId} {
+      allow read: if isSignedIn() && (
+        resource.data.userId == request.auth.uid ||
+        isShopOwner(resource.data.shopId) ||
+        isAdmin()
+      );
+      // Membership activation must be performed by the payment backend.
+      allow create, update, delete: if isAdmin();
     }
 
     // --- Complaints Collection ---

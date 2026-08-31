@@ -4,6 +4,7 @@ import {
   DollarSign, 
   Download, 
   CheckCircle, 
+  AlertTriangle,
   ArrowUpRight, 
   Wallet,
   Activity
@@ -31,11 +32,12 @@ export default function Payments() {
   const handleExportCSV = () => {
     if (!data || !data.orders) return;
     
-    const headers = ['Order ID', 'Grand Total (INR)', 'Subtotal (INR)', 'Platform Fee (INR)', 'Tax (INR)', 'Delivery Fee (INR)', 'Created At'];
+    const headers = ['Transaction ID', 'Order ID', 'Method', 'Payment Status', 'Reconciliation', 'Captured (INR)', 'Refunded (INR)', 'Net (INR)', 'Platform Fee (INR)', 'Tax (INR)', 'Delivery Fee (INR)', 'Created At'];
     const rows = data.orders.map((o: any) => [
-      o.orderId,
+      o.transactionId || '', o.orderId, o.paymentMethod, o.paymentRecordStatus, o.reconciliationStatus,
       o.amount,
-      o.subtotal,
+      o.refundedAmount,
+      o.netAmount,
       o.platformFee,
       o.tax,
       o.deliveryFee,
@@ -151,7 +153,7 @@ export default function Payments() {
                 <thead>
                   <tr className="bg-slate-50 dark:bg-slate-850 text-slate-400 font-black text-[9px] uppercase tracking-wider border-b border-slate-100 dark:border-slate-800/40">
                     <th className="px-6 py-4">Transaction ID</th>
-                    <th className="px-6 py-4">Created Date</th>
+                    <th className="px-6 py-4">Order / Method</th>
                     <th className="px-6 py-4">Grand Total</th>
                     <th className="px-6 py-4">Platform Share</th>
                     <th className="px-6 py-4">Delivery Charge</th>
@@ -162,10 +164,11 @@ export default function Payments() {
                   {data?.orders?.map((order: any) => (
                     <tr key={order.orderId} className="hover:bg-slate-50/50 dark:hover:bg-slate-850/20 transition-colors">
                       <td className="px-6 py-4 font-mono font-bold text-slate-950 dark:text-white">
-                        {order.orderId}
+                        {order.transactionId || order.paymentId}
                       </td>
                       <td className="px-6 py-4 text-slate-500 font-bold">
-                        {new Date(order.createdAt).toLocaleString()}
+                        <span className="block font-mono">{order.orderId}</span>
+                        <span className="block text-[9px] uppercase mt-1">{order.paymentMethod} · {order.paymentRecordStatus}</span>
                       </td>
                       <td className="px-6 py-4 font-extrabold text-slate-900 dark:text-white">
                         ₹{order.amount}
@@ -177,8 +180,9 @@ export default function Payments() {
                         ₹{order.deliveryFee}
                       </td>
                       <td className="px-6 py-4">
-                        <span className="px-2.5 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-500 font-black text-[9px] tracking-wider uppercase flex items-center gap-0.5 w-max">
-                          <CheckCircle className="h-3 w-3" /> MATCHED
+                        <span className={`px-2.5 py-0.5 rounded-lg font-black text-[9px] tracking-wider uppercase flex items-center gap-0.5 w-max ${order.reconciliationStatus === 'MATCHED' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'}`}>
+                          {order.reconciliationStatus === 'MATCHED' ? <CheckCircle className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
+                          {order.reconciliationStatus}
                         </span>
                       </td>
                     </tr>

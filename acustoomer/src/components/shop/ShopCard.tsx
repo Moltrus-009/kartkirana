@@ -2,6 +2,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Star, MapPin, Clock } from 'lucide-react';
 import { Shop } from '../../types';
+import { SafeImage } from '../ui/SafeImage';
 
 interface ShopCardProps {
   shop: Shop;
@@ -16,15 +17,20 @@ export const ShopCard: React.FC<ShopCardProps> = ({ shop }) => {
 
   return (
     <div
+      role="button"
+      tabIndex={0}
+      aria-label={`Open ${shop.name}`}
       onClick={handleCardClick}
-      className={`group relative overflow-hidden bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 rounded-3xl transition-all duration-300 hover:shadow-xl hover:-translate-y-1 cursor-pointer flex flex-col h-full ${!shop.isOpen ? 'opacity-75' : ''}`}
+      onKeyDown={event => (event.key === 'Enter' || event.key === ' ') && handleCardClick()}
+      className={`group relative overflow-hidden bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 rounded-[20px] transition-all duration-200 hover:border-blue-200 hover:shadow-[0_12px_30px_-20px_rgba(11,116,232,0.35)] cursor-pointer flex flex-col h-full ${!shop.isOpen ? 'opacity-75' : ''}`}
     >
       {/* Cover Image Container */}
       <div className="relative aspect-video w-full overflow-hidden">
-        <img
+        <SafeImage
           src={shop.coverImage}
           alt={shop.name}
           className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+          fallback="🏪"
         />
         
         {/* Closed Overlay */}
@@ -46,7 +52,7 @@ export const ShopCard: React.FC<ShopCardProps> = ({ shop }) => {
 
         {/* Offers Overlay */}
         {shop.offers && shop.offers.length > 0 && (
-          <span className="absolute top-3 right-3 px-2.5 py-1 rounded-lg bg-orange-500 text-white text-[10px] font-bold shadow-md shadow-orange-500/20 uppercase tracking-wide">
+          <span className="absolute top-3 right-3 px-2.5 py-1 rounded-lg bg-[#FFC928] text-[#071128] text-[10px] font-black shadow-sm uppercase tracking-wide">
             {shop.offers[0]}
           </span>
         )}
@@ -56,7 +62,7 @@ export const ShopCard: React.FC<ShopCardProps> = ({ shop }) => {
       <div className="p-4 flex flex-col flex-1 text-left relative">
         {/* Shop Logo Floating */}
         <div className="absolute -top-6 right-4 h-12 w-12 rounded-full border border-gray-100 dark:border-slate-800 overflow-hidden shadow-md bg-white">
-          <img src={shop.logo} alt={shop.name} className="h-full w-full object-cover" />
+          <SafeImage src={shop.logo} alt={shop.name} className="h-full w-full object-cover" fallback="🏪" />
         </div>
 
         {/* Categories tags */}

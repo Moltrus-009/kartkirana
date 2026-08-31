@@ -3,6 +3,7 @@ import { getAuth, initializeAuth, indexedDBLocalPersistence, browserLocalPersist
 import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-check';
+import { Capacitor } from '@capacitor/core';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -14,8 +15,17 @@ const firebaseConfig = {
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
-// Check if credentials are set, and allow forcing mock mode for local testing
-const hasValidConfig = true;
+// Treat Firebase as available only when every required public client setting is
+// present. This prevents a half-initialized Auth instance from trapping the
+// login screen in a retry loop.
+const hasValidConfig = [
+  firebaseConfig.apiKey,
+  firebaseConfig.authDomain,
+  firebaseConfig.projectId,
+  firebaseConfig.storageBucket,
+  firebaseConfig.messagingSenderId,
+  firebaseConfig.appId
+].every((value) => typeof value === 'string' && value.trim().length > 0);
 
 let app: any;
 let auth: ReturnType<typeof getAuth> | null = null;
@@ -34,15 +44,18 @@ try {
 
     // Initialize App Check
     try {
-      if (import.meta.env.DEV && typeof window !== 'undefined') {
+      const isNativePlatform = Capacitor.isNativePlatform();
+      if (!isNativePlatform && import.meta.env.DEV && typeof window !== 'undefined') {
         (window as any).FIREBASE_APPCHECK_DEBUG_TOKEN = true;
       }
-      if (!import.meta.env.DEV) {
+      if (!isNativePlatform && !import.meta.env.DEV) {
+        const appCheckKey = import.meta.env.VITE_RECAPTCHA_ENTERPRISE_KEY;
+        if (!appCheckKey) throw new Error('VITE_RECAPTCHA_ENTERPRISE_KEY is required in production.');
         appCheck = initializeAppCheck(app, {
-          provider: new ReCaptchaEnterpriseProvider(import.meta.env.VITE_RECAPTCHA_ENTERPRISE_KEY || '6Ld_xxxx_reCaptcha_key'),
+          provider: new ReCaptchaEnterpriseProvider(appCheckKey),
           isTokenAutoRefreshEnabled: true
         });
-        console.log('[App Check] Initialized successfully in Rider App');
+        console.log('[App Check] Initialized successfully in Rider web app');
       }
     } catch (appCheckErr) {
       console.warn('[App Check] Initialization failed in Rider App:', appCheckErr);
@@ -113,4 +126,3 @@ export const isFirebaseActive = () => {
 };
 
 export { app, auth, db, storage, appCheck, hasValidConfig };
-

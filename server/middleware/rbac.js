@@ -1,4 +1,4 @@
-const { db } = require('../config/firebase');
+const { AppError } = require('../utils/errors');
 
 // Role hierarchy / permissions mappings
 const ROLE_PERMISSIONS = {
@@ -35,13 +35,13 @@ const ROLE_PERMISSIONS = {
 const checkPermission = (requiredPermission) => {
   return async (req, res, next) => {
     if (!req.user) {
-      return res.status(401).json({ error: 'Unauthorized', message: 'User context not found.' });
+      return next(new AppError('Please sign in to continue.', 401, 'AUTH_REQUIRED'));
     }
 
     const role = req.user.role;
 
     if (!role) {
-      return res.status(403).json({ error: 'Forbidden', message: 'No administrative role assigned.' });
+      return next(new AppError('Administrative privileges required.', 403, 'ADMIN_REQUIRED'));
     }
 
     // Super Admin has absolute permissions
@@ -54,10 +54,7 @@ const checkPermission = (requiredPermission) => {
       return next();
     }
 
-    return res.status(403).json({
-      error: 'Forbidden',
-      message: `Role '${role}' does not have the required permission: '${requiredPermission}'`
-    });
+    return next(new AppError('You do not have permission to perform this action.', 403, 'PERMISSION_DENIED'));
   };
 };
 

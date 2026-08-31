@@ -1,159 +1,184 @@
 const { db } = require('../config/firebase');
 
+const invalid = (code, reason) => ({ valid: false, code, discount: 0, isFreeDelivery: false, reason });
+
+const couponEndDate = (value) => {
+  if (!value) return null;
+  // Older date-only values remain valid through their stated expiry day.
+  const normalized = typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? `${value}T23:59:59.999`
+    : value;
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const couponType = (coupon = {}) => {
+  const raw = coupon.type || coupon.discountType || 'fixed';
+  return raw === 'flat' ? 'fixed' : raw;
+};
+const couponValue = (coupon = {}) => Number(coupon.value ?? coupon.discountValue ?? coupon.discount ?? 0) || 0;
+const minOrderValue = (coupon = {}) => Number(coupon.minOrderValue ?? coupon.minPurchase ?? coupon.minOrder ?? 0) || 0;
+const maxDiscount = (coupon = {}) => Number(coupon.maxDiscountCap ?? coupon.maxDiscount ?? coupon.maxCap ?? 0) || 0;
+const userUsageLimit = (coupon = {}) => {
+  const raw = coupon.userUsageLimit ?? coupon.maxPerUser;
+  // Coupons created by the current admin UI are single-use by default.
+  return raw === undefined || raw === null || raw === '' ? 1 : Number(raw);
+};
+
 class CouponService {
-  /**
-   * Validate and calculate discount for a coupon code
-   * @param {string} code - Coupon code string
-   * @param {string} userId - User UID
-   * @param {string} shopId - Shop ID
-   * @param {number} subtotal - Subtotal amount in INR
-   * @returns {Promise<{ valid: boolean, code: string, type?: string, discount: number, isFreeDelivery: boolean, reason?: string, coupon?: any }>}
-   */
-  async validateAndApplyCoupon(code, userId, shopId, subtotal) {
-    if (!code || typeof code !== 'string') {
-      return { valid: false, code: '', discount: 0, isFreeDelivery: false, reason: 'Invalid coupon code format.' };
-    }
+  async findCouponByCode(cleanCode) {
+    if (!db) return null;
 
-    const cleanCode = code.trim().toUpperCase();
+    // New coupons use their normalized code as the document id. Keep a legacy
+    // query so existing random-id coupon documents keep working.
+    const directRef = db.collection('coupons').doc(cleanCode);
+    const directSnap = await directRef.get();
+    if (directSnap.exists) return { id: directSnap.id, data: directSnap.data() };
 
-    // 1. Fetch coupon document by code or query
-    let couponData = null;
-    let couponId = null;
-
-    if (db) {
-      try {
-        const snap = await db.collection('coupons').where('code', '==', cleanCode).limit(1).get();
-        if (!snap.empty) {
-          const doc = snap.docs[0];
-          couponId = doc.id;
-          couponData = doc.data();
-        }
-      } catch (err) {
-        console.warn(`[COUPON SERVICE] Firestore query warning for code ${cleanCode}:`, err.message);
-      }
-    }
-
-    // Fallback/Built-in promotion rules if document is not created in Firestore yet
-    if (!couponData) {
-      const BUILTIN_COUPONS = {
-        'FLAT50': { code: 'FLAT50', type: 'fixed', value: 50, minOrderValue: 150, maxDiscountCap: 50, status: 'active' },
-        'SAVE20': { code: 'SAVE20', type: 'percentage', value: 20, minOrderValue: 200, maxDiscountCap: 100, status: 'active' },
-        'FREEDEL': { code: 'FREEDEL', type: 'free_delivery', value: 0, minOrderValue: 100, status: 'active' },
-        'WELCOME100': { code: 'WELCOME100', type: 'fixed', value: 100, minOrderValue: 300, maxDiscountCap: 100, status: 'active' }
-      };
-
-      if (BUILTIN_COUPONS[cleanCode]) {
-        couponData = BUILTIN_COUPONS[cleanCode];
-        couponId = cleanCode;
-      } else {
-        return { valid: false, code: cleanCode, discount: 0, isFreeDelivery: false, reason: `Coupon code '${cleanCode}' is invalid or does not exist.` };
-      }
-    }
-
-    // 2. Status Check
-    if (couponData.status !== 'active' && couponData.active !== true && couponData.status !== undefined) {
-      return { valid: false, code: cleanCode, discount: 0, isFreeDelivery: false, reason: `Coupon code '${cleanCode}' is currently inactive.` };
-    }
-
-    // 3. Validity Period Check
-    const now = new Date();
-    if (couponData.validFrom && new Date(couponData.validFrom) > now) {
-      return { valid: false, code: cleanCode, discount: 0, isFreeDelivery: false, reason: `Coupon code '${cleanCode}' is not active yet.` };
-    }
-    if (couponData.validUntil && new Date(couponData.validUntil) < now) {
-      return { valid: false, code: cleanCode, discount: 0, isFreeDelivery: false, reason: `Coupon code '${cleanCode}' has expired.` };
-    }
-
-    // 4. Shop-Specific Restriction Check
-    if (couponData.shopId && shopId && couponData.shopId !== shopId) {
-      return { valid: false, code: cleanCode, discount: 0, isFreeDelivery: false, reason: `Coupon code '${cleanCode}' is not applicable for this store.` };
-    }
-
-    // 5. Minimum Order Value Check
-    const minOrder = Number(couponData.minOrderValue || couponData.minOrder) || 0;
-    if (subtotal < minOrder) {
-      return { valid: false, code: cleanCode, discount: 0, isFreeDelivery: false, reason: `Minimum order subtotal of ₹${minOrder} required for coupon '${cleanCode}'.` };
-    }
-
-    // 6. Global Usage Limit Check
-    const usageLimit = Number(couponData.usageLimit);
-    const usedCount = Number(couponData.usedCount || 0);
-    if (Number.isFinite(usageLimit) && usageLimit > 0 && usedCount >= usageLimit) {
-      return { valid: false, code: cleanCode, discount: 0, isFreeDelivery: false, reason: `Coupon code '${cleanCode}' total usage limit has been reached.` };
-    }
-
-    // 7. Per-User Usage Limit Check
-    const userLimit = Number(couponData.userUsageLimit || couponData.maxPerUser);
-    if (Number.isFinite(userLimit) && userLimit > 0 && userId && db) {
-      try {
-        const userOrdersSnap = await db.collection('orders')
-          .where('userId', '==', userId)
-          .where('couponCode', '==', cleanCode)
-          .get();
-        const completedUserOrders = userOrdersSnap.docs.filter(d => {
-          const s = (d.data().status || '').toUpperCase();
-          return s !== 'CANCELLED' && s !== 'FAILED';
-        });
-        if (completedUserOrders.length >= userLimit) {
-          return { valid: false, code: cleanCode, discount: 0, isFreeDelivery: false, reason: `You have already used coupon '${cleanCode}' the maximum allowed number of times.` };
-        }
-      } catch (err) {
-        console.warn(`[COUPON SERVICE] Per-user limit check warning:`, err.message);
-      }
-    }
-
-    // 8. Discount Calculation
-    let discount = 0;
-    let isFreeDelivery = false;
-    const type = couponData.type || 'fixed';
-    const val = Number(couponData.value || couponData.discount) || 0;
-
-    if (type === 'percentage') {
-      const rawDiscount = Math.round((subtotal * val) / 100);
-      const cap = Number(couponData.maxDiscountCap || couponData.maxCap);
-      if (Number.isFinite(cap) && cap > 0) {
-        discount = Math.min(cap, rawDiscount);
-      } else {
-        discount = rawDiscount;
-      }
-    } else if (type === 'free_delivery') {
-      isFreeDelivery = true;
-      discount = 0;
-    } else {
-      // 'fixed'
-      discount = Math.min(subtotal, val);
-    }
-
-    return {
-      valid: true,
-      code: cleanCode,
-      couponId,
-      type,
-      discount,
-      isFreeDelivery,
-      coupon: couponData
-    };
+    const legacySnap = await db.collection('coupons').where('code', '==', cleanCode).limit(1).get();
+    if (legacySnap.empty) return null;
+    return { id: legacySnap.docs[0].id, data: legacySnap.docs[0].data() };
   }
 
-  /**
-   * Record coupon redemption usage count increment in Firestore
-   */
-  async recordCouponUsage(code) {
-    if (!code || !db) return;
-    const cleanCode = code.trim().toUpperCase();
-    try {
-      const snap = await db.collection('coupons').where('code', '==', cleanCode).limit(1).get();
-      if (!snap.empty) {
-        const docRef = snap.docs[0].ref;
-        const currentUsed = Number(snap.docs[0].data().usedCount || 0);
-        await docRef.update({
-          usedCount: currentUsed + 1,
-          updatedAt: new Date().toISOString()
-        });
-      }
-    } catch (err) {
-      console.warn(`[COUPON SERVICE] Error recording usage count for ${cleanCode}:`, err.message);
+  evaluateCoupon(coupon, code, shopId, subtotal) {
+    if (!coupon || (coupon.status && coupon.status !== 'active') || coupon.active === false) {
+      return invalid(code, `Coupon code '${code}' is currently inactive.`);
     }
+
+    const now = new Date();
+    const validFrom = coupon.validFrom ? new Date(coupon.validFrom) : null;
+    const validUntil = couponEndDate(coupon.validUntil ?? coupon.expiryDate);
+    if (validFrom && !Number.isNaN(validFrom.getTime()) && validFrom > now) {
+      return invalid(code, `Coupon code '${code}' is not active yet.`);
+    }
+    if (validUntil && validUntil < now) return invalid(code, `Coupon code '${code}' has expired.`);
+    if (coupon.shopId && shopId && coupon.shopId !== shopId) {
+      return invalid(code, `Coupon code '${code}' is not applicable for this store.`);
+    }
+
+    const minimum = minOrderValue(coupon);
+    if (subtotal < minimum) return invalid(code, `Minimum order subtotal of ₹${minimum} required for coupon '${code}'.`);
+
+    const usageLimit = Number(coupon.usageLimit);
+    if (Number.isFinite(usageLimit) && usageLimit > 0 && Number(coupon.usedCount || 0) >= usageLimit) {
+      return invalid(code, `Coupon code '${code}' total usage limit has been reached.`);
+    }
+
+    const type = couponType(coupon);
+    const value = couponValue(coupon);
+    let discount = 0;
+    let isFreeDelivery = false;
+    if (type === 'percentage') {
+      discount = Math.round((subtotal * value) / 100);
+      const cap = maxDiscount(coupon);
+      if (cap > 0) discount = Math.min(discount, cap);
+    } else if (type === 'free_delivery') {
+      isFreeDelivery = true;
+    } else {
+      discount = Math.min(subtotal, value);
+    }
+    return { valid: true, code, type, discount, isFreeDelivery };
+  }
+
+  async validateAndApplyCoupon(code, userId, shopId, subtotal) {
+    if (!code || typeof code !== 'string') return invalid('', 'Invalid coupon code format.');
+    const cleanCode = code.trim().toUpperCase();
+    if (!cleanCode) return invalid('', 'Invalid coupon code format.');
+
+    const found = await this.findCouponByCode(cleanCode);
+    if (!found) return invalid(cleanCode, `Coupon code '${cleanCode}' is invalid or does not exist.`);
+    const result = this.evaluateCoupon(found.data, cleanCode, shopId, Number(subtotal) || 0);
+    if (!result.valid) return result;
+
+    // A deterministic redemption document prevents repeat use, unlike a
+    // best-effort scan of past orders.
+    if (userId && db) {
+      const redemptionRef = db.collection('couponRedemptions').doc(`${found.id}_${userId}`);
+      const redemptionSnap = await redemptionRef.get();
+      const limit = userUsageLimit(found.data);
+      if (Number.isFinite(limit) && limit > 0 && Number(redemptionSnap.data()?.redemptionCount || 0) >= limit) {
+        return invalid(cleanCode, `You have already used coupon '${cleanCode}' the maximum allowed number of times.`);
+      }
+    }
+    return { ...result, couponId: found.id, coupon: found.data };
+  }
+
+  // Reads redemption state before checkout writes. The reservation is committed
+  // only after inventory has finished all of its transaction reads.
+  async prepareRedemption(transaction, couponResult, userId, shopId, subtotal) {
+    if (!couponResult?.valid) return null;
+    const couponRef = db.collection('coupons').doc(couponResult.couponId);
+    const redemptionRef = db.collection('couponRedemptions').doc(`${couponResult.couponId}_${userId}`);
+    const [couponSnap, redemptionSnap] = await Promise.all([
+      transaction.get(couponRef),
+      transaction.get(redemptionRef)
+    ]);
+    if (!couponSnap.exists) throw new Error('This coupon is no longer available. Please remove it and try again.');
+
+    const freshCoupon = couponSnap.data();
+    const freshResult = this.evaluateCoupon(freshCoupon, couponResult.code, shopId, subtotal);
+    if (!freshResult.valid) throw new Error(freshResult.reason);
+
+    const redemptionCount = Number(redemptionSnap.data()?.redemptionCount || 0);
+    const limit = userUsageLimit(freshCoupon);
+    if (Number.isFinite(limit) && limit > 0 && redemptionCount >= limit) {
+      throw new Error(`You have already used coupon '${couponResult.code}' the maximum allowed number of times.`);
+    }
+    return { couponRef, redemptionRef, freshCoupon, freshResult, redemptionCount };
+  }
+
+  commitRedemption(transaction, reservation, userId, orderId, status = 'REDEEMED', expiresAt = null) {
+    if (!reservation) return;
+    const now = new Date().toISOString();
+    transaction.update(reservation.couponRef, {
+      usedCount: Number(reservation.freshCoupon.usedCount || 0) + 1,
+      updatedAt: now
+    });
+    transaction.set(reservation.redemptionRef, {
+      couponId: reservation.couponRef.id,
+      code: reservation.freshResult.code,
+      userId,
+      redemptionCount: reservation.redemptionCount + 1,
+      lastOrderId: orderId,
+      lastRedeemedAt: now,
+      status,
+      reservationExpiresAt: expiresAt,
+      updatedAt: now
+    }, { merge: true });
+  }
+
+  async prepareOrderRedemption(transaction, order) {
+    if (!order?.couponId || !order?.userId) return null;
+    const couponRef = db.collection('coupons').doc(order.couponId);
+    const redemptionRef = db.collection('couponRedemptions').doc(`${order.couponId}_${order.userId}`);
+    const [couponSnap, redemptionSnap] = await Promise.all([
+      transaction.get(couponRef), transaction.get(redemptionRef)
+    ]);
+    if (!couponSnap.exists || !redemptionSnap.exists) return null;
+    const redemption = redemptionSnap.data();
+    if (redemption.lastOrderId !== order.orderId && redemption.lastOrderId !== order.id) return null;
+    return { couponRef, redemptionRef, coupon: couponSnap.data(), redemption };
+  }
+
+  confirmReservedRedemption(transaction, prepared) {
+    if (!prepared || prepared.redemption.status !== 'RESERVED') return;
+    const now = new Date().toISOString();
+    transaction.set(prepared.redemptionRef, {
+      status: 'REDEEMED', lastRedeemedAt: now, reservationExpiresAt: null, updatedAt: now
+    }, { merge: true });
+  }
+
+  releaseReservedRedemption(transaction, prepared, reason = 'PAYMENT_NOT_COMPLETED') {
+    if (!prepared || prepared.redemption.status !== 'RESERVED') return;
+    const now = new Date().toISOString();
+    transaction.update(prepared.couponRef, {
+      usedCount: Math.max(0, Number(prepared.coupon.usedCount || 0) - 1), updatedAt: now
+    });
+    transaction.set(prepared.redemptionRef, {
+      redemptionCount: Math.max(0, Number(prepared.redemption.redemptionCount || 0) - 1),
+      status: 'RELEASED', releasedReason: reason, releasedAt: now,
+      reservationExpiresAt: null, updatedAt: now
+    }, { merge: true });
   }
 }
 

@@ -26,6 +26,15 @@ export interface Order {
   tax: number;
   platformDiscount: number;
   couponDiscount: number;
+  appliedPromotion?: {
+    promotionId: string;
+    title: string;
+    discountType: 'percentage' | 'flat' | 'bogo' | 'free_delivery';
+    discount: number;
+    isFreeDelivery: boolean;
+    saving: number;
+    freeItems?: Array<{ productId: string; name: string; quantity: number }>;
+  } | null;
   total: number; // original name instead of grandTotal
   grandTotal?: number;
   paymentMethod: string;

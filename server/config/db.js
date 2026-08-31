@@ -1,18 +1,75 @@
-const sqlite3 = require('sqlite3').verbose();
+const { DatabaseSync } = require('node:sqlite');
 const path = require('path');
-const fs = require('fs');
 
-const dbPath = path.join(__dirname, '..', 'admin_storage.db');
+// Cloud Functions only permits runtime writes under /tmp. The authoritative
+// payment and order records remain in Firestore; this SQLite file contains
+// disposable operational/audit cache data only.
+const isServerless = Boolean(process.env.FUNCTION_TARGET || process.env.K_SERVICE);
+const dbPath = isServerless
+  ? path.join(require('os').tmpdir(), 'kartkirana_admin_storage.db')
+  : path.join(__dirname, '..', 'admin_storage.db');
 
-// Ensure db directory or file exists
-const db = new sqlite3.Database(dbPath, (err) => {
-  if (err) {
-    console.error('[SQLITE ERROR] Failed to connect to admin_storage.db:', err.message);
-  } else {
-    console.log('[SQLITE] Connected to admin_storage.db successfully.');
-    initializeTables();
+// Node's built-in SQLite binding works on both local Node and Google Functions
+// without shipping a platform-specific native addon.
+const database = new DatabaseSync(dbPath);
+
+const normalizeArgs = (params, callback) => {
+  if (typeof params === 'function') return { params: [], callback: params };
+  return { params: Array.isArray(params) ? params : [], callback };
+};
+
+// Small sqlite3-compatible callback facade retained for existing callers.
+const db = {
+  serialize(callback) {
+    callback();
+  },
+  run(sql, params = [], callback) {
+    const args = normalizeArgs(params, callback);
+    try {
+      const result = database.prepare(sql).run(...args.params);
+      args.callback?.call({
+        lastID: Number(result.lastInsertRowid || 0),
+        changes: Number(result.changes || 0)
+      }, null);
+    } catch (error) {
+      args.callback?.(error);
+      if (!args.callback) throw error;
+    }
+    return this;
+  },
+  get(sql, params = [], callback) {
+    const args = normalizeArgs(params, callback);
+    try {
+      args.callback?.(null, database.prepare(sql).get(...args.params));
+    } catch (error) {
+      args.callback?.(error);
+      if (!args.callback) throw error;
+    }
+    return this;
+  },
+  all(sql, params = [], callback) {
+    const args = normalizeArgs(params, callback);
+    try {
+      args.callback?.(null, database.prepare(sql).all(...args.params));
+    } catch (error) {
+      args.callback?.(error);
+      if (!args.callback) throw error;
+    }
+    return this;
+  },
+  close(callback) {
+    try {
+      database.close();
+      callback?.(null);
+    } catch (error) {
+      callback?.(error);
+      if (!callback) throw error;
+    }
   }
-});
+};
+
+console.log('[SQLITE] Connected to admin_storage.db using Node built-in SQLite.');
+initializeTables();
 
 function initializeTables() {
   db.serialize(() => {

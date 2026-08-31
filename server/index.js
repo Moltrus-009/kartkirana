@@ -3,15 +3,23 @@ const cors = require('cors');
 const helmet = require('helmet');
 const env = require('./config/env');
 
-// Strict production startup environment validation
-if (process.env.NODE_ENV === 'production') {
+// Strict production runtime validation. Firebase loads the module once during
+// deployment discovery, before Secret Manager values are injected; validate
+// only in a real server/function runtime so discovery never needs local secrets.
+const isProductionRuntime = env.NODE_ENV === 'production'
+  || Boolean(process.env.K_SERVICE || process.env.FUNCTION_TARGET);
+
+if (isProductionRuntime) {
   if (env.USE_MOCK_DB === true || env.USE_MOCK_DB === 'true') {
     console.error('[FATAL CONFIG ERROR] USE_MOCK_DB cannot be enabled in production environments.');
     process.exit(1);
   }
-  const isRazorpayTest = (env.RAZORPAY_KEY_ID_LIVE || '').startsWith('rzp_test') || (env.RAZORPAY_KEY_ID_TEST || '').startsWith('rzp_live');
-  if (isRazorpayTest) {
-    console.error('[FATAL CONFIG ERROR] Razorpay keys are mismatched or configured with test keys in production.');
+  const activeKeyId = env.PAYMENT_ENVIRONMENT === 'LIVE' ? env.RAZORPAY_KEY_ID_LIVE : env.RAZORPAY_KEY_ID_TEST;
+  const activeKeySecret = env.PAYMENT_ENVIRONMENT === 'LIVE' ? env.RAZORPAY_KEY_SECRET_LIVE : env.RAZORPAY_KEY_SECRET_TEST;
+  const activeWebhookSecret = env.PAYMENT_ENVIRONMENT === 'LIVE' ? env.RAZORPAY_WEBHOOK_SECRET_LIVE : env.RAZORPAY_WEBHOOK_SECRET_TEST;
+  const expectedPrefix = env.PAYMENT_ENVIRONMENT === 'LIVE' ? 'rzp_live_' : 'rzp_test_';
+  if (!['TEST', 'LIVE'].includes(env.PAYMENT_ENVIRONMENT) || !activeKeyId.startsWith(expectedPrefix) || !activeKeySecret || !activeWebhookSecret) {
+    console.error('[FATAL CONFIG ERROR] Active Razorpay key ID, key secret, and webhook secret must match PAYMENT_ENVIRONMENT.');
     process.exit(1);
   }
 }
@@ -21,20 +29,16 @@ const maintenanceModeGateway = require('./gateway/maintenanceMode');
 const ipFilterGateway = require('./gateway/ipFilter');
 const rateLimiterGateway = require('./gateway/rateLimiter');
 const errorHandler = require('./middleware/errorHandler');
+const { AppError } = require('./utils/errors');
 const paymentRoutes = require('./routes/paymentRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 
 require('./events/listeners');
 
-const { startTimeoutWorker } = require('./workers/timeoutWorker');
-const { startNotificationWorker } = require('./workers/notificationWorker');
-const { startJobsWorker } = require('./workers/jobsWorker');
-const { startCleanupJob } = require('./jobs/cleanupJob');
-const { startDispatchWorker } = require('./workers/dispatchWorker');
-
 
 const app = express();
 const port = env.PORT || 5000;
+app.set('trust proxy', 1);
 
 // Enforce strict Zero-Trust HTTP security headers via Helmet
 app.use(helmet({
@@ -73,7 +77,11 @@ app.use((req, res, next) => {
 // Enforce whitelist-only CORS configurations
 const allowedOrigins = [
   'https://kartkirana.com',
-  'https://admin.kartkirana.com'
+  'https://admin.kartkirana.com',
+  // Capacitor WebView origins configured by the signed Android apps.
+  'https://customer.kartkirana.com',
+  'https://rider.kartkirana.com',
+  ...env.ALLOWED_ORIGINS.filter(origin => origin && origin !== '*')
 ];
 if (process.env.NODE_ENV !== 'production') {
   allowedOrigins.push(
@@ -99,7 +107,7 @@ app.use(cors({
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      callback(new Error('Not allowed by CORS'));
+      callback(new AppError('Origin is not allowed by CORS.', 403));
     }
   },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -128,14 +136,49 @@ app.get('/health', (req, res) => {
   });
 });
 
-app.get('/health/database', async (req, res, next) => {
+// Public, non-secret readiness probe used by Checkout before creating a
+// payment order. This prevents customers from entering the gateway when the
+// server is missing credentials required to reconcile their transaction.
+app.get('/health/payments', async (req, res) => {
+  const razorpayConfig = require('./config/razorpay');
+  const RazorpayProvider = require('./providers/razorpay/RazorpayProvider');
+  const gatewayConfigured = Boolean(
+    razorpayConfig.razorpayClient &&
+    razorpayConfig.keyId &&
+    razorpayConfig.keySecret
+  );
+  const webhookConfigured = Boolean(razorpayConfig.webhookSecret);
+  const gatewayProbe = gatewayConfigured
+    ? await RazorpayProvider.checkCredentialReadiness()
+    : { ready: false, reason: 'NOT_CONFIGURED' };
+  const ready = gatewayProbe.ready && webhookConfigured && !env.MAINTENANCE_MODE;
+
+  res.status(ready ? 200 : 503).json({
+    ready,
+    environment: env.PAYMENT_ENVIRONMENT,
+    checks: {
+      gateway: gatewayProbe.ready ? 'authenticated' : 'unavailable',
+      gatewayReason: gatewayProbe.reason,
+      gatewayCheckedAt: gatewayProbe.checkedAt,
+      webhook: webhookConfigured ? 'configured' : 'unavailable',
+      maintenance: env.MAINTENANCE_MODE
+    },
+    message: ready
+      ? 'Secure payment services are ready.'
+      : 'Online payments are temporarily unavailable. No payment attempt has been created; please use Cash on Delivery.'
+  });
+});
+
+const { healthLimiter } = require('./gateway/rateLimiter');
+app.get('/health/database', healthLimiter, async (req, res) => {
   try {
     const { db } = require('./config/firebase');
     if (!db) throw new Error('Database service not connected.');
-    await db.collection('_health_check').doc('ping').set({ ping: true, timestamp: new Date().toISOString() });
+    await db.collection('_health_check').limit(1).get();
     res.status(200).json({ status: 'connected', timestamp: new Date().toISOString() });
   } catch (error) {
-    res.status(500).json({ status: 'disconnected', error: error.message });
+    console.error('[HEALTH] Database connectivity check failed:', error.message);
+    res.status(503).json({ status: 'disconnected', message: 'Database readiness check failed.' });
   }
 });
 
@@ -153,16 +196,24 @@ app.use('/v1', couponRoutes);
 
 app.use(errorHandler);
 
-if (env.NODE_ENV !== 'test') {
-  startTimeoutWorker();
-  startNotificationWorker();
-  startCleanupJob();
-  startJobsWorker();
-  startDispatchWorker();
+let exportedServer = app;
+if (require.main === module || env.NODE_ENV === 'test') {
+  if (env.NODE_ENV !== 'test') {
+    const { startTimeoutWorker } = require('./workers/timeoutWorker');
+    const { startNotificationWorker } = require('./workers/notificationWorker');
+    const { startJobsWorker } = require('./workers/jobsWorker');
+    const { startCleanupJob } = require('./jobs/cleanupJob');
+    const { startDispatchWorker } = require('./workers/dispatchWorker');
+    startTimeoutWorker();
+    startNotificationWorker();
+    startCleanupJob();
+    startJobsWorker();
+    startDispatchWorker();
+  }
+
+  exportedServer = app.listen(port, '0.0.0.0', () => {
+    console.log(`[API] Enterprise KartKirana payment server running on port ${port} [Mode: ${env.PAYMENT_ENVIRONMENT}]`);
+  });
 }
 
-const server = app.listen(port, '0.0.0.0', () => {
-  console.log(`[API] Enterprise KartKirana payment server running on port ${port} [Mode: ${env.PAYMENT_ENVIRONMENT}]`);
-});
-
-module.exports = server;
+module.exports = exportedServer;

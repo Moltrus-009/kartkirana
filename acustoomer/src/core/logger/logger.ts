@@ -12,9 +12,21 @@ export const logger = {
     }
   },
   warn(message: string, ...args: any[]): void {
-    console.warn(`[WARN] ${message}`, ...args);
+    if (IS_DEV) {
+      console.warn(`[WARN] ${message}`, ...args);
+    } else {
+      const context = args.find(value => typeof value === 'string');
+      console.warn(`[WARN] ${message}${context ? `: ${context}` : ''}`);
+    }
   },
   error(message: string, error?: any, ...args: any[]): void {
-    console.error(`[ERROR] ${message}`, error, ...args);
+    if (IS_DEV) {
+      console.error(`[ERROR] ${message}`, error, ...args);
+    } else {
+      const context = typeof error === 'string'
+        ? error
+        : args.find(value => typeof value === 'string');
+      console.error(`[ERROR] ${message}${context ? `: ${context}` : ''}`);
+    }
   }
 };

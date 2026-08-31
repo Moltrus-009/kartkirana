@@ -20,13 +20,15 @@ paymentEmitter.on('payment.verified', async (data) => {
     console.error('[EVENT ERROR] Analytics tracking failed:', error);
   }
 
+});
+
+paymentEmitter.on('order.placed', async ({ orderId, userId }) => {
   try {
     if (db) {
       const orderSnap = await db.collection('orders').doc(orderId).get();
       if (orderSnap.exists) {
         const orderData = orderSnap.data();
         const shopId = orderData.shopId;
-        
         await NotificationService.enqueueNotification(
           userId,
           'Order Confirmed!',

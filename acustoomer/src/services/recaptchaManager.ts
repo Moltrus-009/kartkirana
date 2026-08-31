@@ -4,22 +4,31 @@ import { logger } from '../core/logger/logger';
 class RecaptchaManager {
   private verifier: RecaptchaVerifier | null = null;
   private containerId: string | null = null;
+  private auth: Auth | null = null;
+  private generation = 0;
 
   setup(auth: Auth, containerId: string): RecaptchaVerifier | null {
     try {
-      this.clear(); // Clear any previous instances before creating a new one
+      // A solved invisible verifier can be reused for a changed phone number or
+      // OTP resend. Recreating it immediately on the same element is what causes
+      // Firebase's "reCAPTCHA already configured" error.
+      if (this.verifier && this.auth === auth && this.containerId === containerId) {
+        return this.verifier;
+      }
+
+      this.clear();
 
       logger.info('reCAPTCHA', `Initializing RecaptchaVerifier on container: ${containerId}`);
       this.containerId = containerId;
+      this.auth = auth;
 
-      // Clean the container element's HTML content to prevent duplicate widget rendering
       const containerEl = document.getElementById(containerId);
-      if (containerEl) {
-        containerEl.innerHTML = '';
-      }
+      if (!containerEl) throw new Error(`reCAPTCHA container "${containerId}" was not found.`);
+      const widgetHost = document.createElement('div');
+      widgetHost.id = `${containerId}-widget-${++this.generation}`;
+      containerEl.replaceChildren(widgetHost);
 
-      // Create a ReCAPTCHA verifier
-      const verifier = new RecaptchaVerifier(auth, containerId, {
+      const verifier = new RecaptchaVerifier(auth, widgetHost, {
         size: 'invisible',
         callback: () => {
           logger.info('reCAPTCHA', 'reCAPTCHA challenge successfully solved.');
@@ -59,6 +68,7 @@ class RecaptchaManager {
       }
       this.containerId = null;
     }
+    this.auth = null;
   }
 }
 

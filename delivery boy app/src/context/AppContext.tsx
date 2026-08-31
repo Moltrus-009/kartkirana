@@ -3,7 +3,6 @@ import {
   hasValidConfig, 
   auth,
   db,
-  appCheck,
   isFirebaseActive
 } from '../lib/firebase';
 import { 
@@ -12,11 +11,12 @@ import {
   onAuthStateChanged 
 } from 'firebase/auth';
 import { onSnapshot, collection, doc, getDoc, query, where } from 'firebase/firestore';
-import { getToken } from 'firebase/app-check';
 import { API_BASE_URL } from '../lib/apiConfig';
+import { collectCodPayment } from '../services/paymentService';
+import { getSecureAppCheckToken } from '../services/appCheckService';
 import { registerForPushNotifications, onForegroundMessage } from '../lib/messaging';
 import { isOrderStatus } from '../types/orderStatus';
-import { PER_DELIVERY_FEE, BATCH_BONUS, MAX_BATCH_SIZE } from '../constants/earnings';
+import { PER_DELIVERY_FEE, BATCH_BONUS, MAX_BATCH_SIZE, MAX_BATCH_SPREAD_METERS } from '../constants/earnings';
 
 import { 
   getUserProfile, 
@@ -24,12 +24,14 @@ import {
   updateUserProfile, 
   updateRiderLocation, 
   updateOrderStatus, 
+  updateBatchOrderStatuses,
   updateBatch, 
   createBatch,
   getOrders,
   updateRiderOnlineStatus,
   acceptOrderTransaction,
-  acceptBatchTransaction
+  acceptBatchTransaction,
+  rejectBatchTransaction
 } from '../services/firestoreService';
 import type { 
   OrderDocument, 
@@ -103,6 +105,22 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 const MOCK_GPS_START = { lat: 28.5802, lng: 77.3105 }; // Noida Sector 15
+
+/** Accept the customer app's flat address coordinates as well as the rider
+ * app's nested format. This keeps older orders deliverable after an update. */
+const normalizeOrderDocument = (raw: any): OrderDocument => {
+  const address = raw.deliveryAddress || {};
+  const coords = address.coords || (
+    Number.isFinite(Number(address.lat)) && Number.isFinite(Number(address.lng))
+      ? { lat: Number(address.lat), lng: Number(address.lng) }
+      : undefined
+  );
+  return {
+    ...raw,
+    deliveryAddress: { ...address, coords: coords || { lat: 0, lng: 0 } },
+    shopCoords: raw.shopCoords || raw.shopLocation?.coords || raw.shopLocation
+  } as OrderDocument;
+};
 
 const getMockData = <T,>(key: string, defaultValue: T): T => {
   const data = localStorage.getItem(key);
@@ -232,13 +250,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     let unsubscribe: any = () => {};
 
     if (hasValidConfig && auth) {
-      unsubscribe = onAuthStateChanged(auth, async (fUser) => {
+      const firebaseAuth = auth;
+      unsubscribe = onAuthStateChanged(firebaseAuth, async (fUser) => {
         if (fUser) {
           const profile = await getUserProfile(fUser.uid);
-          if (profile) {
+          if (profile?.role === 'rider') {
             setUser(profile);
             setIsOnline(profile.status === 'online');
             syncRiderDatabaseDetails(profile.uid);
+          } else {
+            logger.warn('Auth', 'Rejected a persisted Firebase session that is not a rider account.');
+            await signOut(firebaseAuth);
+            setUser(null);
+            setIsOnline(false);
           }
         } else {
           setUser(null);
@@ -364,47 +388,42 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (isFirebaseActive() && db) {
       console.log("[Rider App] Activating real-time Firestore order, batch, and targeted dispatch listeners...");
       
-      let assignedList: OrderDocument[] = [];
-      let unassignedList: OrderDocument[] = [];
+        let assignedList: OrderDocument[] = [];
 
-      const mergeAndSyncOrders = () => {
-        const map = new Map<string, OrderDocument>();
-        assignedList.forEach(o => map.set(o.id, o));
-        unassignedList.forEach(o => {
-          if (!map.has(o.id)) {
-            map.set(o.id, o);
-          }
-        });
-        syncOrdersList(Array.from(map.values()));
-      };
+        const mergeAndSyncOrders = () => {
+          syncOrdersList(assignedList);
+        };
 
       const qOrders = query(collection(db, 'orders'), where('riderId', '==', user.uid));
-      const unsubOrders = onSnapshot(qOrders, (snap) => {
-        assignedList = snap.docs.map(d => ({ id: d.id, ...d.data() } as OrderDocument));
-        mergeAndSyncOrders();
+        const unsubOrders = onSnapshot(qOrders, (snap) => {
+          assignedList = snap.docs.map(d => normalizeOrderDocument({ id: d.id, ...d.data() }));
+          mergeAndSyncOrders();
       }, (err) => {
         console.error("Firestore onSnapshot error in rider app:", err);
-      });
-
-      const qUnassigned = query(
-        collection(db, 'orders'),
-        where('status', 'in', ['SEARCHING_RIDER', 'SHOP_ACCEPTED', 'ready_for_pickup', 'READY'])
-      );
-      const unsubUnassigned = onSnapshot(qUnassigned, (snap) => {
-        unassignedList = snap.docs.map(d => ({ id: d.id, ...d.data() } as OrderDocument));
-        mergeAndSyncOrders();
-      }, (err) => {
-        console.error("Firestore unassigned orders error in rider app:", err);
       });
 
       const qBatches = query(collection(db, 'batches'), where('riderId', '==', user.uid));
       const unsubBatches = onSnapshot(qBatches, (snap) => {
         const batchList = snap.docs.map(d => ({ id: d.id, ...d.data() } as BatchDocument));
-        const activeB = batchList.find(b => b.status === 'assigned' || b.status === 'accepted' || b.status === 'in_progress');
-        if (activeB) {
-          setActiveBatch(activeB);
+        const assignedBatch = batchList.find(batch => batch.status === 'assigned');
+        const activeB = batchList.find(batch => batch.status === 'accepted' || batch.status === 'in_progress');
+        setActiveBatch(activeB || null);
+
+        if (assignedBatch && isOnline && assignedList.length === 0 && !newRequestRef.current) {
+          playDualToneNotification();
+          triggerVibrate();
+          setNewRequest({
+            type: 'batch',
+            batchId: assignedBatch.id,
+            batchData: assignedBatch,
+            distance: assignedBatch.totalDistance,
+            earnings: assignedBatch.totalEarnings,
+          });
         } else {
-          setActiveBatch(null);
+          const currentRequest = newRequestRef.current;
+          if (currentRequest?.type === 'batch' && !batchList.some(batch => batch.id === currentRequest.batchId && batch.status === 'assigned')) {
+            setNewRequest(null);
+          }
         }
       }, (err) => {
         console.error("Firestore batches listener error in rider app:", err);
@@ -441,7 +460,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               type: 'single',
               orderId: reqData.orderId,
               requestId: requestDoc.id,
-              orderData: { id: orderDocSnap.id, ...(orderDocSnap.data() || {}) } as OrderDocument,
+              orderData: normalizeOrderDocument({ id: orderDocSnap.id, ...(orderDocSnap.data() || {}) }),
               distance: reqData.distance,
               earnings: reqData.earnings,
               timeoutSeconds: reqData.timeoutSeconds,
@@ -455,10 +474,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         console.error("Firestore dispatchRequests listener error:", err);
       });
 
-      unsubscribe = () => {
-        unsubOrders();
-        unsubUnassigned();
-        unsubBatches();
+        unsubscribe = () => {
+          unsubOrders();
+          unsubBatches();
         unsubDispatches();
       };
     } else {
@@ -493,16 +511,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Online / Offline state handler
   const setOnlineStatus = async (status: boolean) => {
+    if (status && user?.documentStatus !== 'verified') {
+      alert('Your rider documents must be approved before you can go online.');
+      return;
+    }
     let currentCoords = user?.coords;
+    const allowLocalPreviewLocation = import.meta.env.DEV && !isFirebaseActive();
     
     if (status) {
       // 1. Request GPS permissions natively from Android OS
       try {
         const hasPermission = await locationService.checkAndRequestPermissions();
         if (!hasPermission) {
-          alert('Location permissions are required to receive delivery dispatches. Please grant location access in device settings.');
-          setIsOnline(false);
-          return;
+          if (!allowLocalPreviewLocation) {
+            alert('Location permissions are required to receive delivery dispatches. Please grant location access in device settings.');
+            setIsOnline(false);
+            return;
+          }
+          currentCoords = currentCoords || MOCK_GPS_START;
         }
       } catch (permErr) {
         console.warn('[Rider GPS Permission] Failed requesting permissions natively:', permErr);
@@ -519,9 +545,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       } catch (locErr) {
         console.warn('[Rider GPS] Failed getting current position on go-online:', locErr);
-        alert('Unable to determine your location. Please check GPS settings and permissions.');
-        setIsOnline(false);
-        return; // Abort going online
+        if (!allowLocalPreviewLocation) {
+          alert('Unable to determine your location. Please check GPS settings and permissions.');
+          setIsOnline(false);
+          return; // Abort going online
+        }
+        currentCoords = currentCoords || MOCK_GPS_START;
+        setUser(prev => prev ? { ...prev, coords: currentCoords } : null);
       }
     }
 
@@ -596,28 +626,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     let selectedBatchOrders: OrderDocument[] | null = null;
-    let neighborhoodDistanceMeters = 420;
-    let isSameShopBatch = false;
+    let neighborhoodDistanceMeters = 0;
 
-    // Find same-shop orders whose delivery locations are within 400m–500m of each other
+    // Find a same-shop cluster where every pair remains within the batch radius.
     for (const shopKey of Object.keys(ordersByShop)) {
       const shopOrders = ordersByShop[shopKey];
-      if (shopOrders.length >= 2) {
-        const o1 = shopOrders[0];
-        const o2 = shopOrders[1];
-        const distMeters = getDistanceMeters(o1.deliveryAddress?.coords, o2.deliveryAddress?.coords);
-        if (distMeters <= 500) {
-          selectedBatchOrders = shopOrders.slice(0, MAX_BATCH_SIZE);
-          neighborhoodDistanceMeters = distMeters;
-          isSameShopBatch = true;
+      for (let anchorIndex = 0; anchorIndex < shopOrders.length; anchorIndex += 1) {
+        const cluster = [shopOrders[anchorIndex]];
+        let clusterSpread = 0;
+        for (let candidateIndex = 0; candidateIndex < shopOrders.length && cluster.length < MAX_BATCH_SIZE; candidateIndex += 1) {
+          const candidate = shopOrders[candidateIndex];
+          if (candidate.id === cluster[0].id) continue;
+          const distances = cluster.map(member => getDistanceMeters(member.deliveryAddress?.coords, candidate.deliveryAddress?.coords));
+          if (distances.every(distance => Number.isFinite(distance) && distance <= MAX_BATCH_SPREAD_METERS)) {
+            cluster.push(candidate);
+            clusterSpread = Math.max(clusterSpread, ...distances);
+          }
+        }
+        if (cluster.length >= 2) {
+          selectedBatchOrders = cluster;
+          neighborhoodDistanceMeters = clusterSpread;
           break;
         }
       }
-    }
-
-    // Fallback: If 2 or more pending orders exist even across nearby shops, form batch
-    if (!selectedBatchOrders && pending.length >= 2) {
-      selectedBatchOrders = pending.slice(0, MAX_BATCH_SIZE);
+      if (selectedBatchOrders) break;
     }
 
     // Determine if batching is beneficial
@@ -668,12 +700,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         status: 'assigned',
         orderIds: batchOrders.map(b => b.id),
         totalEarnings: batchOrders.length * PER_DELIVERY_FEE + BATCH_BONUS,
-        totalDistance: isSameShopBatch ? 2.4 : 4.8, // shorter distance for same-shop batch!
-        estimatedTime: isSameShopBatch ? 18 : 25, // faster delivery time!
+        totalDistance: Number(Math.max(1, neighborhoodDistanceMeters / 1000).toFixed(1)),
+        estimatedTime: 12 + batchOrders.length * 4,
         stops,
         currentStopIndex: 0,
         createdAt: new Date().toISOString(),
-        isSameShopBatch,
+        isSameShopBatch: true,
         neighborhoodDistanceMeters
       };
 
@@ -718,13 +750,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (isFirebaseActive() && user && orderId && requestId) {
       try {
         const token = auth?.currentUser ? await auth.currentUser.getIdToken() : '';
-        let appCheckToken = '';
-        try {
-          if (appCheck) {
-            const tokenResult = await getToken(appCheck);
-            appCheckToken = tokenResult.token;
-          }
-        } catch (e) {}
+        const appCheckToken = await getSecureAppCheckToken(false);
 
         await fetch(`${API_BASE_URL}/v1/dispatch/reject`, {
           method: 'POST',
@@ -743,8 +769,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const rejectSmartBatch = async () => {
     const batch = newRequest?.batchData;
-    if (batch && !isFirebaseActive()) {
-      await updateBatch(batch.id, { status: 'rejected' });
+    if (batch && user) {
+      const result = await rejectBatchTransaction(batch.id, user.uid);
+      if (!result.success) {
+        alert(result.message);
+        setNewRequest(null);
+        return;
+      }
       setRejectedOrderIds(previous => [...new Set([...previous, ...batch.orderIds])]);
     }
     autoRejectRequest(batch?.id);
@@ -773,13 +804,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (isFirebaseActive()) {
         try {
           const token = auth?.currentUser ? await auth.currentUser.getIdToken() : '';
-          let appCheckToken = '';
-          try {
-            if (appCheck) {
-              const tokenResult = await getToken(appCheck);
-              appCheckToken = tokenResult.token;
-            }
-          } catch (e) {}
+          const appCheckToken = await getSecureAppCheckToken(false);
 
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 5000);
@@ -802,11 +827,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               setAcceptanceRate(prev => Math.min(100, prev + 1));
               return;
             }
+            alert(data?.message || 'This delivery request is no longer available.');
+            setNewRequest(null);
+            return;
           } finally {
             clearTimeout(timeoutId);
           }
         } catch (err) {
-          console.warn('Backend API accept unvailable, falling back to direct Firestore transaction:', err);
+          console.warn('Backend dispatch API is unreachable; attempting the Firestore assignment lock:', err);
         }
       }
 
@@ -865,20 +893,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           // First confirm arrival; this keeps the checklist and pickup state
           // visible instead of skipping directly to the next route stop.
           stops[currIdx].status = 'arrived';
-          await Promise.all(stopOrderIds.map(orderId => updateOrderStatus(orderId, 'ARRIVED_AT_SHOP')));
-          await updateBatch(activeBatch.id, { stops });
+          await updateBatchOrderStatuses(activeBatch.id, stopOrderIds, 'ARRIVED_AT_SHOP', {
+            batchFields: { stops, status: 'in_progress' }
+          });
         } else if (currentStop.status === 'arrived') {
           // Once the rider has verified the package, mark every order picked
           // up at this store and proceed to the next stop.
           stops[currIdx].status = 'completed';
-          await Promise.all(stopOrderIds.map(orderId => updateOrderStatus(orderId, 'PICKED_UP')));
+          await updateBatchOrderStatuses(activeBatch.id, stopOrderIds, 'PICKED_UP');
 
           const nextStopIndex = currIdx + 1;
           const hasRemainingPickup = stops.slice(nextStopIndex).some(stop => stop.type === 'pickup');
           if (!hasRemainingPickup) {
-            await Promise.all(activeBatch.orderIds.map(orderId => updateOrderStatus(orderId, 'OUT_FOR_DELIVERY', user?.coords, 50)));
+            await updateBatchOrderStatuses(activeBatch.id, activeBatch.orderIds, 'OUT_FOR_DELIVERY', {
+              riderCoords: user?.coords,
+              riderProgress: 0,
+              batchFields: { stops, currentStopIndex: nextStopIndex, status: 'in_progress' }
+            });
+          } else {
+            await updateBatch(activeBatch.id, { stops, currentStopIndex: nextStopIndex, status: 'in_progress' });
           }
-          await updateBatch(activeBatch.id, { stops, currentStopIndex: nextStopIndex });
         }
       } else {
         // Delivery stop
@@ -886,8 +920,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           // Delivered
           stops[currIdx].status = 'completed';
           const stopOrderIds = currentStop.orderIds || [currentStop.orderId];
-          await Promise.all(stopOrderIds.map(orderId => updateOrderStatus(orderId, 'DELIVERED', user?.coords, 100)));
-          await Promise.all(stopOrderIds.map(orderId => updateOrderStatus(orderId, 'COMPLETED')));
+          const ordersAtStop = stopOrderIds.map(orderId => activeOrders.find(order => order.id === orderId)).filter(Boolean);
+          const uncollectedCodOrders = ordersAtStop.filter(order => String(order!.paymentMethod || '').toLowerCase() === 'cod' && order!.paymentStatus !== 'completed');
+          for (const codOrder of uncollectedCodOrders) {
+            const confirmed = window.confirm(`Confirm cash collection of ₹${Number(codOrder!.total || 0).toFixed(2)} for order ${codOrder!.id}?`);
+            if (!confirmed) return;
+          }
+          const onlineOrderIds: string[] = [];
+          for (const order of ordersAtStop) {
+            if (String(order!.paymentMethod || '').toLowerCase() === 'cod' && order!.paymentStatus !== 'completed') {
+              await collectCodPayment(order!.id);
+            } else {
+              onlineOrderIds.push(order!.id);
+            }
+          }
+          if (onlineOrderIds.length > 0) {
+            await updateBatchOrderStatuses(activeBatch.id, onlineOrderIds, 'DELIVERED', {
+              riderCoords: user?.coords,
+              riderProgress: 100
+            });
+          }
           
           // Confetti explosion on delivery dropoff!
           confetti({
@@ -899,13 +951,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const nextIdx = currIdx + 1;
           const isFinished = nextIdx >= stops.length;
 
+          await updateBatchOrderStatuses(activeBatch.id, stopOrderIds, 'COMPLETED', {
+            batchFields: isFinished
+              ? { status: 'completed', stops, currentStopIndex: currIdx }
+              : { status: 'in_progress', stops, currentStopIndex: nextIdx }
+          });
+
           if (isFinished) {
-            // Whole batch completed!
-            await updateBatch(activeBatch.id, { 
-              status: 'completed',
-              stops,
-              currentStopIndex: currIdx
-            });
             // Credit earnings
             setTodayDeliveries(prev => prev + activeBatch.orderIds.length);
             setTodayEarnings(prev => prev + activeBatch.totalEarnings);
@@ -914,10 +966,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             setActiveBatch(null);
             setActiveOrders([]);
           } else {
-            await updateBatch(activeBatch.id, { 
-              stops, 
-              currentStopIndex: nextIdx 
-            });
+            setActiveBatch(previous => previous ? { ...previous, stops, currentStopIndex: nextIdx, status: 'in_progress' } : previous);
           }
         }
       }
@@ -932,9 +981,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       } else if (isOrderStatus(curStatus, 'ARRIVED_AT_SHOP')) {
         await updateOrderStatus(order.id, 'PICKED_UP');
       } else if (isOrderStatus(curStatus, 'PICKED_UP')) {
-        await updateOrderStatus(order.id, 'OUT_FOR_DELIVERY', user?.coords, 50);
+        await updateOrderStatus(order.id, 'OUT_FOR_DELIVERY', user?.coords, 0);
       } else if (isOrderStatus(curStatus, 'OUT_FOR_DELIVERY')) {
-        await updateOrderStatus(order.id, 'DELIVERED', user?.coords, 100);
+        if (String(order.paymentMethod || '').toLowerCase() === 'cod' && order.paymentStatus !== 'completed') {
+          const confirmed = window.confirm(`Confirm cash collection of ₹${Number(order.total || 0).toFixed(2)} for order ${order.id}?`);
+          if (!confirmed) return;
+          await collectCodPayment(order.id);
+        } else {
+          await updateOrderStatus(order.id, 'DELIVERED', user?.coords, 100);
+        }
         await updateOrderStatus(order.id, 'COMPLETED');
         confetti({
           particleCount: 100,
@@ -984,7 +1039,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       extra: { heading?: number; speed?: number; accuracy?: number; force?: boolean } = {}
     ) => {
       const currentActiveOrders = activeOrdersRef.current;
-      const currentActiveBatch = activeBatchRef.current;
       const currentUser = userRef.current;
       if (!currentUser) return;
 
@@ -1001,33 +1055,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       const activeIds = currentActiveOrders.map(a => a.id);
 
-      // Calculate progress percentage to destination if active orders exist
-      let pct = 0;
-      if (currentActiveOrders.length > 0) {
-        let destCoords = MOCK_GPS_START;
-        if (currentActiveBatch && Array.isArray(currentActiveBatch.stops) && currentActiveBatch.stops.length > 0) {
-          const idx = Math.min(Math.max(0, currentActiveBatch.currentStopIndex || 0), currentActiveBatch.stops.length - 1);
-          const currentStop = currentActiveBatch.stops[idx];
-          if (currentStop?.coords) {
-            destCoords = currentStop.coords;
-          }
-        } else {
-          const order = currentActiveOrders[0];
-          if (order) {
-            if (isOrderStatus(order.status, 'RIDER_ASSIGNED', 'ARRIVED_AT_SHOP')) {
-              destCoords = order.shopCoords || { lat: 28.5835, lng: 77.3142 };
-            } else if (order.deliveryAddress?.coords) {
-              destCoords = order.deliveryAddress.coords;
-            }
-          }
-        }
-        const totalDist = Math.hypot(destCoords.lat - MOCK_GPS_START.lat, destCoords.lng - MOCK_GPS_START.lng);
-        const remainingDist = Math.hypot(destCoords.lat - latitude, destCoords.lng - longitude);
-        if (totalDist > 0) {
-          pct = Math.min(100, Math.max(0, Math.round(((totalDist - remainingDist) / totalDist) * 100)));
-        }
-      }
-
       const updateData = {
         lat: latitude,
         lng: longitude,
@@ -1038,7 +1065,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
 
       console.log(`[Rider GPS Live] Syncing location:`, updateData);
-      await updateRiderLocation(currentUser.uid, updateData, activeIds, pct);
+      // ETA is calculated in the customer app from the actual rider-to-stop
+      // distance. Do not fabricate a percentage from a fixed mock origin.
+      await updateRiderLocation(currentUser.uid, updateData, activeIds);
       setUser(prev => prev ? { ...prev, coords: { lat: latitude, lng: longitude } } : null);
     };
 
@@ -1138,6 +1167,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const sendOTP = async (phoneNumber: string, recaptchaVerifier: any) => {
     if (hasValidConfig && auth && isFirebaseActive()) {
       try {
+        if (!recaptchaVerifier) {
+          throw Object.assign(new Error('App verification is not ready. Please refresh and try again.'), {
+            code: 'auth/missing-app-credential'
+          });
+        }
         logger.info('OTP', `Sending verification SMS to: ${phoneNumber}`);
         const confirmationResult = await signInWithPhoneNumber(auth, phoneNumber, recaptchaVerifier);
         return { success: true, message: 'SMS verification code sent successfully!', confirmationResult };
@@ -1182,12 +1216,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             role: 'rider',
             vehicleType: 'Bike',
             vehicleNumber: 'UP-16-AM-9999',
-            rating: 4.8,
-            totalDeliveries: 10,
+            rating: 0,
+            totalDeliveries: 0,
             todayDeliveries: 0,
             todayEarnings: 0,
             acceptanceRate: 100,
-            documentStatus: 'verified',
+            documentStatus: 'pending',
             status: 'offline',
             coords: MOCK_GPS_START,
             createdAt: new Date().toISOString(),
@@ -1195,6 +1229,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           };
           await createUserProfile(fUserUid, profile);
         } else {
+          if (profile.role !== 'rider') {
+            if (auth) await signOut(auth);
+            throw new Error('This mobile number belongs to a different Kart Kirana account. Please use the correct app.');
+          }
           await updateUserProfile(fUserUid, { lastLogin: new Date().toISOString() });
         }
         
@@ -1241,6 +1279,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         };
         await createUserProfile(matched.uid, matched);
       } else {
+        matched = {
+          ...matched,
+          documentStatus: 'verified',
+          coords: matched.coords || MOCK_GPS_START
+        };
         await updateUserProfile(matched.uid, { lastLogin: new Date().toISOString() });
       }
       
@@ -1253,15 +1296,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Sign out rider
   const logout = async () => {
-    if (isFirebaseActive() && auth) {
-      await signOut(auth);
+    try {
+      if (auth) await signOut(auth);
+    } finally {
+      recaptchaManager.clear();
+      localStorage.removeItem('hs_bypass_active');
+      setUser(null);
+      setIsOnline(false);
+      setActiveOrders([]);
+      setActiveBatch(null);
+      localStorage.removeItem('hs_logged_in_user');
+      localStorage.removeItem('hs_user');
     }
-    setUser(null);
-    setIsOnline(false);
-    setActiveOrders([]);
-    setActiveBatch(null);
-    localStorage.removeItem('hs_logged_in_user');
-    localStorage.removeItem('hs_user');
   };
 
   // Manual Trigger: Debug tick to test location updates

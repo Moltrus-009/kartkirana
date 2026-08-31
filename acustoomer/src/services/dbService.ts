@@ -1,10 +1,9 @@
-import { UserProfile, Shop, Product, Order, Review, Coupon, PromoBanner, NotificationItem, ChatMessage } from '../types';
+import { UserProfile, Shop, Product, Order, Review, Coupon, PromoBanner, NotificationItem, ChatMessage, ShopPromotion } from '../types';
 import { useAppStore } from '../core/store/useAppStore';
 import { userRepository } from '../infrastructure/repositories/userRepository';
 import { orderRepository } from '../infrastructure/repositories/orderRepository';
-import { IS_MOCK_MODE } from '../infrastructure/firebase/firebase';
+import { auth, db, IS_MOCK_MODE } from '../infrastructure/firebase/firebase';
 import { collection, addDoc, query, where, getDocs, orderBy, updateDoc, doc, setDoc, onSnapshot, Unsubscribe } from 'firebase/firestore';
-import { db } from '../infrastructure/firebase/firebase';
 import { MOCK_REVIEWS } from './mockData';
 
 // Helper for local mock storage
@@ -26,6 +25,7 @@ export const dbService = {
   async createUserProfile(uid: string, profile: Partial<UserProfile>): Promise<UserProfile> {
     const defaultProfile = {
       uid,
+      role: 'customer' as const,
       name: profile.name || '',
       phone: profile.phone || '',
       email: profile.email || '',
@@ -76,6 +76,80 @@ export const dbService = {
     return useAppStore.getState().fetchCoupons();
   },
 
+  async getShopPromotions(shopId?: string, userId?: string): Promise<ShopPromotion[]> {
+    if (IS_MOCK_MODE || !db) return [];
+    const source = shopId
+      ? query(
+          collection(db, 'offers'),
+          where('shopId', '==', shopId),
+          where('isActive', '==', true),
+          where('automatic', '==', true),
+          where('promotionVersion', '==', 1)
+        )
+      : query(
+          collection(db, 'offers'),
+          where('isActive', '==', true),
+          where('automatic', '==', true),
+          where('promotionVersion', '==', 1)
+        );
+    const snapshot = await getDocs(source);
+    const today = new Date();
+    const dateKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    const raw = snapshot.docs
+      .map(entry => ({ id: entry.id, ...entry.data() } as Omit<ShopPromotion, 'eligible'>))
+      .filter(offer => (
+        offer.automatic === true &&
+        offer.promotionVersion === 1 &&
+        offer.isActive === true &&
+        (!offer.startDate || offer.startDate <= dateKey) &&
+        (!offer.endDate || offer.endDate >= dateKey)
+      ));
+
+    const authenticatedUserId = auth?.currentUser?.uid === userId ? userId : undefined;
+    const needsMembership = Boolean(
+      authenticatedUserId && shopId && raw.some(offer => offer.audience === 'subscribers' && offer.offerType !== 'subscription')
+    );
+    const needsTargets = Boolean(
+      authenticatedUserId && raw.some(offer => offer.audience === 'selected_customers')
+    );
+
+    const [membershipSnapshot, targetSnapshot] = await Promise.all([
+      needsMembership
+        ? getDocs(query(collection(db, 'shopSubscriptions'), where('userId', '==', authenticatedUserId)))
+        : null,
+      needsTargets
+        ? getDocs(query(collection(db, 'offerTargets'), where('userId', '==', authenticatedUserId)))
+        : null,
+    ]);
+
+    const membership = membershipSnapshot?.docs
+      .map(entry => entry.data())
+      .find(data => data.shopId === shopId) || null;
+    const eligibleTargets = new Set(
+      (targetSnapshot?.docs || []).map(entry => {
+        const data = entry.data();
+        return `${data.offerId}|${data.shopId}`;
+      })
+    );
+
+    return raw.map(offer => {
+      let eligible = offer.audience === 'all' || offer.offerType === 'subscription';
+      if (offer.audience === 'selected_customers' && authenticatedUserId) {
+        eligible = eligibleTargets.has(`${offer.id}|${offer.shopId}`);
+      } else if (offer.audience === 'subscribers' && offer.offerType !== 'subscription') {
+        eligible = Boolean(membership && membership.status === 'active');
+      }
+      return {
+        ...offer,
+        offerType: offer.offerType || 'sale',
+        scope: offer.scope || 'order',
+        productIds: Array.isArray(offer.productIds) ? offer.productIds : [],
+        audience: offer.audience || 'all',
+        eligible,
+      } as ShopPromotion;
+    });
+  },
+
   // Orders flow
   async placeOrder(orderData: Omit<Order, 'id' | 'status' | 'timeline' | 'createdAt' | 'updatedAt'>): Promise<Order> {
     const timestamp = new Date().toISOString();
@@ -124,7 +198,7 @@ export const dbService = {
   },
 
   /** Updates only schedule metadata on an existing order. The backend remains the source of truth. */
-  async updateScheduledOrder(orderId: string, schedule: { preorderDate: string; preorderSlot: string }): Promise<void> {
+  async updateScheduledOrder(orderId: string, schedule: { preorderDate: string; preorderSlot: string; preorderTime?: string }): Promise<void> {
     await useAppStore.getState().updateOrder(orderId, {
       ...schedule,
       updatedAt: new Date().toISOString(),

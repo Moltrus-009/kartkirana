@@ -184,6 +184,28 @@ async function runCouponValidationTestSuite() {
     failed++;
   }
 
+  // TEST 8: Atomic per-user redemption guard
+  try {
+    console.log('\n[TEST 8] Testing single-use redemption guard (same customer cannot reuse SUPER30)...');
+    const redemptionUserId = 'test_user_coupon_single_use';
+    const firstUse = await CouponService.validateAndApplyCoupon('SUPER30', redemptionUserId, testShopId, 300);
+    await db.runTransaction(async (transaction) => {
+      const reservation = await CouponService.prepareRedemption(transaction, firstUse, redemptionUserId, testShopId, 300);
+      CouponService.commitRedemption(transaction, reservation, redemptionUserId, 'test_coupon_order_1');
+    });
+    const secondUse = await CouponService.validateAndApplyCoupon('SUPER30', redemptionUserId, testShopId, 300);
+    if (firstUse.valid && !secondUse.valid && secondUse.reason.includes('maximum allowed')) {
+      console.log('[PASS] Repeat coupon use was blocked after an atomic redemption.');
+      passed++;
+    } else {
+      console.error('[FAIL] Repeat coupon redemption was not blocked:', { firstUse, secondUse });
+      failed++;
+    }
+  } catch (err) {
+    console.error('[FAIL] Test 8 error:', err);
+    failed++;
+  }
+
   // Cleanup test documents
   if (db) {
     console.log('\n[TEST CLEANUP] Pruning test coupon documents...');

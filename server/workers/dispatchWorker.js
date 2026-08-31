@@ -11,9 +11,13 @@ async function startDispatchWorker() {
   }, 2000);
 }
 
+async function runDispatchWorkerOnce() {
+  await DispatchService.runCycle();
+}
+
 async function runWorkerLoop() {
   try {
-    await DispatchService.runCycle();
+    await runDispatchWorkerOnce();
   } catch (error) {
     console.error('[DISPATCH WORKER LOOP ERROR]', error);
   } finally {
@@ -23,5 +27,6 @@ async function runWorkerLoop() {
 }
 
 module.exports = {
-  startDispatchWorker
+  startDispatchWorker,
+  runDispatchWorkerOnce
 };

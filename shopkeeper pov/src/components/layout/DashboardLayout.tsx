@@ -7,12 +7,16 @@ import {
   LayoutDashboard, 
   ShoppingBag, 
   ClipboardList, 
+  Gift,
   Store, 
   Users, 
   Bell, 
   LogOut, 
   Menu, 
-  X
+  X,
+  PackageSearch,
+  BarChart3,
+  Star
 } from 'lucide-react';
 
 interface SidebarLinkProps {
@@ -94,7 +98,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { to: '/', icon: <LayoutDashboard className="h-5 w-5" />, label: t('home') },
     { to: '/orders', icon: <ClipboardList className="h-5 w-5" />, label: t('orders'), badge: newOrdersCount },
     { to: '/products', icon: <ShoppingBag className="h-5 w-5" />, label: t('products') },
+    { to: '/inventory', icon: <PackageSearch className="h-5 w-5" />, label: 'Inventory' },
+    { to: '/offers', icon: <Gift className="h-5 w-5" />, label: 'Shop specials' },
     { to: '/customers', icon: <Users className="h-5 w-5" />, label: t('customers') },
+    { to: '/reviews', icon: <Star className="h-5 w-5" />, label: 'Reviews' },
+    { to: '/analytics', icon: <BarChart3 className="h-5 w-5" />, label: 'Business reports' },
     { to: '/profile', icon: <Store className="h-5 w-5" />, label: t('profile') }
   ];
 
@@ -102,10 +110,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     trackComponent('DashboardLayout', 'render');
   });
   return (
-    <div className="min-h-screen flex flex-col md:flex-row bg-slate-50 dark:bg-dark-bg text-slate-800 dark:text-zinc-100 transition-colors duration-200">
+    <div className="merchant-shell flex flex-col md:flex-row bg-slate-50 dark:bg-dark-bg text-slate-800 dark:text-zinc-100 transition-colors duration-200">
       
       {/* MOBILE HEADER */}
-      <header className="md:hidden flex items-center justify-between px-4 py-3 bg-white dark:bg-dark-card border-b border-slate-100 dark:border-dark-border sticky top-0 z-40">
+      <header className="merchant-mobile-header md:hidden flex items-center justify-between px-4 py-3 bg-white dark:bg-dark-card border-b border-slate-100 dark:border-dark-border sticky top-0 z-40">
         <div className="flex items-center gap-2">
           <button 
             onClick={() => setSidebarOpen(true)}
@@ -113,11 +121,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           >
             <Menu className="h-6 w-6 text-slate-600 dark:text-zinc-300" />
           </button>
-          <div className="flex items-center gap-1.5">
-            <div className="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center text-white font-black text-sm">
-              S
+          <div className="flex items-center gap-2">
+            <img src="/logo.jpeg" alt="Kart Kirana" className="h-9 w-9 rounded-xl object-contain shadow-sm" />
+            <div className="leading-tight">
+              <span className="block font-black text-sm tracking-tight text-[#123f9d]">Kart <span className="text-[#f5b900]">Kirana</span></span>
+              <span className="block text-[9px] font-extrabold uppercase tracking-[0.14em] text-slate-400">Shop partner</span>
             </div>
-            <span className="font-black text-md tracking-tight">Shopkeeper Pov</span>
           </div>
         </div>
 
@@ -151,10 +160,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </header>
 
       {/* SIDEBAR - DESKTOP & MOBILE DRAWER */}
-      <aside className={`fixed inset-y-0 left-0 z-50 w-72 bg-white dark:bg-dark-card border-r border-slate-100 dark:border-dark-border flex flex-col justify-between transform transition-transform duration-300 md:relative md:transform-none ${
+      <aside className={`merchant-sidebar fixed inset-y-0 left-0 z-50 w-72 bg-white dark:bg-dark-card border-r border-slate-100 dark:border-dark-border flex flex-col justify-between transform transition-transform duration-300 md:relative md:transform-none ${
         sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
       }`}>
-        <div>
+        <div className="min-h-0 overflow-y-auto no-scrollbar pb-3">
           {/* Logo Section */}
           <div className="h-16 flex items-center justify-between px-6 border-b border-slate-50 dark:border-dark-border/40">
             <div className="flex items-center gap-2.5">
@@ -203,7 +212,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </nav>
         </div>
         {/* Footer profile/logout */}
-        <div className="p-4 border-t border-slate-50 dark:border-dark-border/40 space-y-3">
+        <div className="shrink-0 p-4 border-t border-slate-50 dark:border-dark-border/40 space-y-3">
           <div className="flex items-center justify-between px-2 pb-1.5 border-b border-slate-50 dark:border-dark-border/40">
             <span className="text-[10px] text-slate-400 font-black uppercase">{t('change_language')}</span>
             <div className="flex bg-slate-100 dark:bg-zinc-800 rounded-lg p-0.5">
@@ -254,10 +263,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       )}
 
       {/* MAIN CONTENT AREA */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
         
         {/* DESKTOP HEADER */}
-        <header className="hidden md:flex items-center justify-between h-16 px-8 bg-white dark:bg-dark-card border-b border-slate-100 dark:border-dark-border sticky top-0 z-30">
+        <header className="merchant-desktop-header hidden md:flex items-center justify-between h-16 px-8 bg-white dark:bg-dark-card border-b border-slate-100 dark:border-dark-border sticky top-0 z-30">
           <div className="flex items-center gap-6">
             <h2 className="text-sm font-black text-slate-800 dark:text-zinc-200">
               {shop ? `${shop.name} Partner Portal` : 'Shopkeeper Dashboard'}
@@ -400,13 +409,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </header>
 
         {/* PAGE BODY VIEW */}
-        <main className="flex-1 p-4 md:p-8 pb-24 md:pb-8 overflow-y-auto page-transition">
+        <main className="merchant-page flex-1 p-4 md:p-8 pb-24 md:pb-8 page-transition">
           {children}
         </main>
       </div>
 
       {/* MOBILE BOTTOM NAVIGATION */}
-      <nav className="md:hidden fixed bottom-0 inset-x-0 bg-white dark:bg-dark-card border-t border-slate-100 dark:border-dark-border py-2 px-2 flex justify-around items-center z-40 shadow-lg pb-safe">
+      <nav className="merchant-bottom-nav md:hidden fixed bottom-0 inset-x-0 bg-white dark:bg-dark-card border-t border-slate-100 dark:border-dark-border py-2 px-2 flex justify-around items-center z-40 shadow-lg pb-safe">
         <button
           onClick={() => handleNav('/')}
           className={`flex flex-col items-center gap-0.5 cursor-pointer ${

@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   /* Shopkeeper logo palette: Kart Kirana blue and yellow */
   --color-primary: #0B74E8;
@@ -44,7 +46,13 @@
 
 /* Base Styles & Theme Directives */
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
 }
 
 /* Glassmorphism Utilities */
@@ -118,17 +126,32 @@
 html, body, #root {
   margin: 0;
   padding: 0;
+  width: 100%;
+  max-width: 100%;
   min-height: 100vh;
+  min-height: 100dvh;
   font-family: var(--font-sans);
-  background: linear-gradient(180deg, #e6fbf4 0%, #ffffff 50%, #f8fafc 100%);
-  background-attachment: fixed;
+  background: linear-gradient(180deg, #f4f8ff 0%, #ffffff 48%, #f7f9fc 100%);
   color: #1e293b;
   transition: background 0.2s ease, color 0.2s ease;
+  overscroll-behavior-x: none;
+}
+
+html,
+body {
+  overflow-x: hidden;
+}
+
+@supports (overflow: clip) {
+  html,
+  body,
+  #root {
+    overflow-x: clip;
+  }
 }
 
 .dark html, .dark body, .dark #root {
   background: linear-gradient(180deg, #0d1e1c 0%, #090d16 50%, #090d16 100%);
-  background-attachment: fixed;
   color: var(--color-dark-text);
 }
 
@@ -138,4 +161,110 @@ html, body, #root {
   text-align: left;
   border: none;
   display: block;
+}
+
+/* Kart Kirana merchant workspace */
+.merchant-shell {
+  position: relative;
+  isolation: isolate;
+  width: 100%;
+  max-width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: pan-y;
+  background:
+    radial-gradient(circle at 70% -15%, rgba(11, 116, 232, 0.11), transparent 34rem),
+    #f6f8fc;
+}
+
+.merchant-sidebar,
+.merchant-mobile-header,
+.merchant-desktop-header {
+  border-color: #e7edf6;
+  box-shadow: 0 8px 30px rgba(17, 52, 107, 0.04);
+}
+
+.merchant-sidebar {
+  background: rgba(255, 255, 255, 0.98);
+  max-width: min(18rem, calc(100vw - 1rem));
+  height: 100vh;
+  height: 100dvh;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}
+
+.merchant-page {
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-x: none;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.merchant-hero {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(135deg, #123d99 0%, #0f55c9 58%, #0b74e8 100%);
+  box-shadow: 0 18px 40px rgba(15, 74, 172, 0.22);
+}
+
+.merchant-hero::after {
+  content: '';
+  position: absolute;
+  width: 12rem;
+  height: 12rem;
+  right: -4rem;
+  bottom: -7rem;
+  border-radius: 999px;
+  border: 2rem solid rgba(255, 255, 255, 0.08);
+  pointer-events: none;
+}
+
+.merchant-hero > * {
+  position: relative;
+  z-index: 1;
+}
+
+.merchant-sales-card {
+  background: linear-gradient(135deg, #1544a4 0%, #0b74e8 100%);
+}
+
+.merchant-dashboard > div:not(.merchant-hero):not(.merchant-metrics),
+.merchant-metrics > div {
+  border-color: #e7edf6;
+  box-shadow: 0 10px 30px rgba(17, 52, 107, 0.06);
+}
+
+.merchant-bottom-nav {
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(100%, 42rem);
+  padding: 0.65rem 0.75rem calc(0.65rem + env(safe-area-inset-bottom));
+  border-radius: 1.25rem 1.25rem 0 0;
+  border-color: #e5ebf4;
+  box-shadow: 0 -10px 32px rgba(17, 52, 107, 0.1);
+}
+
+@media (max-width: 767px) {
+  .merchant-mobile-header {
+    flex-shrink: 0;
+    padding-top: calc(0.75rem + env(safe-area-inset-top));
+  }
+
+  .merchant-page {
+    padding-left: 1rem;
+    padding-right: 1rem;
+    padding-bottom: calc(6rem + env(safe-area-inset-bottom));
+  }
+
+  .merchant-dashboard {
+    max-width: 42rem;
+  }
 }

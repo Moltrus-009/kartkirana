@@ -7,8 +7,29 @@ import { Button } from '../components/ui/Button';
 import { LocationMap } from '../components/LocationMap';
 import { useAppStore } from '../core/store/useAppStore';
 import { VideoCallOverlay } from '../components/VideoCallOverlay';
+import { SafeImage } from '../components/ui/SafeImage';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../infrastructure/firebase/firebase';
+
+type Coordinates = { lat: number; lng: number };
+
+const readCoordinates = (value: any): Coordinates | null => {
+  const lat = Number(value?.lat);
+  const lng = Number(value?.lng);
+  return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
+};
+
+const getDeliveryCoordinates = (order: Order | null): Coordinates | null =>
+  readCoordinates((order as any)?.deliveryAddress?.coords) || readCoordinates((order as any)?.deliveryAddress);
+
+const distanceInKm = (from: Coordinates, to: Coordinates) => {
+  const radians = (degrees: number) => degrees * Math.PI / 180;
+  const latDelta = radians(to.lat - from.lat);
+  const lngDelta = radians(to.lng - from.lng);
+  const a = Math.sin(latDelta / 2) ** 2 +
+    Math.cos(radians(from.lat)) * Math.cos(radians(to.lat)) * Math.sin(lngDelta / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
 
 export const LiveTracking: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -20,6 +41,7 @@ export const LiveTracking: React.FC = () => {
   const [fetchingOrder, setFetchingOrder] = useState<boolean>(true);
 
   const order = directOrder || storeOrders.find(o => o.id === id) || null;
+  const deliveryCoords = getDeliveryCoordinates(order);
   const storeLoading = useAppStore(state => state.loading.orders ?? false);
   const loading = fetchingOrder && storeLoading && !order;
 
@@ -27,7 +49,6 @@ export const LiveTracking: React.FC = () => {
   const [routePolyline, setRoutePolyline] = useState<[number, number][]>([]);
   const [riderCoords, setRiderCoords] = useState<[number, number] | null>(null);
 
-  const [progress, setProgress] = useState(0);
   const [eta, setEta] = useState(15);
 
   // Chat & Calling States
@@ -108,27 +129,32 @@ export const LiveTracking: React.FC = () => {
 
   // Synchronize real rider coordinates from database if available
   useEffect(() => {
-    if (order?.rider?.coords) {
-      setRiderCoords([order.rider.coords.lat, order.rider.coords.lng]);
-      if (order.rider.progress !== undefined) {
-        setProgress(order.rider.progress);
-        setEta(Math.max(1, Math.round(15 * (1 - order.rider.progress / 100))));
-      }
+    const latestRiderCoords = readCoordinates(order?.rider?.coords);
+    if (!latestRiderCoords) return;
+
+    setRiderCoords([latestRiderCoords.lat, latestRiderCoords.lng]);
+    const status = String(order?.status || '').toUpperCase();
+    const destination = ['RIDER_ASSIGNED', 'ARRIVED_AT_SHOP'].includes(status)
+      ? readCoordinates((order as any)?.shopCoords)
+      : deliveryCoords;
+    if (destination) {
+      setEta(Math.max(1, Math.ceil((distanceInKm(latestRiderCoords, destination) / 20) * 60)));
     }
-  }, [order?.rider]);
+  }, [order?.rider, order?.status, order?.shopCoords, deliveryCoords?.lat, deliveryCoords?.lng]);
 
   // Fetch routing polyline from OSRM between the shop and customer coordinates
   useEffect(() => {
-    if (!order || order.status === 'DELIVERED') return;
+    if (!order || !deliveryCoords || ['DELIVERED', 'COMPLETED'].includes(String(order.status).toUpperCase())) return;
 
     const shops = useAppStore.getState().shops || [];
     const shop = shops.find(s => s.id === order.shopId);
-
-    const shopLat = shop ? shop.lat : 0;
-    const shopLng = shop ? shop.lng : 0;
-
-    const destLat = order.deliveryAddress.lat;
-    const destLng = order.deliveryAddress.lng;
+    const orderShopCoords = readCoordinates((order as any).shopCoords) || (shop ? readCoordinates(shop) : null);
+    if (!orderShopCoords) {
+      setRoutePolyline([]);
+      return;
+    }
+    const { lat: shopLat, lng: shopLng } = orderShopCoords;
+    const { lat: destLat, lng: destLng } = deliveryCoords;
 
     const fetchRoute = async () => {
       try {
@@ -140,11 +166,8 @@ export const LiveTracking: React.FC = () => {
         if (data.routes && data.routes[0]) {
           const coords = data.routes[0].geometry.coordinates.map((c: any) => [c[1], c[0]] as [number, number]);
           setRoutePolyline(coords);
-          if (coords.length > 0) {
-            setRiderCoords(coords[0]);
-          }
           const durationMins = Math.round(data.routes[0].duration / 60) + 2; // Add a small traffic buffer
-          setEta(durationMins);
+          if (!riderCoords) setEta(durationMins);
         }
       } catch (err) {
         console.warn('Routing API failed, drawing fallback straight line:', err);
@@ -153,13 +176,12 @@ export const LiveTracking: React.FC = () => {
           [destLat, destLng]
         ];
         setRoutePolyline(fallbackCoords);
-        setRiderCoords(fallbackCoords[0]);
-        setEta(12);
+        if (!riderCoords) setEta(12);
       }
     };
 
     fetchRoute();
-  }, [order]);
+  }, [order?.id, order?.status, order?.shopId, (order as any)?.shopCoords?.lat, (order as any)?.shopCoords?.lng, deliveryCoords?.lat, deliveryCoords?.lng]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -207,7 +229,17 @@ export const LiveTracking: React.FC = () => {
     );
   }
 
-  const hasRider = ['rider_assigned', 'rider_picked_up', 'out_for_delivery'].includes(order.status) || !!order.rider?.name;
+  const normalizedStatus = String(order.status || '').toUpperCase();
+  const hasRider = ['RIDER_ASSIGNED', 'ARRIVED_AT_SHOP', 'PICKED_UP', 'OUT_FOR_DELIVERY'].includes(normalizedStatus) || !!order.rider?.name;
+  const statusLabel: Record<string, string> = {
+    SEARCHING_RIDER: 'Finding a delivery partner',
+    RIDER_ASSIGNED: 'Rider is travelling to the shop',
+    ARRIVED_AT_SHOP: 'Rider has reached the shop',
+    PICKED_UP: 'Order picked up',
+    OUT_FOR_DELIVERY: 'Rider is on the way to you',
+    DELIVERED: 'Order delivered',
+    COMPLETED: 'Order delivered'
+  };
 
   return (
     <div className="max-w-xl mx-auto pb-24 text-left">
@@ -233,7 +265,7 @@ export const LiveTracking: React.FC = () => {
       <div className="relative w-full aspect-video border-b border-gray-100 dark:border-slate-900 overflow-hidden bg-slate-50 dark:bg-slate-900">
         {routePolyline.length > 0 ? (
           <LocationMap
-            center={riderCoords || [order.deliveryAddress.lat, order.deliveryAddress.lng]}
+            center={riderCoords || [deliveryCoords!.lat, deliveryCoords!.lng]}
             zoom={15}
             polyline={routePolyline}
             markers={[
@@ -246,12 +278,12 @@ export const LiveTracking: React.FC = () => {
               },
               {
                 id: 'customer_marker',
-                lat: order.deliveryAddress.lat,
-                lng: order.deliveryAddress.lng,
+                lat: deliveryCoords!.lat,
+                lng: deliveryCoords!.lng,
                 title: 'Your Location',
                 type: 'user'
               },
-              ...(riderCoords && hasRider && progress < 100 ? [{
+              ...(riderCoords && hasRider && !['DELIVERED', 'COMPLETED'].includes(normalizedStatus) ? [{
                 id: 'rider_marker',
                 lat: riderCoords[0],
                 lng: riderCoords[1],
@@ -275,12 +307,12 @@ export const LiveTracking: React.FC = () => {
           <div className="text-left">
             <span className="text-[9px] font-black uppercase text-blue-500 block mb-0.5">Estimated Delivery</span>
             <h3 className="text-2xl font-black text-gray-800 dark:text-gray-100">
-              {progress >= 100 ? 'Arrived!' : `${eta} mins`}
+                {['DELIVERED', 'COMPLETED'].includes(normalizedStatus) ? 'Arrived!' : riderCoords ? `${eta} mins` : 'Locating rider'}
             </h3>
             <span className="text-[10px] font-semibold text-gray-400 block mt-0.5">
-              {progress >= 100 
-                ? 'Your order has been handed over.' 
-                : `Rider is ${Math.round(progress)}% along the path.`}
+                {['DELIVERED', 'COMPLETED'].includes(normalizedStatus)
+                  ? 'Your order has been handed over.'
+                  : statusLabel[normalizedStatus] || 'Your order is being prepared.'}
             </span>
           </div>
 
@@ -344,7 +376,7 @@ export const LiveTracking: React.FC = () => {
         )}
 
         {hasRider && (
-          <div className="bg-white dark:bg-[#1E293B] border border-[#E2E8F0] dark:border-[#334155] p-4.5 rounded-3xl shadow-[0_4px_16px_rgba(46,125,50,0.03)] flex items-center justify-between text-left">
+          <div className="bg-white dark:bg-[#1E293B] border border-[#E2E8F0] dark:border-[#334155] p-4.5 rounded-3xl shadow-[0_8px_24px_-20px_rgba(5,10,36,0.45)] flex items-center justify-between text-left">
             <div>
               <span className="text-[9px] font-black uppercase text-gray-400 block tracking-widest leading-none">Share Delivery OTP</span>
               <span className="text-[10px] font-semibold text-gray-400 mt-1 block">Provide this code to the rider to confirm delivery.</span>
@@ -438,9 +470,9 @@ export const LiveTracking: React.FC = () => {
                             : 'bg-white dark:bg-[#1E293B] text-gray-800 dark:text-gray-250 border border-[#E2E8F0] dark:border-[#334155] rounded-bl-none'
                           }`}
                       >
-                        {msg.imageUrl && (
+                        {msg.imageUrl?.trim() && (
                           <div className="mb-1.5 rounded-xl overflow-hidden max-w-[200px] border border-black/10">
-                            <img src={msg.imageUrl} alt="Chat Attachment" className="w-full object-cover" />
+                            <SafeImage src={msg.imageUrl} alt="Chat Attachment" className="w-full object-cover" />
                           </div>
                         )}
                         <span>{msg.text}</span>

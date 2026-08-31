@@ -1,4 +1,5 @@
 const BaseRepository = require('./BaseRepository');
+const { AppError } = require('../utils/errors');
 
 class ProductRepository extends BaseRepository {
   constructor() {
@@ -16,11 +17,17 @@ class ProductRepository extends BaseRepository {
 
     const updates = {};
     if (isReservedOnly) {
-      const newReserved = Math.max(0, currentReserved + quantityChange);
+      const newReserved = currentReserved + quantityChange;
+      if (newReserved < 0 || newReserved > currentTotal) {
+        throw new AppError(`Invalid reserved stock transition for product ${productId}.`, 409);
+      }
       updates.reservedStock = newReserved;
     } else {
-      const newTotal = Math.max(0, currentTotal + quantityChange);
-      const newReserved = Math.max(0, currentReserved + quantityChange);
+      const newTotal = currentTotal + quantityChange;
+      const newReserved = currentReserved + quantityChange;
+      if (newTotal < 0 || newReserved < 0 || newReserved > newTotal) {
+        throw new AppError(`Invalid committed stock transition for product ${productId}.`, 409);
+      }
       updates.totalStock = newTotal;
       updates.stock = newTotal;
       updates.reservedStock = newReserved;

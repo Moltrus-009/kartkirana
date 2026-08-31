@@ -11,6 +11,7 @@ import { MapPin, LogOut, Shield, FileText, Lock, Bell, CreditCard, ChevronRight,
 import { AddressSelectorModal } from '../components/AddressSelectorModal';
 import { useLanguage } from '../context/LanguageContext';
 import { uploadFile, STORAGE_PATHS } from '../infrastructure/storage/localStorage';
+import { SafeImage } from '../components/ui/SafeImage';
 
 export const Profile: React.FC = () => {
   const navigate = useNavigate();
@@ -129,12 +130,13 @@ export const Profile: React.FC = () => {
       </div>
 
       {/* User Card */}
-      <div className="p-5 rounded-[20px] bg-white dark:bg-[#1E293B] border border-[#E2E8F0] dark:border-[#334155] flex items-center justify-between shadow-[0_4px_16px_rgba(46,125,50,0.02)]">
+      <div className="surface-card p-5 flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <img
+          <SafeImage
             src={user.profileImage}
             alt={user.name}
             className="h-14 w-14 rounded-full border border-[#E2E8F0] dark:border-[#334155] object-cover"
+            fallback="👤"
           />
           <div>
             <h3 className="text-base font-black text-gray-800 dark:text-white leading-tight">
@@ -163,7 +165,7 @@ export const Profile: React.FC = () => {
         </span>
 
         {/* Saved Addresses list summaries */}
-        <div className="p-5 rounded-[20px] bg-white dark:bg-[#1E293B] border border-[#E2E8F0] dark:border-[#334155] text-xs shadow-[0_4px_16px_rgba(46,125,50,0.02)]">
+        <div className="surface-card p-5 text-xs">
           <div className="flex items-center justify-between pb-3.5 border-b border-[#E2E8F0] dark:border-[#334155]">
             <span className="font-black text-gray-800 dark:text-white flex items-center gap-1.5 uppercase tracking-wide text-[10px]">
               <MapPin className="h-4.5 w-4.5 text-[#1565C0]" />
@@ -227,7 +229,7 @@ export const Profile: React.FC = () => {
                 if (menu.action) menu.action();
                 else setActiveModal(menu.id as any);
               }}
-              className="p-4 rounded-2xl bg-white dark:bg-[#1E293B] border border-[#E2E8F0] dark:border-[#334155] flex items-center justify-between cursor-pointer hover:bg-gray-50 dark:hover:bg-[#1E293B] shadow-[0_4px_16px_rgba(46,125,50,0.01)] transition-colors"
+              className="p-4 rounded-2xl bg-white dark:bg-[#1E293B] border border-[#E2E8F0] dark:border-[#334155] flex items-center justify-between cursor-pointer hover:border-blue-200 hover:bg-blue-50/30 dark:hover:bg-blue-950/10 shadow-[0_8px_24px_-22px_rgba(5,10,36,0.4)] transition-colors"
             >
               <div className="flex items-center gap-3">
                 <div className="p-2 rounded-xl bg-gray-50 dark:bg-[#1E293B] border border-[#E2E8F0] dark:border-[#334155] text-[#1565C0] dark:text-[#1E88E5]">
@@ -248,7 +250,7 @@ export const Profile: React.FC = () => {
         })}
 
         {/* Preferred Language Settings Card */}
-        <div className="p-5 rounded-[20px] bg-white dark:bg-[#1E293B] border border-[#E2E8F0] dark:border-[#334155] text-xs flex flex-col gap-3 shadow-[0_4px_16px_rgba(46,125,50,0.02)]">
+        <div className="surface-card p-5 text-xs flex flex-col gap-3">
           <div className="flex items-center justify-between pb-3 border-b border-[#E2E8F0] dark:border-[#334155]">
             <span className="font-black text-gray-800 dark:text-white flex items-center gap-1.5 uppercase tracking-wider text-[10px]">
               🌐 {t('preferred_language')}
@@ -302,7 +304,7 @@ export const Profile: React.FC = () => {
             <div className="flex items-center gap-3">
               <div className="h-12 w-12 bg-gray-50 dark:bg-[#1E293B] border border-[#E2E8F0] dark:border-[#334155] rounded-xl overflow-hidden flex items-center justify-center shrink-0">
                 {photoInput ? (
-                  <img src={photoInput} alt="Avatar Preview" className="h-full w-full object-cover" />
+                  <SafeImage src={photoInput} alt="Avatar Preview" className="h-full w-full object-cover" fallback="👤" />
                 ) : (
                   <ImageIcon className="h-5 w-5 text-gray-400" />
                 )}

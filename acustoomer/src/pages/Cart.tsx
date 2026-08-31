@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ShoppingBag, Trash2, Plus, Minus, Ticket, MessageSquare, Clock, ArrowRight, Check } from 'lucide-react';
+import { ShoppingBag, Trash2, Plus, Minus, Ticket, MessageSquare, Clock, ArrowRight, Check, ArrowLeft } from 'lucide-react';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/Button';
@@ -8,6 +8,9 @@ import { Dialog } from '../components/ui/Dialog';
 import { useLanguage } from '../context/LanguageContext';
 import { useAppStore } from '../core/store/useAppStore';
 import { PreorderModal } from '../components/PreorderModal';
+import { isValidPreorderSchedule } from '../utils/preorder';
+import { CUSTOMER_STORAGE_KEYS, setCustomerStorageItem } from '../utils/customerStorage';
+import { SafeImage } from '../components/ui/SafeImage';
 
 export const Cart: React.FC = () => {
   const navigate = useNavigate();
@@ -31,10 +34,8 @@ export const Cart: React.FC = () => {
   const [couponCodeInput, setCouponCodeInput] = useState('');
   const [couponMsg, setCouponMsg] = useState<{ success: boolean; text: string } | null>(null);
   
-  // Preorder schedule states
+  // Preorder schedule state
   const [isPreorderScheduleModalOpen, setIsPreorderScheduleModalOpen] = useState(false);
-  const [tempDate, setTempDate] = useState(preorderSchedule?.date || new Date().toISOString().split('T')[0]);
-  const [tempSlot, setTempSlot] = useState(preorderSchedule?.slot || '08:00 AM - 10:00 AM');
 
   // Available coupons modal drawer
   const [isCouponsOpen, setIsCouponsOpen] = useState(false);
@@ -56,7 +57,8 @@ export const Cart: React.FC = () => {
   };
 
   const handleProceed = () => {
-    if (isPreorderCart && !preorderSchedule) {
+    if (isPreorderCart && (!preorderSchedule || !isValidPreorderSchedule(preorderSchedule))) {
+      setPreorderSchedule(null);
       alert('Please select a preorder delivery slot before proceeding.');
       setIsPreorderScheduleModalOpen(true);
       return;
@@ -65,7 +67,7 @@ export const Cart: React.FC = () => {
       navigate('/login');
     } else {
       // Save instructions/notes to localStorage to read in Checkout
-      localStorage.setItem('checkout_order_notes', notes);
+      setCustomerStorageItem(CUSTOMER_STORAGE_KEYS.checkoutNotes, user.uid, notes);
       navigate('/checkout');
     }
   };
@@ -90,17 +92,22 @@ export const Cart: React.FC = () => {
   const isPreorderCart = cartItems.some(i => i.isPreorder);
 
   return (
-    <div className="w-full max-w-full overflow-x-hidden px-3 sm:px-4 pb-[calc(10rem+env(safe-area-inset-bottom))] sm:pb-28 text-left space-y-4">
+    <div className="app-flow-page w-full overflow-x-hidden pb-[calc(10rem+env(safe-area-inset-bottom))] sm:pb-28 text-left space-y-4">
       
       {/* Title Header */}
-      <div className="py-4 border-b border-[#E2E8F0] dark:border-[#334155] flex items-center justify-between mb-4">
-        <div>
+      <div className="app-page-header sticky top-0 z-30 -mx-3 px-3 py-3.5 flex items-center justify-between mb-4">
+        <div className="flex min-w-0 items-center gap-2">
+          <button type="button" aria-label="Continue shopping" onClick={() => navigate('/', { replace: true })} className="app-icon-button shrink-0">
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+          <div className="min-w-0">
           <h2 className="text-lg font-black text-gray-800 dark:text-white uppercase tracking-wider">
             Shopping Cart
           </h2>
-          <span className="text-xs font-bold text-gray-400 dark:text-[#94A3B8]">
+          <span className="block truncate text-xs font-bold text-gray-400 dark:text-[#94A3B8]">
             Ordering from <span className="font-black text-[#1565C0] dark:text-[#1E88E5]">{cartShopName}</span>
           </span>
+          </div>
         </div>
         <button
           onClick={clearCart}
@@ -115,11 +122,11 @@ export const Cart: React.FC = () => {
         {cartItems.map(item => (
           <div
             key={item.product.id}
-            className="p-4 rounded-[20px] bg-white dark:bg-[#1E293B] border border-[#E2E8F0] dark:border-[#334155] flex items-start gap-3.5 shadow-[0_4px_16px_rgba(46,125,50,0.02)]"
+            className="p-4 rounded-[20px] bg-white dark:bg-[#1E293B] border border-[#E2E8F0] dark:border-[#334155] flex items-start gap-3.5 shadow-[0_8px_24px_-20px_rgba(5,10,36,0.45)]"
           >
             {/* Image */}
             <div className="h-16 w-16 rounded-xl bg-[#F8FAFC] dark:bg-[#1E293B] p-1.5 overflow-hidden shrink-0 flex items-center justify-center border border-[#E2E8F0] dark:border-[#334155]">
-              <img src={item.product.image} alt={item.product.name} className="h-full w-full object-contain" />
+              <SafeImage src={item.product.image} alt={item.product.name} className="h-full w-full object-contain" fallback="📦" />
             </div>
 
             {/* Info */}
@@ -223,7 +230,7 @@ export const Cart: React.FC = () => {
               {preorderSchedule ? `📅 ${preorderSchedule.date}` : 'Schedule Date & Slot'}
             </div>
             <div className="text-[9px] text-amber-600 dark:text-amber-400 mt-0.5 font-bold truncate">
-              {preorderSchedule ? `Slot: ${preorderSchedule.slot}` : 'Pick 2-Hour Slot'}
+              {preorderSchedule ? `${preorderSchedule.slot}${preorderSchedule.time ? ` · ${preorderSchedule.time}` : ''}` : 'Pick 2-Hour Slot'}
             </div>
           </button>
         </div>
@@ -250,7 +257,7 @@ export const Cart: React.FC = () => {
           <Ticket className="h-3.5 w-3.5 text-[#1565C0] dark:text-[#1E88E5]" />
           Offers & Coupons
         </span>
-        <div className="p-4 rounded-[20px] bg-white dark:bg-[#1E293B] border border-[#E2E8F0] dark:border-[#334155] flex flex-col gap-3 shadow-[0_4px_16px_rgba(46,125,50,0.02)]">
+        <div className="surface-card p-4 flex flex-col gap-3">
           
           <div className="flex gap-2">
             <input
@@ -299,7 +306,7 @@ export const Cart: React.FC = () => {
         <span className="text-[10px] font-black uppercase text-gray-400 dark:text-[#94A3B8] block mb-2 px-1">
           Bill Details
         </span>
-        <div className="p-5 rounded-[20px] bg-white dark:bg-[#1E293B] border border-[#E2E8F0] dark:border-[#334155] flex flex-col gap-3 text-xs font-bold text-gray-500 dark:text-[#94A3B8] shadow-[0_4px_16px_rgba(46,125,50,0.02)]">
+        <div className="surface-card p-5 flex flex-col gap-3 text-xs font-bold text-gray-500 dark:text-[#94A3B8]">
           
           <div className="flex justify-between">
             <span>Item Subtotal</span>
@@ -308,8 +315,16 @@ export const Cart: React.FC = () => {
 
           {priceBreakdown.discount > 0 && (
             <div className="flex justify-between text-blue-600 dark:text-[#1E88E5] font-black">
-              <span>Coupon Discount</span>
+              <span>{priceBreakdown.appliedPromotion ? priceBreakdown.appliedPromotion.title : 'Coupon discount'}</span>
               <span>-₹{priceBreakdown.discount}</span>
+            </div>
+          )}
+
+          {priceBreakdown.appliedPromotion && (
+            <div className="rounded-xl border border-blue-100 bg-blue-50 p-3 text-[10px] font-semibold leading-relaxed text-blue-800 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-200">
+              <strong className="block font-black">Best shop special applied automatically</strong>
+              {priceBreakdown.appliedPromotion.description}
+              {priceBreakdown.appliedPromotion.freeItems.map(item => <span key={item.productId} className="mt-1 block">{item.quantity} × {item.name} is free in this BOGO offer.</span>)}
             </div>
           )}
 
@@ -354,8 +369,8 @@ export const Cart: React.FC = () => {
       </div>
 
       {/* Sticky Proceed Button Dock */}
-      <div className="fixed inset-x-0 bottom-0 z-35 border-t border-[#E2E8F0] bg-[#F8FAFC]/95 px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-2xl backdrop-blur-md transition-colors dark:border-[#334155] dark:bg-[#0F172A]/95">
-        <div className="max-w-xl mx-auto flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="app-flow-dock fixed inset-x-0 bottom-0 z-35 border-t border-[#E2E8F0] bg-[#F8FAFC]/95 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-2xl backdrop-blur-md transition-colors dark:border-[#334155] dark:bg-[#0F172A]/95">
+        <div className="app-flow-dock-content flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-center justify-between text-left sm:block">
             <span className="text-sm font-black text-gray-900 dark:text-white">₹{priceBreakdown.grandTotal}</span>
             <span className="text-[9px] font-bold text-gray-400 uppercase tracking-wide">Grand Total</span>
@@ -414,6 +429,7 @@ export const Cart: React.FC = () => {
         }}
         initialDate={preorderSchedule?.date}
         initialSlot={preorderSchedule?.slot}
+        initialTime={preorderSchedule?.time}
       />
     </div>
   );

@@ -17,6 +17,9 @@
 const rawUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL;
 
 function resolveApiBaseUrl(): string {
+  if (import.meta.env.PROD && (!rawUrl || !rawUrl.startsWith('https://'))) {
+    return 'https://api.kartkirana.com';
+  }
   if (!rawUrl) {
     console.warn(
       '[apiConfig] VITE_API_URL is not configured — falling back to http://localhost:5000.'

@@ -3,10 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/Button';
-import { AlertCircle, ArrowLeft, CheckCircle, MapPin, Bell, Smartphone, Shield, Check, ChevronRight } from 'lucide-react';
+import { AlertCircle, ArrowLeft, MapPin, Bell, Shield, Check, ChevronRight } from 'lucide-react';
 import { Logo } from '../components/ui/Logo';
 import { useLanguage } from '../context/LanguageContext';
 import { recaptchaManager } from '../services/recaptchaManager';
+import { mapFirebaseError } from '../core/errors/errors';
 
 type AuthStep = 
   | 'language'
@@ -26,7 +27,7 @@ export const Login: React.FC = () => {
 
   const [step, setStep] = useState<AuthStep>('language');
   const [phoneNumber, setPhoneNumber] = useState('');
-  const [countryCode, setCountryCode] = useState('+91');
+  const countryCode = '+91';
   const [phoneError, setPhoneError] = useState('');
   
   // OTP states
@@ -49,9 +50,16 @@ export const Login: React.FC = () => {
     setStep('welcome');
   };
 
-  // Format phone number to "XXXXX XXXXX"
+  // Accept typing, autofill, and pasted Indian numbers such as +91 98765 43210.
+  const normalizePhoneNumber = (val: string) => {
+    let num = val.replace(/\D/g, '');
+    if (num.length === 12 && num.startsWith('91')) num = num.slice(2);
+    return num.slice(0, 10);
+  };
+
+  // Format phone number to "XXXXX XXXXX" for readability.
   const formatPhoneNumber = (val: string) => {
-    const num = val.replace(/\D/g, '').slice(0, 10);
+    const num = normalizePhoneNumber(val);
     if (num.length <= 5) return num;
     return `${num.slice(0, 5)} ${num.slice(5)}`;
   };
@@ -69,18 +77,8 @@ export const Login: React.FC = () => {
       } else if (!notificationPrompted) {
         setStep('notifications');
       } else {
-        const savedCart = localStorage.getItem('shop_app_cart');
-        let hasItems = false;
-        try {
-          hasItems = savedCart ? JSON.parse(savedCart).length > 0 : false;
-        } catch (e) {
-          hasItems = false;
-        }
-        if (hasItems) {
-          navigate('/cart', { replace: true });
-        } else {
-          navigate('/', { replace: true });
-        }
+        // Returning customers always start on Home, even when a cart is saved.
+        navigate('/', { replace: true });
       }
     }
   }, [user, navigate]);
@@ -97,28 +95,6 @@ export const Login: React.FC = () => {
     }
     return () => clearInterval(countdown);
   }, [timer, step]);
-
-  // Global physical keyboard listener for the phone entry screen
-  useEffect(() => {
-    const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      if (step === 'phone') {
-        if (document.activeElement?.tagName === 'INPUT') {
-          return;
-        }
-
-        if (e.key >= '0' && e.key <= '9') {
-          e.preventDefault();
-          handleKeypadPress(e.key);
-        } else if (e.key === 'Backspace') {
-          e.preventDefault();
-          handleKeypadBackspace();
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleGlobalKeyDown);
-    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [step, phoneNumber]);
 
   // Clean up reCAPTCHA verifier widget on unmount to prevent memory leaks
   useEffect(() => {
@@ -156,7 +132,7 @@ export const Login: React.FC = () => {
       }
     } catch (err: any) {
       setStep('phone');
-      console.error(err);
+      if (import.meta.env.DEV) console.error(err);
     }
   };
 
@@ -182,7 +158,7 @@ export const Login: React.FC = () => {
       }
     } catch (err) {
       setIsLoading(false);
-      console.error(err);
+      if (import.meta.env.DEV) console.error(err);
     }
   };
 
@@ -193,7 +169,7 @@ export const Login: React.FC = () => {
     const numOnly = phoneNumber.replace(/\D/g, '');
     const fullPhone = `${countryCode}${numOnly}`;
     try {
-      const success = await sendOTPCode(fullPhone);
+      const success = await sendOTPCode(fullPhone, 'recaptcha-container');
       setIsLoading(false);
       if (success) {
         setTimer(30);
@@ -202,7 +178,7 @@ export const Login: React.FC = () => {
       }
     } catch (err) {
       setIsLoading(false);
-      console.error(err);
+      if (import.meta.env.DEV) console.error(err);
     }
   };
 
@@ -231,7 +207,7 @@ export const Login: React.FC = () => {
       }
     } catch (err: any) {
       setIsLoading(false);
-      setProfileError(err.message || 'Failed to create profile.');
+      setProfileError(mapFirebaseError(err));
     }
   };
 
@@ -287,43 +263,22 @@ export const Login: React.FC = () => {
     }
   };
 
-  // Digital Keypad press handler
-  const handleKeypadPress = (digit: string) => {
-    if (isVerifying) return;
-    const current = phoneNumber.replace(/\D/g, '');
-    if (current.length < 10) {
-      const next = current + digit;
-      setPhoneNumber(formatPhoneNumber(next));
-    }
-  };
-
-  const handleKeypadBackspace = () => {
-    if (isVerifying) return;
-    const current = phoneNumber.replace(/\D/g, '');
-    if (current.length > 0) {
-      const next = current.slice(0, -1);
-      setPhoneNumber(formatPhoneNumber(next));
-    }
-  };
-
   // Geolocation request handler
   const handleRequestLocation = async () => {
     localStorage.setItem('location_permission_prompted', 'true');
     if (navigator.geolocation) {
+      // Continue immediately; AddressProvider saves the granted position automatically.
       navigator.geolocation.getCurrentPosition(
-        (position) => {
-          console.log('Location granted:', position);
-          setStep('notifications');
+        () => {
+          if (import.meta.env.DEV) console.log('Location permission granted.');
         },
         (error) => {
-          console.warn('Location denied:', error);
-          setStep('notifications');
+          if (import.meta.env.DEV) console.warn('Location permission denied:', error);
         },
-        { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+        { enableHighAccuracy: false, timeout: 5000, maximumAge: 300000 }
       );
-    } else {
-      setStep('notifications');
     }
+    setStep('notifications');
   };
 
   // Notification request handler
@@ -333,7 +288,7 @@ export const Login: React.FC = () => {
       try {
         await Notification.requestPermission();
       } catch (err) {
-        console.warn('Notification permission error:', err);
+        if (import.meta.env.DEV) console.warn('Notification permission error:', err);
       }
     }
     navigate('/', { replace: true });
@@ -352,7 +307,7 @@ export const Login: React.FC = () => {
           onClick={() => setLanguage('en')}
           className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase transition-all cursor-pointer
             ${language === 'en'
-              ? 'bg-[#72C61D] text-white shadow-sm font-extrabold'
+              ? 'bg-[#0B74E8] text-white shadow-sm font-extrabold'
               : 'text-gray-650 hover:text-gray-900 dark:hover:text-gray-250'
             }`}
         >
@@ -363,7 +318,7 @@ export const Login: React.FC = () => {
           onClick={() => setLanguage('hi')}
           className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase transition-all cursor-pointer
             ${language === 'hi'
-              ? 'bg-[#72C61D] text-white shadow-sm font-extrabold'
+              ? 'bg-[#0B74E8] text-white shadow-sm font-extrabold'
               : 'text-gray-650 hover:text-gray-900 dark:hover:text-gray-250'
             }`}
         >
@@ -386,7 +341,7 @@ export const Login: React.FC = () => {
             {/* Background decorative bubbles */}
             <div className="absolute inset-0 overflow-hidden pointer-events-none opacity-20">
               <div className="absolute h-64 w-64 rounded-full bg-blue-500/10 blur-xl animate-floating-bubble-1 -top-10 -left-10" />
-              <div className="absolute h-56 w-56 rounded-full bg-[#72C61D]/15 blur-xl animate-floating-bubble-2 bottom-12 -right-12" />
+              <div className="absolute h-56 w-56 rounded-full bg-[#36B6F4]/15 blur-xl animate-floating-bubble-2 bottom-12 -right-12" />
             </div>
 
             <div className="my-auto flex flex-col gap-6 w-full max-w-sm mx-auto z-10">
@@ -410,10 +365,10 @@ export const Login: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => handleSelectLanguage('en')}
-                  className="p-5 bg-white dark:bg-[#1E293B] border border-[#E2E8F0] dark:border-[#334155] hover:border-[#1565C0] dark:hover:border-blue-500 hover:bg-[#E2E8F0]/20 transition-all rounded-3xl cursor-pointer flex items-center justify-between group active:scale-95 shadow-[0_4px_16px_rgba(46,125,50,0.02)]"
+                  className="p-5 bg-white dark:bg-[#1E293B] border border-[#E2E8F0] dark:border-[#334155] hover:border-[#1565C0] dark:hover:border-blue-500 hover:bg-blue-50/30 transition-all rounded-3xl cursor-pointer flex items-center justify-between group active:scale-[0.98] shadow-[0_8px_24px_-20px_rgba(5,10,36,0.45)]"
                 >
                   <div className="flex items-center gap-3.5">
-                    <span className="text-2xl">🇬🇧</span>
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-xs font-black tracking-wide text-[#1565C0] dark:bg-blue-500/10 dark:text-blue-300">EN</span>
                     <div className="text-left">
                       <span className="block font-black text-sm text-gray-800 dark:text-white group-hover:text-[#1565C0] dark:group-hover:text-blue-400">English</span>
                       <span className="block text-[10px] font-bold text-gray-500 dark:text-gray-400">Everything in English language</span>
@@ -425,10 +380,10 @@ export const Login: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => handleSelectLanguage('hi')}
-                  className="p-5 bg-white dark:bg-[#1E293B] border border-[#E2E8F0] dark:border-[#334155] hover:border-[#1565C0] dark:hover:border-blue-500 hover:bg-[#E2E8F0]/20 transition-all rounded-3xl cursor-pointer flex items-center justify-between group active:scale-95 shadow-[0_4px_16px_rgba(46,125,50,0.02)]"
+                  className="p-5 bg-white dark:bg-[#1E293B] border border-[#E2E8F0] dark:border-[#334155] hover:border-[#1565C0] dark:hover:border-blue-500 hover:bg-blue-50/30 transition-all rounded-3xl cursor-pointer flex items-center justify-between group active:scale-[0.98] shadow-[0_8px_24px_-20px_rgba(5,10,36,0.45)]"
                 >
                   <div className="flex items-center gap-3.5">
-                    <span className="text-2xl">🇮🇳</span>
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-xs font-black text-[#1565C0] dark:bg-blue-500/10 dark:text-blue-300">हिं</span>
                     <div className="text-left">
                       <span className="block font-black text-sm text-gray-800 dark:text-white group-hover:text-[#1565C0] dark:group-hover:text-blue-400">हिन्दी (Hindi)</span>
                       <span className="block text-[10px] font-bold text-gray-500 dark:text-gray-400">सभी चीजें हिन्दी भाषा में देखें</span>
@@ -503,6 +458,7 @@ export const Login: React.FC = () => {
         {step === 'phone' && (
           <motion.form
             key="phone"
+            noValidate
             onSubmit={(e) => {
               e.preventDefault();
               handlePhoneSubmit();
@@ -518,11 +474,11 @@ export const Login: React.FC = () => {
                 <button 
                   type="button"
                   onClick={() => setStep('welcome')} 
-                  className="p-2.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-gray-650 dark:text-gray-250 hover:text-[#72C61D] transition-colors cursor-pointer animate-fade-in-up"
+                  className="p-2.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-gray-650 dark:text-gray-250 hover:text-[#0B74E8] transition-colors cursor-pointer animate-fade-in-up"
                 >
                   <ArrowLeft className="h-5 w-5" />
                 </button>
-                <div className="flex items-center gap-1 bg-blue-500/10 dark:bg-blue-500/10 px-3 py-1.5 rounded-full border border-blue-500/20 text-[10px] font-black uppercase text-blue-600 dark:text-[#72C61D] tracking-wider">
+                <div className="flex items-center gap-1 bg-blue-500/10 dark:bg-blue-500/10 px-3 py-1.5 rounded-full border border-blue-500/20 text-[10px] font-black uppercase text-blue-600 dark:text-blue-300 tracking-wider">
                   <Shield className="h-3.5 w-3.5" />
                   <span>Secure Login</span>
                 </div>
@@ -548,15 +504,18 @@ export const Login: React.FC = () => {
               {/* Form Input fields */}
               <div className="flex gap-2.5 items-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-2.5 rounded-2xl shadow-sm focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:border-blue-500 transition-all">
                 <span className="px-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 text-sm font-black text-gray-800 dark:text-gray-200">
-                  🇮🇳 +91
+                  +91
                 </span>
                 <input
                   type="tel"
+                  inputMode="numeric"
+                  autoComplete="tel-national"
                   placeholder="Enter 10 digit number"
                   value={phoneNumber}
                   onChange={(e) => {
-                    const cleanVal = e.target.value.replace(/\D/g, '').slice(0, 10);
+                    const cleanVal = normalizePhoneNumber(e.target.value);
                     setPhoneNumber(formatPhoneNumber(cleanVal));
+                    if (phoneError) setPhoneError('');
                   }}
                   className="flex-1 bg-transparent py-2 px-1 text-base font-black text-gray-900 dark:text-white outline-none placeholder-slate-400 dark:placeholder-slate-600"
                   autoFocus
@@ -564,41 +523,8 @@ export const Login: React.FC = () => {
               </div>
             </div>
 
-            {/* Bottom Digital Keypad & Trigger Button */}
+            {/* Bottom trigger button; Android provides the numeric keypad. */}
             <div className="flex flex-col gap-5 mt-auto">
-              
-              {/* Digital Keypad */}
-              <div className="grid grid-cols-3 gap-3.5 max-w-xs mx-auto w-full select-none mt-2">
-                {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map(num => (
-                  <button
-                    key={num}
-                    type="button"
-                    onClick={() => handleKeypadPress(num)}
-                    className="h-13 font-black text-lg bg-white dark:bg-slate-900 text-gray-800 dark:text-gray-200 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm active:scale-90 hover:border-[#72C61D]/30 transition-all cursor-pointer flex items-center justify-center"
-                  >
-                    {num}
-                  </button>
-                ))}
-                
-                <div className="h-13 bg-transparent" />
-                
-                <button
-                  type="button"
-                  onClick={() => handleKeypadPress('0')}
-                  className="h-13 font-black text-lg bg-white dark:bg-slate-900 text-gray-800 dark:text-gray-200 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm active:scale-90 hover:border-[#72C61D]/30 transition-all cursor-pointer flex items-center justify-center"
-                >
-                  0
-                </button>
-                
-                <button
-                  type="button"
-                  onClick={handleKeypadBackspace}
-                  className="h-13 bg-white dark:bg-slate-900 text-gray-800 dark:text-gray-300 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm active:scale-90 hover:border-red-500/20 active:text-red-500 transition-all cursor-pointer flex items-center justify-center"
-                >
-                  <ArrowLeft className="h-5 w-5" />
-                </button>
-              </div>
-
               {/* Continue CTA */}
               <Button
                 type="submit"
@@ -642,7 +568,7 @@ export const Login: React.FC = () => {
               <div className="h-1 w-full bg-slate-900 rounded-full overflow-hidden">
                 <div className="h-full bg-blue-500 animate-gradient-wave rounded-full" style={{ width: '100%' }} />
               </div>
-              <span className="text-[10px] font-black tracking-[0.25em] text-blue-500 uppercase drop-shadow-[0_0_8px_rgba(114,198,29,0.3)]">
+              <span className="text-[10px] font-black tracking-[0.25em] text-blue-500 uppercase">
                 Verifying your number...
               </span>
             </div>
@@ -667,7 +593,7 @@ export const Login: React.FC = () => {
                 <button 
                   type="button"
                   onClick={() => setStep('phone')} 
-                  className="p-2.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-gray-650 dark:text-gray-250 hover:text-[#72C61D] transition-colors cursor-pointer"
+                  className="p-2.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-gray-650 dark:text-gray-250 hover:text-[#0B74E8] transition-colors cursor-pointer"
                 >
                   <ArrowLeft className="h-5 w-5" />
                 </button>
@@ -700,12 +626,13 @@ export const Login: React.FC = () => {
                     type="text"
                     inputMode="numeric"
                     pattern="[0-9]*"
+                    autoComplete={index === 0 ? 'one-time-code' : 'off'}
                     maxLength={1}
                     value={digit}
                     disabled={isVerifying}
                     onChange={e => handleOtpChange(index, e.target.value)}
                     onKeyDown={e => handleOtpKeyDown(index, e)}
-                    className="w-12 h-14 border border-slate-200 dark:border-slate-800 rounded-2xl bg-white dark:bg-slate-900 text-center font-black text-xl text-gray-950 dark:text-white outline-none focus:border-[#72C61D] focus:ring-4 focus:ring-blue-500/10 transition-all disabled:opacity-50"
+                    className="w-12 h-14 border border-slate-200 dark:border-slate-800 rounded-2xl bg-white dark:bg-slate-900 text-center font-black text-xl text-gray-950 dark:text-white outline-none focus:border-[#0B74E8] focus:ring-4 focus:ring-blue-500/10 transition-all disabled:opacity-50"
                   />
                 ))}
               </div>
@@ -724,7 +651,7 @@ export const Login: React.FC = () => {
                   disabled={!isResendActive || isLoading}
                   className={`font-black uppercase tracking-wider transition-colors cursor-pointer text-[10px]
                     ${isResendActive 
-                      ? 'text-[#72C61D] hover:text-blue-600' 
+                      ? 'text-[#0B74E8] hover:text-blue-700'
                       : 'text-gray-300 dark:text-gray-800 cursor-not-allowed'
                     }`}
                 >
@@ -785,7 +712,7 @@ export const Login: React.FC = () => {
                     placeholder="Enter your name"
                     value={profileName}
                     onChange={(e) => setProfileName(e.target.value)}
-                    className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-sm font-bold text-gray-950 dark:text-white outline-none focus:border-[#72C61D] focus:ring-4 focus:ring-blue-500/10 transition-all"
+                    className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-sm font-bold text-gray-950 dark:text-white outline-none focus:border-[#0B74E8] focus:ring-4 focus:ring-blue-500/10 transition-all"
                   />
                 </div>
 
@@ -798,7 +725,7 @@ export const Login: React.FC = () => {
                     placeholder="Enter your email"
                     value={profileEmail}
                     onChange={(e) => setProfileEmail(e.target.value)}
-                    className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-sm font-bold text-gray-950 dark:text-white outline-none focus:border-[#72C61D] focus:ring-4 focus:ring-blue-500/10 transition-all"
+                    className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-sm font-bold text-gray-950 dark:text-white outline-none focus:border-[#0B74E8] focus:ring-4 focus:ring-blue-500/10 transition-all"
                   />
                 </div>
               </div>
@@ -846,7 +773,7 @@ export const Login: React.FC = () => {
             <div className="absolute h-56 w-56 rounded-full bg-blue-500/5 blur-xl pointer-events-none animate-pulse" />
             
             <div className="flex flex-col items-center gap-6 z-10">
-              <div className="h-20 w-20 rounded-full bg-[#72C61D] text-white flex items-center justify-center shadow-lg shadow-blue-500/20 animate-checkmark-grow">
+              <div className="h-20 w-20 rounded-full bg-[#0B74E8] text-white flex items-center justify-center shadow-lg shadow-blue-500/20 animate-checkmark-grow">
                 <Check className="h-10 w-10 stroke-[3.5]" />
               </div>
               <div className="text-center">
@@ -871,7 +798,7 @@ export const Login: React.FC = () => {
             <div className="flex flex-col items-center text-center my-auto">
               <div className="relative h-24 w-24 rounded-full bg-blue-500/10 flex items-center justify-center mb-8 border border-blue-500/10 shadow-inner">
                 <div className="absolute inset-0.5 rounded-full border border-dashed border-blue-500/30 animate-spin" style={{ animationDuration: '8s' }} />
-                <MapPin className="h-11 w-11 text-[#72C61D] animate-bounce" />
+                <MapPin className="h-11 w-11 text-[#0B74E8] animate-bounce" />
               </div>
 
               <h2 className="text-2xl font-black text-gray-900 dark:text-white">
@@ -941,8 +868,8 @@ export const Login: React.FC = () => {
 
             <div className="flex flex-col items-center text-center my-auto">
               <div className="relative h-24 w-24 rounded-full bg-blue-500/10 flex items-center justify-center mb-8 border border-blue-500/10 shadow-inner">
-                <div className="absolute inset-0.5 rounded-full border border-[#72C61D]/20 animate-ping" style={{ animationDuration: '2.5s' }} />
-                <Bell className="h-11 w-11 text-[#72C61D]" />
+                <div className="absolute inset-0.5 rounded-full border border-[#0B74E8]/20 animate-ping" style={{ animationDuration: '2.5s' }} />
+                <Bell className="h-11 w-11 text-[#0B74E8]" />
               </div>
 
               <h2 className="text-2xl font-black text-gray-900 dark:text-white">

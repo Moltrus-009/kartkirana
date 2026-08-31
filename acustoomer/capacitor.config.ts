@@ -6,8 +6,7 @@ const config: CapacitorConfig = {
   webDir: 'dist',
   server: {
     androidScheme: 'https',
-    hostname: 'customer.kartkirana.com',
-    allowNavigation: ['*']
+    hostname: 'customer.kartkirana.com'
   }
 };
 

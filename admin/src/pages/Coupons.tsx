@@ -1,16 +1,18 @@
 import { useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
-import { collection, onSnapshot, addDoc, deleteDoc, doc, query } from 'firebase/firestore';
+import { collection, onSnapshot, deleteDoc, doc, query, runTransaction, getDocs, where } from 'firebase/firestore';
 import { Ticket, Plus, Trash2, X, Calendar, ShoppingBag } from 'lucide-react';
 
 interface Coupon {
   id: string;
   code: string;
-  discountType: 'percentage' | 'flat';
+  discountType: 'percentage' | 'fixed';
   value: number;
-  minPurchase: number;
-  expiryDate: string;
+  minOrderValue: number;
+  validUntil: string;
   active: boolean;
+  userUsageLimit?: number;
+  usedCount?: number;
 }
 
 export default function Coupons() {
@@ -21,7 +23,7 @@ export default function Coupons() {
 
   // Form Fields
   const [code, setCode] = useState('');
-  const [discountType, setDiscountType] = useState<'percentage' | 'flat'>('percentage');
+  const [discountType, setDiscountType] = useState<'percentage' | 'fixed'>('percentage');
   const [value, setValue] = useState(10);
   const [minPurchase, setMinPurchase] = useState(150);
   const [expiryDate, setExpiryDate] = useState('');
@@ -54,16 +56,35 @@ export default function Coupons() {
     }
 
     try {
+      const normalizedCode = code.trim().toUpperCase();
+      const duplicateCode = await getDocs(query(collection(db!, 'coupons'), where('code', '==', normalizedCode)));
+      if (!duplicateCode.empty) {
+        throw new Error(`Coupon code '${normalizedCode}' already exists.`);
+      }
       const docData = {
-        code: code.trim().toUpperCase(),
+        code: normalizedCode,
+        // Canonical fields are read by the server, customer app, and reports.
+        type: discountType,
         discountType,
         value,
-        minPurchase,
-        expiryDate,
-        active: true
+        discountValue: value,
+        minOrderValue: minPurchase,
+        validUntil: `${expiryDate}T23:59:59.999`,
+        status: 'active',
+        active: true,
+        userUsageLimit: 1,
+        usageLimit: 0,
+        usedCount: 0,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
       };
 
-      await addDoc(collection(db!, 'coupons'), docData);
+      await runTransaction(db!, async (transaction) => {
+        const couponRef = doc(db!, 'coupons', normalizedCode);
+        const existing = await transaction.get(couponRef);
+        if (existing.exists()) throw new Error(`Coupon code '${normalizedCode}' already exists.`);
+        transaction.set(couponRef, docData);
+      });
       setIsFormOpen(false);
       // Reset form
       setCode('');
@@ -149,14 +170,14 @@ export default function Coupons() {
                   <ShoppingBag className="h-3.5 w-3.5 text-slate-400" />
                   <div>
                     <span className="text-[8px] text-slate-400 font-bold uppercase block">Min Bill</span>
-                    <span className="font-bold text-slate-700 dark:text-zinc-300">₹{coupon.minPurchase}</span>
+                    <span className="font-bold text-slate-700 dark:text-zinc-300">₹{coupon.minOrderValue}</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <Calendar className="h-3.5 w-3.5 text-slate-400" />
                   <div>
                     <span className="text-[8px] text-slate-400 font-bold uppercase block">Expiry</span>
-                    <span className="font-bold text-slate-700 dark:text-zinc-300">{new Date(coupon.expiryDate).toLocaleDateString()}</span>
+                    <span className="font-bold text-slate-700 dark:text-zinc-300">{new Date(coupon.validUntil).toLocaleDateString()}</span>
                   </div>
                 </div>
               </div>
@@ -220,7 +241,7 @@ export default function Coupons() {
                   className="w-full p-2.5 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-slate-800 rounded-xl font-bold outline-none"
                 >
                   <option value="percentage">Percentage (%)</option>
-                  <option value="flat">Flat Amount (₹)</option>
+                  <option value="fixed">Flat Amount (₹)</option>
                 </select>
               </div>
 

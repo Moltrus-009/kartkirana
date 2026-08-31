@@ -8,11 +8,6 @@ class FraudService {
       alerts.push('EMULATOR_DETECTION');
     }
 
-    const amount = requestPayload.amount || 0;
-    if (amount > 10000) {
-      alerts.push('HIGH_VALUE_ORDER');
-    }
-
     if (requestPayload.metadata && requestPayload.metadata.isDeviceRooted) {
       alerts.push('ROOTED_DEVICE');
     }

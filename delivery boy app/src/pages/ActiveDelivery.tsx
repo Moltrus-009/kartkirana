@@ -382,7 +382,7 @@ export const ActiveDelivery: React.FC<ActiveDeliveryProps> = ({ setViewActiveMap
       )}
 
       {/* Main HUD Stop card panel */}
-      <div className="bg-slate-950 text-white border border-slate-850 p-5 rounded-2xl shadow-xl space-y-4">
+      <div className="bg-gradient-to-br from-[#1548a5] via-[#12449f] to-[#0b2e73] text-white border border-blue-900/30 p-5 rounded-2xl shadow-xl space-y-4">
         
         {/* Distance Remaining & ETA banner */}
         <div className="flex justify-between items-center text-xs font-black border-b border-white/10 pb-3">

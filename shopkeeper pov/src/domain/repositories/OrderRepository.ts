@@ -6,12 +6,19 @@ export interface OnlineRider {
   fullName?: string;
   phone?: string;
   online?: boolean;
+  coords?: { lat: number; lng: number };
+  vehicleType?: string;
 }
 
 export interface OrderBatch {
   id: string;
+  shopId: string;
+  shopName: string;
   riderId: string;
   riderName: string;
+  riderPhone: string;
+  orderIds: string[];
+  status: 'assigned';
   orders: Array<Pick<Order, 'id'>>;
   [key: string]: unknown;
 }

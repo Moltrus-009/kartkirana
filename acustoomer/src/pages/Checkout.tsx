@@ -1,16 +1,73 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, MapPin, CreditCard, Landmark, Coins, Wallet, CheckCircle, Clock, MessageSquare, Ticket, Plus } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
+import { App as CapacitorApp } from '@capacitor/app';
+import { Checkout as RazorpayCheckout } from 'capacitor-razorpay';
+import { ArrowLeft, MapPin, CreditCard, Landmark, Coins, Wallet, CheckCircle, Clock, MessageSquare, Plus } from 'lucide-react';
 import { useCart } from '../context/CartContext';
 import { useAddress } from '../context/AddressContext';
 import { useAuth } from '../context/AuthContext';
-import { dbService } from '../services/dbService';
 import { Button } from '../components/ui/Button';
 import { Dialog } from '../components/ui/Dialog';
 import { useAppStore } from '../core/store/useAppStore';
 import { paymentService } from '../services/paymentService';
 import { IS_MOCK_MODE } from '../infrastructure/firebase/firebase';
 import { AddressSelectorModal } from '../components/AddressSelectorModal';
+import { PreorderModal } from '../components/PreorderModal';
+import { isValidPreorderSchedule } from '../utils/preorder';
+import {
+  CUSTOMER_STORAGE_KEYS,
+  getCustomerStorageItem,
+  removeCustomerStorageItem,
+  setCustomerStorageItem
+} from '../utils/customerStorage';
+
+type CheckoutSessionState = 'creating' | 'checkout_ready' | 'gateway_open' | 'confirmation_pending';
+
+interface StoredCheckoutSession {
+  version: 2;
+  key: string;
+  fingerprint: string;
+  createdAt: number;
+  state: CheckoutSessionState;
+  orderId?: string;
+  paymentId?: string;
+  attemptId?: string;
+  gatewayOrderId?: string;
+  amount?: number;
+  currency?: string;
+  shopName?: string;
+  pendingReason?: 'gateway_success' | 'gateway_dismissed' | 'gateway_failed' | 'native_unknown' | 'process_interrupted';
+  updatedAt?: number;
+}
+
+const readStoredCheckoutSession = (userId: string): StoredCheckoutSession | null => {
+  try {
+    const value = JSON.parse(getCustomerStorageItem(CUSTOMER_STORAGE_KEYS.checkoutSession, userId) || 'null');
+    if (!value || typeof value !== 'object' || typeof value.key !== 'string' || typeof value.fingerprint !== 'string') {
+      return null;
+    }
+    return value as StoredCheckoutSession;
+  } catch {
+    removeCustomerStorageItem(CUSTOMER_STORAGE_KEYS.checkoutSession, userId);
+    return null;
+  }
+};
+
+const writeStoredCheckoutSession = (userId: string, session: StoredCheckoutSession): void => {
+  setCustomerStorageItem(
+    CUSTOMER_STORAGE_KEYS.checkoutSession,
+    userId,
+    JSON.stringify({ ...session, version: 2, updatedAt: Date.now() })
+  );
+};
+
+const isUnpaidTerminalStatus = (orderStatus: string, paymentStatus: string): boolean => {
+  const normalizedOrder = String(orderStatus || '').toUpperCase();
+  const normalizedPayment = String(paymentStatus || '').toLowerCase();
+  return ['AUTO_CANCELLED', 'CANCELLED', 'REJECTED', 'EXPIRED', 'PAYMENT_FAILED', 'FAILED'].includes(normalizedOrder) ||
+    ['cancelled', 'expired', 'failed'].includes(normalizedPayment);
+};
 
 export const Checkout: React.FC = () => {
   const navigate = useNavigate();
@@ -25,16 +82,17 @@ export const Checkout: React.FC = () => {
   const [isAddressModalOpen, setIsAddressModalOpen] = useState(false);
 
   const [isPreorderModalOpen, setIsPreorderModalOpen] = useState(false);
-  const [tempDate, setTempDate] = useState(preorderSchedule?.date || new Date().toISOString().split('T')[0]);
-  const [tempSlot, setTempSlot] = useState(preorderSchedule?.slot || '08:00 AM - 10:00 AM');
 
   const [isOutOfZone, setIsOutOfZone] = useState(false);
   const [shopDistance, setShopDistance] = useState(0);
 
   const [showMockQRModal, setShowMockQRModal] = useState(false);
   const [isVerifyingPayment, setIsVerifyingPayment] = useState(false);
-  const [createdOrderData, setCreatedOrderData] = useState<any>(null);
+  const [createdOrderData] = useState<any>(null);
   const [qrCountdown, setQrCountdown] = useState(300);
+  const [pendingPaymentOrderId, setPendingPaymentOrderId] = useState<string | null>(null);
+  const reconciliationInFlight = useRef(false);
+  const checkoutCompletedRef = useRef(false);
 
   useEffect(() => {
     let timer: any;
@@ -56,12 +114,132 @@ export const Checkout: React.FC = () => {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const finishConfirmedOrder = useCallback((orderId: string, sessionShopName?: string) => {
+    if (!user?.uid) return;
+    checkoutCompletedRef.current = true;
+    const resolvedShopName = sessionShopName || cartShopName || '';
+    removeCustomerStorageItem(CUSTOMER_STORAGE_KEYS.checkoutNotes, user.uid);
+    removeCustomerStorageItem(CUSTOMER_STORAGE_KEYS.checkoutSession, user.uid);
+    setPendingPaymentOrderId(null);
+    setIsPlacingOrder(false);
+    setVerificationStatus('');
+    clearCart();
+    useAppStore.getState().subscribeOrders(user.uid);
+    const search = new URLSearchParams({ orderId });
+    if (resolvedShopName) search.set('shopName', resolvedShopName);
+    navigate(`/order-success?${search.toString()}`, {
+      replace: true,
+      state: { orderId, shopName: resolvedShopName }
+    });
+  }, [cartShopName, clearCart, navigate, user?.uid]);
+
+  const reconcilePendingCheckout = useCallback(async (showResult = false) => {
+    if (!user?.uid || reconciliationInFlight.current) return;
+    const session = readStoredCheckoutSession(user.uid);
+    if (!session?.orderId || !['gateway_open', 'confirmation_pending'].includes(session.state)) {
+      setPendingPaymentOrderId(null);
+      return;
+    }
+
+    reconciliationInFlight.current = true;
+    setPendingPaymentOrderId(session.orderId);
+    setIsPlacingOrder(true);
+    setVerificationStatus('Checking payment confirmation...');
+    try {
+      const status = await paymentService.getOrderPayment(session.orderId);
+      if (status.paid === true && status.paymentStatus === 'completed') {
+        finishConfirmedOrder(session.orderId, session.shopName);
+        return;
+      }
+
+      if (isUnpaidTerminalStatus(status.orderStatus, status.paymentStatus)) {
+        removeCustomerStorageItem(CUSTOMER_STORAGE_KEYS.checkoutSession, user.uid);
+        setPendingPaymentOrderId(null);
+        setVerificationStatus('');
+        if (showResult) {
+          alert('The previous payment session ended without a confirmed charge. Your cart is safe; you can start a new payment.');
+        }
+        return;
+      }
+
+      if (
+        session.pendingReason === 'gateway_dismissed' &&
+        status.paid === false &&
+        String(status.orderStatus || '').toUpperCase() === 'DRAFT'
+      ) {
+        writeStoredCheckoutSession(user.uid, {
+          ...session,
+          state: 'checkout_ready',
+          pendingReason: undefined
+        });
+        setPendingPaymentOrderId(null);
+        setVerificationStatus('');
+        if (showResult) alert('No payment was confirmed. Your cart is safe and you can reopen the same payment session.');
+        return;
+      }
+
+      writeStoredCheckoutSession(user.uid, { ...session, state: 'confirmation_pending' });
+      setPendingPaymentOrderId(session.orderId);
+      setVerificationStatus(status.reviewRequired
+        ? 'PAYMENT UNDER REVIEW — CHECK STATUS'
+        : 'PAYMENT CONFIRMATION PENDING — CHECK STATUS');
+      if (showResult) {
+        alert(`Payment confirmation is still pending for order ${session.orderId}. Do not start another payment; we will keep checking automatically.`);
+      }
+    } catch {
+      // Network/App Check may be temporarily unavailable after the gateway has
+      // accepted payment. Preserve the session and keep retrying on resume/poll.
+      writeStoredCheckoutSession(user.uid, { ...session, state: 'confirmation_pending' });
+      setPendingPaymentOrderId(session.orderId);
+      setVerificationStatus('PAYMENT CONFIRMATION PENDING — CHECK STATUS');
+      if (showResult) {
+        alert(`Payment status for order ${session.orderId} is temporarily unavailable. Do not pay again; please retry the status check shortly.`);
+      }
+    } finally {
+      reconciliationInFlight.current = false;
+      setIsPlacingOrder(false);
+    }
+  }, [finishConfirmedOrder, user?.uid]);
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    const session = readStoredCheckoutSession(user.uid);
+    if (session?.orderId && ['gateway_open', 'confirmation_pending'].includes(session.state)) {
+      setPendingPaymentOrderId(session.orderId);
+      void reconcilePendingCheckout(false);
+    }
+  }, [reconcilePendingCheckout, user?.uid]);
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    let disposed = false;
+    let removeListener: (() => Promise<void>) | undefined;
+    void CapacitorApp.addListener('appStateChange', ({ isActive }) => {
+      if (isActive) void reconcilePendingCheckout(false);
+    }).then(handle => {
+      if (disposed) void handle.remove();
+      else removeListener = () => handle.remove();
+    });
+    return () => {
+      disposed = true;
+      if (removeListener) void removeListener();
+    };
+  }, [reconcilePendingCheckout]);
+
+  useEffect(() => {
+    if (!pendingPaymentOrderId) return;
+    const timer = window.setInterval(() => {
+      void reconcilePendingCheckout(false);
+    }, 8000);
+    return () => window.clearInterval(timer);
+  }, [pendingPaymentOrderId, reconcilePendingCheckout]);
+
   const handleSimulateSuccess = async () => {
     if (!createdOrderData) return;
     setIsVerifyingPayment(true);
     setVerificationStatus('Verifying payment securely...');
     try {
-      const verified = await paymentService.verifyPaymentSignature(
+      const verification = await paymentService.verifyPaymentSignature(
         'pay_mock_' + Math.random().toString(36).substring(2, 9),
         createdOrderData.gatewayOrderId || createdOrderData.orderId,
         'mock_valid_signature',
@@ -69,15 +247,12 @@ export const Checkout: React.FC = () => {
         user!.uid
       );
 
-      if (!verified) {
+      if (!verification.verified) {
         throw new Error('Payment signature verification failed.');
       }
 
-      localStorage.removeItem('checkout_order_notes');
-      clearCart();
-      useAppStore.getState().subscribeOrders(user!.uid);
       setShowMockQRModal(false);
-      navigate('/orders', { state: { placedOrderId: createdOrderData.orderId } });
+      finishConfirmedOrder(createdOrderData.orderId, cartShopName || undefined);
     } catch (err: any) {
       alert(err.message || 'Payment verification failed. Please contact support.');
     } finally {
@@ -123,19 +298,36 @@ export const Checkout: React.FC = () => {
   useEffect(() => {
     // Read saved notes and check login state
     if (!user) {
-      navigate('/login');
+      navigate('/login', { replace: true });
       return;
     }
-    if (cartItems.length === 0) {
-      navigate('/cart');
+    if (cartItems.length === 0 && !checkoutCompletedRef.current) {
+      navigate('/cart', { replace: true });
       return;
     }
-    const savedNotes = localStorage.getItem('checkout_order_notes') || '';
+    const savedNotes = getCustomerStorageItem(CUSTOMER_STORAGE_KEYS.checkoutNotes, user.uid) || '';
     setOrderNotes(savedNotes);
   }, [user, cartItems, navigate]);
 
   const handlePlaceOrder = async () => {
-    if (!user || !selectedAddress || isPlacingOrder) return;
+    if (!user || isPlacingOrder) return;
+    if (pendingPaymentOrderId) {
+      await reconcilePendingCheckout(true);
+      return;
+    }
+    const unresolvedSession = readStoredCheckoutSession(user.uid);
+    if (unresolvedSession?.orderId && ['gateway_open', 'confirmation_pending'].includes(unresolvedSession.state)) {
+      setPendingPaymentOrderId(unresolvedSession.orderId);
+      await reconcilePendingCheckout(true);
+      return;
+    }
+    if (!selectedAddress) return;
+    if (cartItems.some(item => item.isPreorder) && (!preorderSchedule || !isValidPreorderSchedule(preorderSchedule))) {
+      setPreorderSchedule(null);
+      setIsPreorderModalOpen(true);
+      alert('Your preorder slot is no longer available. Please choose a new slot.');
+      return;
+    }
 
     const deliveryAddress = {
       ...selectedAddress,
@@ -153,8 +345,70 @@ export const Checkout: React.FC = () => {
       quantity: i.quantity
     }));
 
-    const cartHash = orderItems.map(i => `${i.productId}:${i.quantity}`).sort().join('_');
-    const deterministicIdempotencyKey = `idem_${user.uid}_${cartShopId}_${priceBreakdown.grandTotal}_${cartHash}`;
+    // Reuse one server order when Checkout is dismissed or the network retries.
+    // Confirmed purchases clear this record, so buying the same cart later is new.
+    const checkoutFingerprint = JSON.stringify({
+      amount: priceBreakdown.grandTotal,
+      userId: user.uid,
+      shopId: cartShopId || '',
+      items: orderItems,
+      deliveryAddress,
+      couponCode: coupon?.code || null,
+      walletCreditsUsed: paymentMethod === 'wallet' ? priceBreakdown.grandTotal : 0,
+      referralCode: '',
+      preorderSchedule,
+      orderNotes,
+      paymentMethod
+    });
+    let checkoutIdempotencyKey = '';
+    let existingSession = readStoredCheckoutSession(user.uid);
+    const existingSessionExpired = existingSession
+      ? Date.now() - Number(existingSession.createdAt) >= 9 * 60 * 1000
+      : false;
+    const needsReplacement = Boolean(existingSession) && (
+      existingSession!.fingerprint !== checkoutFingerprint || existingSessionExpired
+    );
+
+    // A changed/aged checkout must release its old inventory reservation before
+    // a fresh idempotency key can create another server order.
+    if (needsReplacement) {
+      if (existingSession?.orderId) {
+        setIsPlacingOrder(true);
+        setVerificationStatus('Refreshing secure checkout session...');
+        try {
+          await paymentService.cancelOrder(existingSession.orderId, 'Checkout details changed or payment session expired.');
+        } catch (error: any) {
+          setIsPlacingOrder(false);
+          setVerificationStatus('');
+          alert(error?.message || 'The previous checkout could not be closed safely. Please check My Orders before trying again.');
+          return;
+        }
+      }
+      removeCustomerStorageItem(CUSTOMER_STORAGE_KEYS.checkoutSession, user.uid);
+      existingSession = null;
+    }
+
+    if (existingSession?.fingerprint === checkoutFingerprint && !existingSessionExpired) {
+      checkoutIdempotencyKey = existingSession.key;
+    }
+    if (!checkoutIdempotencyKey) {
+      checkoutIdempotencyKey = `checkout_${crypto.randomUUID().replace(/-/g, '')}`;
+      writeStoredCheckoutSession(user.uid, {
+        version: 2,
+        key: checkoutIdempotencyKey,
+        fingerprint: checkoutFingerprint,
+        createdAt: Date.now(),
+        state: 'creating',
+        shopName: cartShopName || undefined
+      });
+    } else if (existingSession) {
+      writeStoredCheckoutSession(user.uid, {
+        ...existingSession,
+        version: 2,
+        state: existingSession.state || 'creating',
+        shopName: existingSession.shopName || cartShopName || undefined
+      });
+    }
 
     setIsPlacingOrder(true);
     setVerificationStatus('Creating secure payment session...');
@@ -172,15 +426,12 @@ export const Checkout: React.FC = () => {
           '',
           preorderSchedule,
           orderNotes,
-          deterministicIdempotencyKey,
+          checkoutIdempotencyKey,
           'cod'
         );
 
         if (result.cod) {
-          localStorage.removeItem('checkout_order_notes');
-          clearCart();
-          useAppStore.getState().subscribeOrders(user.uid);
-          navigate('/orders', { state: { placedOrderId: result.orderId } });
+          finishConfirmedOrder(result.orderId, cartShopName || undefined);
         } else {
           throw new Error('Expected Cash on Delivery response from server.');
         }
@@ -206,7 +457,8 @@ export const Checkout: React.FC = () => {
             '',
             preorderSchedule,
             orderNotes,
-            deterministicIdempotencyKey
+            checkoutIdempotencyKey,
+            paymentMethod
           );
 
           const selectedShop = useAppStore.getState().shops?.find(s => s.id === (cartShopId || ''));
@@ -227,7 +479,8 @@ export const Checkout: React.FC = () => {
               quantity: i.quantity,
               isPreorder: i.product.isPreorder,
               preorderDate: preorderSchedule?.date,
-              preorderSlot: preorderSchedule?.slot
+              preorderSlot: preorderSchedule?.slot,
+              preorderTime: preorderSchedule?.time
             })),
             priceBreakdown: {
               subtotal: priceBreakdown.subtotal,
@@ -236,7 +489,8 @@ export const Checkout: React.FC = () => {
               deliveryCharge: priceBreakdown.deliveryCharge,
               platformFee: priceBreakdown.platformFee,
               packagingFee: priceBreakdown.packagingFee || 0,
-              grandTotal: priceBreakdown.grandTotal
+              grandTotal: priceBreakdown.grandTotal,
+              appliedPromotion: priceBreakdown.appliedPromotion || null
             },
             status: 'PLACED' as const,
             paymentMethod: paymentMethod,
@@ -251,24 +505,30 @@ export const Checkout: React.FC = () => {
               { status: 'PLACED' as const, timestamp: new Date().toISOString(), title: 'Order Confirmed', description: 'Payment succeeded and order is placed.' }
             ],
             rider: null,
-            shopCoords: exactShopCoords
+            shopCoords: exactShopCoords,
+            preorderDate: preorderSchedule?.date,
+            preorderSlot: preorderSchedule?.slot,
+            preorderTime: preorderSchedule?.time,
+            appliedPromotion: priceBreakdown.appliedPromotion || null
           };
 
           await useAppStore.getState().createOrder(mockOrder as any);
 
-          localStorage.removeItem('checkout_order_notes');
-          clearCart();
-          useAppStore.getState().subscribeOrders(user.uid);
-          navigate('/orders', { state: { placedOrderId: rzpOrder.orderId } });
+          finishConfirmedOrder(rzpOrder.orderId, cartShopName || undefined);
           return;
         }
 
-        const sdkLoaded = await paymentService.loadRazorpaySDK();
-        if (!sdkLoaded) {
-          alert('Unable to load payment gateway. Please check your internet connection and try again.');
-          setIsPlacingOrder(false);
-          setVerificationStatus('');
-          return;
+        setVerificationStatus('Checking secure payment service...');
+        await paymentService.checkPaymentReadiness();
+
+        if (!Capacitor.isNativePlatform()) {
+          const sdkLoaded = await paymentService.loadRazorpaySDK();
+          if (!sdkLoaded) {
+            alert('Unable to load payment gateway. Please check your internet connection and try again.');
+            setIsPlacingOrder(false);
+            setVerificationStatus('');
+            return;
+          }
         }
 
         const rzpOrder = await paymentService.createRazorpayOrder(
@@ -282,14 +542,102 @@ export const Checkout: React.FC = () => {
           '',
           preorderSchedule,
           orderNotes,
-          deterministicIdempotencyKey
+          checkoutIdempotencyKey,
+          paymentMethod
         );
+
+        const currentSession = readStoredCheckoutSession(user.uid);
+        writeStoredCheckoutSession(user.uid, {
+          version: 2,
+          key: checkoutIdempotencyKey,
+          fingerprint: checkoutFingerprint,
+          createdAt: currentSession?.createdAt || Date.now(),
+          state: 'checkout_ready',
+          orderId: rzpOrder.orderId,
+          paymentId: rzpOrder.paymentId,
+          attemptId: rzpOrder.attemptId,
+          gatewayOrderId: rzpOrder.gatewayOrderId,
+          amount: rzpOrder.amount,
+          currency: rzpOrder.currency,
+          shopName: cartShopName || undefined
+        });
+
+        try {
+          const existingStatus = await paymentService.getOrderPayment(rzpOrder.orderId);
+          if (existingStatus.paid === true && existingStatus.paymentStatus === 'completed') {
+            finishConfirmedOrder(rzpOrder.orderId, cartShopName || undefined);
+            return;
+          }
+          if (existingStatus.paid || existingStatus.reviewRequired) {
+            const session = readStoredCheckoutSession(user.uid);
+            if (session) writeStoredCheckoutSession(user.uid, { ...session, state: 'confirmation_pending' });
+            setPendingPaymentOrderId(rzpOrder.orderId);
+            setIsPlacingOrder(false);
+            setVerificationStatus(existingStatus.reviewRequired
+              ? 'PAYMENT UNDER REVIEW — CHECK STATUS'
+              : 'PAYMENT CONFIRMATION PENDING — CHECK STATUS');
+            return;
+          }
+        } catch { /* a new order is expected to be unpaid */ }
 
         setVerificationStatus('Launching payment window...');
 
+        if (!rzpOrder.paymentKey || !rzpOrder.gatewayOrderId) {
+          throw new Error('The payment server returned an incomplete checkout session. Your cart has not been charged.');
+        }
+
+        const handleGatewaySuccess = async (response: any) => {
+          const session = readStoredCheckoutSession(user.uid);
+          if (session) writeStoredCheckoutSession(user.uid, {
+            ...session,
+            state: 'confirmation_pending',
+            pendingReason: 'gateway_success'
+          });
+          setPendingPaymentOrderId(rzpOrder.orderId);
+          setIsPlacingOrder(true);
+          setVerificationStatus('Verifying payment securely...');
+          try {
+            const verification = await paymentService.verifyPaymentSignature(
+              response.razorpay_payment_id,
+              response.razorpay_order_id,
+              response.razorpay_signature,
+              rzpOrder.orderId,
+              user.uid
+            );
+
+            if (!verification.verified) {
+              alert('Payment could not be verified. If money has been deducted, it will be reconciled automatically.');
+              setIsPlacingOrder(false);
+              setVerificationStatus('PAYMENT CONFIRMATION PENDING — CHECK STATUS');
+              return;
+            }
+
+            finishConfirmedOrder(rzpOrder.orderId, cartShopName || undefined);
+          } catch {
+            let reconciled = false;
+            for (let attempt = 0; attempt < 4 && !reconciled; attempt += 1) {
+              if (attempt > 0) await new Promise(resolve => setTimeout(resolve, 2000));
+              try {
+                const status = await paymentService.getOrderPayment(rzpOrder.orderId);
+                reconciled = status.paid === true && status.paymentStatus === 'completed';
+              } catch { /* the signed webhook can still be arriving */ }
+            }
+            if (reconciled) {
+              finishConfirmedOrder(rzpOrder.orderId, cartShopName || undefined);
+              return;
+            }
+            const pendingSession = readStoredCheckoutSession(user.uid);
+            if (pendingSession) writeStoredCheckoutSession(user.uid, { ...pendingSession, state: 'confirmation_pending' });
+            setPendingPaymentOrderId(rzpOrder.orderId);
+            alert(`Payment confirmation is pending for order ${rzpOrder.orderId}. Do not pay again; check My Orders shortly or contact support with this order ID.`);
+            setIsPlacingOrder(false);
+            setVerificationStatus('PAYMENT CONFIRMATION PENDING — CHECK STATUS');
+          }
+        };
+
         const options = {
           key: rzpOrder.paymentKey,
-          amount: Math.round(priceBreakdown.grandTotal * 100),
+          amount: String(Math.round(rzpOrder.amount * 100)),
           currency: rzpOrder.currency || 'INR',
           name: 'Kart Kirana',
           description: `Order #${rzpOrder.orderId}`,
@@ -299,53 +647,104 @@ export const Checkout: React.FC = () => {
             contact: verifiedProfile?.phone || user.phone || ''
           },
           theme: { color: '#1565C0' },
-          handler: async (response: any) => {
-            setIsPlacingOrder(true);
-            setVerificationStatus('Verifying payment securely...');
-            try {
-              const verified = await paymentService.verifyPaymentSignature(
-                response.razorpay_payment_id,
-                response.razorpay_order_id,
-                response.razorpay_signature,
-                rzpOrder.orderId,
-                user.uid
-              );
+          retry: { enabled: true, max_count: 3 }
+        };
 
-              if (!verified) {
-                alert('Payment could not be verified. If money has been deducted, it will be reconciled automatically.');
-                setIsPlacingOrder(false);
-                setVerificationStatus('');
-                return;
-              }
+        const readySession = readStoredCheckoutSession(user.uid);
+        if (readySession) writeStoredCheckoutSession(user.uid, {
+          ...readySession,
+          state: 'gateway_open',
+          pendingReason: 'process_interrupted'
+        });
 
-              localStorage.removeItem('checkout_order_notes');
-              clearCart();
-              useAppStore.getState().subscribeOrders(user.uid);
-              navigate('/orders', { state: { placedOrderId: rzpOrder.orderId } });
-            } catch (err: any) {
-              alert('Payment could not be verified. If money has been deducted, it will be reconciled automatically.');
-              setIsPlacingOrder(false);
-              setVerificationStatus('');
+        if (Capacitor.isNativePlatform()) {
+          try {
+            const result = await RazorpayCheckout.open(options);
+            const rawResponse: any = result.response;
+            const response = typeof rawResponse === 'string' ? JSON.parse(rawResponse) : rawResponse;
+            if (!response?.razorpay_payment_id || !response?.razorpay_order_id || !response?.razorpay_signature) {
+              throw new Error('Razorpay returned an incomplete payment confirmation.');
             }
-          },
+            await handleGatewaySuccess(response);
+          } catch (error: any) {
+            let description = error?.description || error?.error?.description || '';
+            for (const candidate of [error?.message, error?.code]) {
+              if (description || typeof candidate !== 'string') continue;
+              try {
+                const parsed = JSON.parse(candidate);
+                description = parsed?.description || parsed?.error?.description || '';
+              } catch { /* Razorpay may return a plain-text native error. */ }
+            }
+            if (!description) description = error?.message || 'The payment was not completed.';
+            const cancelled = /cancel|dismiss|closed by user/i.test(description);
+            const failedAtGateway = /declin|failed|bad_request|payment error/i.test(description);
+            const nativeSession = readStoredCheckoutSession(user.uid);
+            if (nativeSession) {
+              writeStoredCheckoutSession(user.uid, {
+                ...nativeSession,
+                state: 'confirmation_pending',
+                pendingReason: cancelled ? 'gateway_dismissed' : failedAtGateway ? 'gateway_failed' : 'native_unknown'
+              });
+            }
+            setPendingPaymentOrderId(rzpOrder.orderId);
+            if (!cancelled) {
+              alert(failedAtGateway
+                ? `Payment was not completed: ${description}. We are confirming the failed status before enabling another attempt.`
+                : `Payment status is uncertain for order ${rzpOrder.orderId}. Do not pay again until confirmation is checked.`);
+            }
+            setIsPlacingOrder(false);
+            setVerificationStatus('PAYMENT CONFIRMATION PENDING — CHECK STATUS');
+            void reconcilePendingCheckout(false);
+          }
+          return;
+        }
+
+        const webOptions = {
+          ...options,
+          handler: handleGatewaySuccess,
           modal: {
             ondismiss: () => {
-              console.log('[Razorpay Checkout] User dismissed payment window.');
+              if (import.meta.env.DEV) console.log('[Razorpay Checkout] User dismissed payment window.');
+              const dismissedSession = readStoredCheckoutSession(user.uid);
+              if (dismissedSession) writeStoredCheckoutSession(user.uid, {
+                ...dismissedSession,
+                state: 'confirmation_pending',
+                pendingReason: 'gateway_dismissed'
+              });
+              setPendingPaymentOrderId(rzpOrder.orderId);
               setIsPlacingOrder(false);
-              setVerificationStatus('');
+              setVerificationStatus('PAYMENT CONFIRMATION PENDING — CHECK STATUS');
+              void reconcilePendingCheckout(false);
             }
           }
         };
 
-        const rzp = new (window as any).Razorpay(options);
+        const rzp = new (window as any).Razorpay(webOptions);
         rzp.on('payment.failed', (response: any) => {
-          console.warn('[Razorpay Checkout] Payment failed on gateway:', response.error);
-          alert(`Payment failed: ${response.error?.description || 'Transaction declined by bank.'}`);
+          if (import.meta.env.DEV) console.warn('[Razorpay Checkout] Payment failed on gateway:', response.error);
+          const failedSession = readStoredCheckoutSession(user.uid);
+          if (failedSession) writeStoredCheckoutSession(user.uid, {
+            ...failedSession,
+            state: 'confirmation_pending',
+            pendingReason: 'gateway_failed'
+          });
+          setPendingPaymentOrderId(rzpOrder.orderId);
+          alert(`Payment failed: ${response.error?.description || 'Transaction declined by bank.'} We are confirming the failed status before enabling another attempt.`);
           setIsPlacingOrder(false);
-          setVerificationStatus('');
+          setVerificationStatus('PAYMENT CONFIRMATION PENDING — CHECK STATUS');
+          void reconcilePendingCheckout(false);
         });
         rzp.open();
       } catch (err: any) {
+        if (import.meta.env.DEV) console.error('[Razorpay Checkout] Initialization failed:', err);
+        const failedSession = readStoredCheckoutSession(user.uid);
+        if (failedSession?.state === 'gateway_open') {
+          writeStoredCheckoutSession(user.uid, {
+            ...failedSession,
+            state: 'checkout_ready',
+            pendingReason: undefined
+          });
+        }
         alert(err.message || 'Failed to initialize payment. Please try again.');
         setIsPlacingOrder(false);
         setVerificationStatus('');
@@ -358,16 +757,17 @@ export const Checkout: React.FC = () => {
     { id: 'card' as const, name: 'Credit / Debit Cards', icon: CreditCard },
     { id: 'net_banking' as const, name: 'Net Banking', icon: Landmark },
     { id: 'cod' as const, name: 'Cash on Delivery (COD)', icon: Coins },
-    { id: 'wallet' as const, name: 'Kart Kirana Wallet', icon: Wallet }
+    { id: 'wallet' as const, name: 'Kart Kirana Wallet (coming soon)', icon: Wallet, disabled: true }
   ];
 
   return (
-    <div className="w-full max-w-full overflow-x-hidden px-3 sm:px-4 pb-[calc(10rem+env(safe-area-inset-bottom))] sm:pb-28 text-left space-y-4">
+    <div className="app-flow-page w-full overflow-x-hidden pb-[calc(10rem+env(safe-area-inset-bottom))] sm:pb-28 text-left space-y-4">
       {/* Header bar */}
-      <div className="sticky top-0 z-35 bg-[#F8FAFC]/90 dark:bg-[#0F172A]/90 backdrop-blur-md py-3.5 flex items-center gap-3 border-b border-[#E2E8F0] dark:border-[#334155] mb-4">
+      <div className="app-page-header sticky top-0 z-30 -mx-3 px-3 py-3.5 flex items-center gap-3 mb-4">
         <button
           onClick={() => navigate('/cart')}
-          className="p-2.5 rounded-xl hover:bg-gray-150 dark:hover:bg-[#1E293B] text-gray-500 dark:text-gray-400 cursor-pointer border border-[#E2E8F0] dark:border-[#334155] shadow-sm bg-white dark:bg-[#1E293B]"
+          aria-label="Back to cart"
+          className="app-icon-button bg-white shadow-sm dark:bg-[#1E293B]"
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
@@ -395,7 +795,7 @@ export const Checkout: React.FC = () => {
             </button>
           </div>
 
-          <div className="p-4 rounded-[20px] bg-white dark:bg-[#1E293B] border border-[#E2E8F0] dark:border-[#334155] flex flex-col gap-3 shadow-[0_4px_16px_rgba(46,125,50,0.02)]">
+          <div className="surface-card p-4 flex flex-col gap-3">
             {addresses.length === 0 ? (
               <div className="text-center py-4">
                 <p className="text-xs text-gray-500 mb-2 font-medium">No address saved yet</p>
@@ -447,15 +847,13 @@ export const Checkout: React.FC = () => {
               </span>
               <span className="text-[11px] font-semibold text-gray-600 dark:text-gray-300">
                 {preorderSchedule
-                  ? `Delivering on ${preorderSchedule.date} during ${preorderSchedule.slot}`
+                  ? `Delivering on ${preorderSchedule.date} during ${preorderSchedule.slot}${preorderSchedule.time ? ` (preferred ${preorderSchedule.time})` : ''}`
                   : 'Order will be prepared & dispatched immediately upon shop approval.'}
               </span>
             </div>
           </div>
           <button
             onClick={() => {
-              setTempDate(preorderSchedule?.date || new Date().toISOString().split('T')[0]);
-              setTempSlot(preorderSchedule?.slot || '09:00 AM - 11:00 AM');
               setIsPreorderModalOpen(true);
             }}
             className="text-[10px] font-black uppercase tracking-wider text-[#0B74E8] border border-[#0B74E8]/30 px-3 py-1.5 rounded-xl hover:bg-[#0B74E8]/10 cursor-pointer transition-colors shrink-0"
@@ -470,14 +868,15 @@ export const Checkout: React.FC = () => {
             <CreditCard className="h-4 w-4 text-[#1565C0] dark:text-[#1E88E5]" />
             Choose Payment Method
           </span>
-          <div className="p-4 rounded-[20px] bg-white dark:bg-[#1E293B] border border-[#E2E8F0] dark:border-[#334155] flex flex-col gap-3 shadow-[0_4px_16px_rgba(46,125,50,0.02)]">
+          <div className="surface-card p-4 flex flex-col gap-3">
             {paymentOptions.map(opt => {
               const Icon = opt.icon;
               return (
                 <div
                   key={opt.id}
-                  onClick={() => setPaymentMethod(opt.id)}
-                  className={`p-3 rounded-2xl border transition-all cursor-pointer flex items-center justify-between
+                  onClick={() => !pendingPaymentOrderId && !('disabled' in opt && opt.disabled) && setPaymentMethod(opt.id)}
+                  className={`p-3 rounded-2xl border transition-all flex items-center justify-between
+                    ${'disabled' in opt && opt.disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
                     ${paymentMethod === opt.id
                       ? 'border-[#1565C0] bg-[#E2E8F0]/20 dark:bg-[#334155]/20'
                       : 'border-gray-50 dark:border-[#334155] hover:bg-gray-50 dark:hover:bg-[#1E293B]'
@@ -493,7 +892,8 @@ export const Checkout: React.FC = () => {
                     type="radio"
                     name="payment_method"
                     checked={paymentMethod === opt.id}
-                    onChange={() => setPaymentMethod(opt.id)}
+                    onChange={() => !pendingPaymentOrderId && !('disabled' in opt && opt.disabled) && setPaymentMethod(opt.id)}
+                    disabled={Boolean(pendingPaymentOrderId) || ('disabled' in opt && opt.disabled)}
                     className="cursor-pointer accent-[#1565C0] dark:accent-[#1E88E5]"
                   />
                 </div>
@@ -529,7 +929,7 @@ export const Checkout: React.FC = () => {
           <span className="text-[10px] font-black uppercase text-gray-400 dark:text-[#94A3B8] block mb-2 px-1">
             Order Summary
           </span>
-          <div className="p-4.5 rounded-[20px] bg-white dark:bg-[#1E293B] border border-[#E2E8F0] dark:border-[#334155] flex flex-col gap-3 text-xs font-bold text-gray-500 dark:text-[#94A3B8] shadow-[0_4px_16px_rgba(46,125,50,0.02)]">
+          <div className="surface-card p-4.5 flex flex-col gap-3 text-xs font-bold text-gray-500 dark:text-[#94A3B8]">
             {cartItems.map(item => (
               <div key={item.product.id} className="flex justify-between">
                 <span className="text-gray-850 dark:text-gray-200 truncate max-w-[70%] text-left">
@@ -546,8 +946,14 @@ export const Checkout: React.FC = () => {
               </div>
               {priceBreakdown.discount > 0 && (
                 <div className="flex justify-between text-blue-600 dark:text-[#1E88E5]">
-                  <span>Promo Discount:</span>
+                  <span>{priceBreakdown.appliedPromotion?.title || 'Promo discount'}:</span>
                   <span>-₹{priceBreakdown.discount}</span>
+                </div>
+              )}
+              {priceBreakdown.appliedPromotion && (
+                <div className="rounded-xl bg-blue-50 p-2.5 text-[10px] font-semibold leading-relaxed text-blue-800 dark:bg-blue-950/20 dark:text-blue-200">
+                  <strong className="block font-black">Shop special verified again during payment</strong>
+                  {priceBreakdown.appliedPromotion.description}
                 </div>
               )}
               {priceBreakdown.taxes > 0 && (
@@ -588,8 +994,8 @@ export const Checkout: React.FC = () => {
       </div>
 
       {/* Place Order bottom dock */}
-      <div className="fixed inset-x-0 bottom-0 z-35 border-t border-[#E2E8F0] bg-[#F8FAFC]/95 px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-2xl backdrop-blur-md transition-colors dark:border-[#334155] dark:bg-[#0F172A]/95">
-        <div className="max-w-xl mx-auto flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="app-flow-dock fixed inset-x-0 bottom-0 z-35 border-t border-[#E2E8F0] bg-[#F8FAFC]/95 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-2xl backdrop-blur-md transition-colors dark:border-[#334155] dark:bg-[#0F172A]/95">
+        <div className="app-flow-dock-content flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-center justify-between text-left sm:block">
             <span className="text-sm font-black text-gray-900 dark:text-white">₹{priceBreakdown.grandTotal}</span>
             <span className="text-[9px] font-bold text-gray-400 uppercase tracking-wide">using {paymentMethod.toUpperCase()}</span>
@@ -597,7 +1003,7 @@ export const Checkout: React.FC = () => {
           <Button
             onClick={handlePlaceOrder}
             isLoading={isPlacingOrder}
-            disabled={isOutOfZone}
+            disabled={isOutOfZone && !pendingPaymentOrderId}
             fullWidth
             className={`min-w-0 rounded-2xl px-4 py-3.5 font-black text-xs shadow-lg sm:w-auto sm:px-8 bg-gradient-to-br from-[#1E88E5] to-[#1565C0]
               ${isOutOfZone
@@ -611,63 +1017,14 @@ export const Checkout: React.FC = () => {
         </div>
       </div>
 
-      {/* Preorder Slot Selection Modal */}
-      <Dialog
+      <PreorderModal
         isOpen={isPreorderModalOpen}
         onClose={() => setIsPreorderModalOpen(false)}
-        title="Schedule Preorder Delivery"
-      >
-        <div className="flex flex-col gap-4 text-xs font-bold text-gray-650 dark:text-gray-400 text-left">
-          <p className="text-[11px] font-semibold text-gray-400">
-            Choose when you would like this order to be prepared and delivered. You can cancel any preorder before confirmation.
-          </p>
-
-          <div className="flex flex-col gap-1.5">
-            <label className="font-extrabold uppercase text-[10px] text-gray-400">Delivery Date</label>
-            <input
-              type="date"
-              value={tempDate}
-              min={new Date().toISOString().split('T')[0]}
-              max={(() => {
-                const maxDate = new Date();
-                maxDate.setDate(maxDate.getDate() + 7);
-                return maxDate.toISOString().split('T')[0];
-              })()}
-              onChange={(e) => setTempDate(e.target.value)}
-              className="px-3.5 py-3 rounded-2xl border border-[#E2E8F0] dark:border-[#334155] bg-[#F8FAFC] dark:bg-[#1E293B] font-bold text-gray-800 dark:text-gray-250 outline-none focus:border-[#1E88E5]"
-            />
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <label className="font-extrabold uppercase text-[10px] text-gray-400">Delivery Time Slot</label>
-            <select
-              value={tempSlot}
-              onChange={(e) => setTempSlot(e.target.value)}
-              className="px-3.5 py-3 rounded-2xl border border-[#E2E8F0] dark:border-[#334155] bg-[#F8FAFC] dark:bg-[#1E293B] font-bold text-gray-850 dark:text-gray-255 outline-none focus:border-[#1E88E5]"
-            >
-              {[
-                '08:00 AM - 10:00 AM',
-                '10:00 AM - 12:00 PM',
-                '12:00 PM - 02:00 PM',
-                '04:00 PM - 06:00 PM',
-                '06:00 PM - 08:00 PM',
-                '08:00 PM - 10:00 PM'
-              ].map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-          </div>
-
-          <Button
-            onClick={() => {
-              setPreorderSchedule({ date: tempDate, slot: tempSlot });
-              setIsPreorderModalOpen(false);
-            }}
-            fullWidth
-            className="rounded-2xl py-3.5 font-black mt-2 text-xs"
-          >
-            CONFIRM SCHEDULE
-          </Button>
-        </div>
-      </Dialog>
+        onConfirm={setPreorderSchedule}
+        initialDate={preorderSchedule?.date}
+        initialSlot={preorderSchedule?.slot}
+        initialTime={preorderSchedule?.time}
+      />
 
       {/* Swiggy-Style Mock QR Payment Dialog */}
       <Dialog
@@ -710,7 +1067,7 @@ export const Checkout: React.FC = () => {
             <Button
               onClick={handleSimulateSuccess}
               isLoading={isVerifyingPayment}
-              className="w-full rounded-2xl py-3.5 font-black text-xs bg-gradient-to-br from-green-500 to-green-700 hover:from-green-600 text-white shadow-lg shadow-green-500/20"
+              className="w-full rounded-2xl py-3.5 font-black text-xs bg-[#0B74E8] hover:bg-[#0758C7] text-white shadow-lg shadow-blue-500/20"
             >
               SIMULATE PAYMENT SUCCESS
             </Button>

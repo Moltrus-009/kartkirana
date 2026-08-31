@@ -34,11 +34,11 @@ export const Splash: React.FC = () => {
     if (progress >= 100) {
       const redirectTimer = setTimeout(() => {
         if (!onboardingCompleted) {
-          navigate('/onboarding');
+          navigate('/onboarding', { replace: true });
         } else if (user) {
-          navigate('/');
+          navigate('/', { replace: true });
         } else {
-          navigate('/login');
+          navigate('/login', { replace: true });
         }
       }, 300); // short delay after loading completes
       return () => clearTimeout(redirectTimer);
@@ -66,7 +66,7 @@ export const Splash: React.FC = () => {
         {[...Array(12)].map((_, i) => (
           <motion.div
             key={i}
-            className="absolute rounded-full bg-[#72C61D]"
+            className="absolute rounded-full bg-[#0B74E8]"
             style={{
               width: Math.random() * 6 + 3,
               height: Math.random() * 6 + 3,
@@ -93,8 +93,8 @@ export const Splash: React.FC = () => {
       <div className="relative z-10 flex flex-col items-center justify-center">
         
         {/* Animated Ripple Circles Behind Logo */}
-        <div className="absolute h-64 w-64 rounded-full border border-[#72C61D]/20 animate-ripple-glow pointer-events-none" />
-        <div className="absolute h-80 w-80 rounded-full border border-[#72C61D]/10 animate-ripple-glow pointer-events-none" style={{ animationDelay: '0.8s' }} />
+        <div className="absolute h-64 w-64 rounded-full border border-[#0B74E8]/20 animate-ripple-glow pointer-events-none" />
+        <div className="absolute h-80 w-80 rounded-full border border-[#36B6F4]/10 animate-ripple-glow pointer-events-none" style={{ animationDelay: '0.8s' }} />
 
         {/* Scaled/Fading Brand Logo */}
         <motion.div
@@ -112,11 +112,11 @@ export const Splash: React.FC = () => {
       <div className="absolute bottom-24 z-10 flex flex-col items-center gap-3.5 w-60">
         <div className="h-1.5 w-full bg-slate-900 rounded-full overflow-hidden border border-slate-800/85">
           <div
-            className="h-full bg-gradient-to-r from-[#3E9E0A] via-[#72C61D] to-[#A7E62A] rounded-full transition-all duration-300"
+            className="h-full bg-gradient-to-r from-[#0758C7] via-[#0B74E8] to-[#36B6F4] rounded-full transition-all duration-300"
             style={{ width: `${progress}%` }}
           />
         </div>
-        <span className="text-[10px] font-black tracking-[0.3em] text-[#72C61D] uppercase drop-shadow-[0_0_8px_rgba(114,198,29,0.3)] animate-pulse">
+        <span className="text-[10px] font-black tracking-[0.3em] text-[#0B74E8] uppercase">
           Delivering In Minutes
         </span>
       </div>
@@ -126,4 +126,3 @@ export const Splash: React.FC = () => {
     </div>
   );
 };
-

@@ -76,7 +76,7 @@ export const Earnings: React.FC = () => {
       <section className="space-y-4">
         
         {/* Today's Earning Highlight Card */}
-        <div className="bg-slate-950 text-white border border-slate-850 p-5 rounded-2xl shadow-lg space-y-3">
+        <div className="bg-gradient-to-br from-[#174cae] via-[#1548a5] to-[#0b2e73] text-white border border-blue-900/30 p-5 rounded-2xl shadow-lg space-y-3">
           <div className="flex justify-between items-center text-[10px] font-black text-slate-400 uppercase tracking-widest">
             <span>Today's Revenue</span>
             <TrendingUp className="h-4.5 w-4.5 text-success animate-pulse" />

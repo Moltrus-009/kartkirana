@@ -1,10 +1,11 @@
 const { auth } = require('../config/firebase');
 const env = require('../config/env');
+const { AppError } = require('../utils/errors');
 
 module.exports = async (req, res, next) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Unauthorized', message: 'Missing or invalid Authorization header.' });
+    return next(new AppError('Please sign in to continue.', 401, 'AUTH_REQUIRED'));
   }
 
   const token = authHeader.slice('Bearer '.length);
@@ -18,7 +19,11 @@ module.exports = async (req, res, next) => {
   }
 
   if (!auth) {
-    return res.status(500).json({ error: 'Internal Error', message: 'Authentication service unavailable.' });
+    return next(new AppError(
+      'Authentication is temporarily unavailable. Please try again.',
+      503,
+      'AUTH_DEPENDENCY_UNAVAILABLE'
+    ));
   }
 
   try {
@@ -37,17 +42,17 @@ module.exports = async (req, res, next) => {
     });
 
     if (isConnectivityFailure) {
-      return res.status(503).json({
-        error: 'Authentication service unavailable',
-        message: 'Firebase token verification cannot reach Google services. Check this machine’s internet connection, proxy, or firewall, then retry.',
-        requestId: req.id,
-      });
+      return next(new AppError(
+        'Authentication is temporarily unavailable. Please try again.',
+        503,
+        'AUTH_DEPENDENCY_UNAVAILABLE'
+      ));
     }
 
-    return res.status(401).json({
-      error: 'Unauthorized',
-      message: 'Invalid, revoked, or expired authentication token.',
-      requestId: req.id,
-    });
+    return next(new AppError(
+      'Your session has expired. Please sign in again.',
+      401,
+      'AUTH_INVALID'
+    ));
   }
 };

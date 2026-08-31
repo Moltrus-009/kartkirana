@@ -5,11 +5,12 @@ import {
   Package, 
   IndianRupee, 
   User, 
-  Power, 
   Wifi, 
   WifiOff, 
   Moon, 
-  Sun 
+  Sun,
+  Bike,
+  Bell
 } from 'lucide-react';
 import { NotificationToast } from './NotificationToast';
 import type { ToastMessage } from './NotificationToast';
@@ -27,6 +28,7 @@ export const Layout: React.FC<LayoutProps> = ({
   setActiveTab 
 }) => {
   const { 
+    user,
     isOnline, 
     setOnlineStatus, 
     newRequest, 
@@ -145,73 +147,62 @@ export const Layout: React.FC<LayoutProps> = ({
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-950 transition-colors text-slate-800 dark:text-zinc-100">
+    <div className="rider-app-shell min-h-screen flex flex-col transition-colors text-slate-800 dark:text-zinc-100">
       
       {/* Toast Alert overlay */}
       <NotificationToast toast={toast} onClose={() => setToast(null)} />
 
-      {/* Navigation Header */}
-      <header className="sticky top-0 z-40 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-md border-b border-slate-200/60 dark:border-zinc-800/60 px-4 py-3 shadow-xs">
-        <div className="max-w-md mx-auto flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <div className={`h-2.5 w-2.5 rounded-full ${isOnline ? 'bg-success animate-pulse' : 'bg-slate-400'}`}></div>
-            <h1 className="text-sm font-black tracking-widest uppercase text-primary dark:text-white flex items-center gap-1">
-              <span>Kart Kirana</span>
-              <span className="text-[10px] bg-secondary text-slate-900 font-bold px-1.5 py-0.5 rounded-sm">RIDER</span>
-            </h1>
+      <header className="rider-brand-bar">
+        <div className="rider-brand-inner">
+          <div className="rider-brand-lockup">
+            <span className="rider-brand-mark"><Bike size={23} /></span>
+            <div>
+              <h1>Kart <span>Kirana</span></h1>
+              <p>{user?.fullName || 'Delivery Partner'} · Rider</p>
+            </div>
           </div>
 
-          <div className="flex items-center space-x-2">
-            {/* Local testing controls must never ship in the production rider app. */}
-            {import.meta.env.DEV && <div className="flex bg-slate-100 dark:bg-zinc-800 p-0.5 rounded-lg border border-slate-200/40 dark:border-transparent mr-1">
-              <button 
-                onClick={() => {
-                  triggerMockOrderPlacement();
-                  triggerDemoToast("Mock Order Injected", "Placed a new customer order. Turn online to receive request.", "info");
-                }}
-                className="p-1.5 hover:bg-white dark:hover:bg-zinc-700 rounded text-[9px] font-black uppercase text-slate-500 hover:text-primary dark:text-zinc-400 cursor-pointer transition-all active:scale-95"
-                title="Simulate placing customer order"
-              >
-                +Order
-              </button>
-              {activeOrders.length > 0 && (
-                <button 
+          <div className="rider-header-actions">
+            {import.meta.env.DEV && (
+              <div className="rider-dev-tools">
+                <button
+                  type="button"
                   onClick={() => {
-                    triggerSimulationTick();
-                    triggerDemoToast("Sim GPS Step", "Simulated driving movement closer to target stop.", "info");
+                    triggerMockOrderPlacement();
+                    triggerDemoToast('Mock Order Injected', 'Placed a new customer order. Turn online to receive request.', 'info');
                   }}
-                  className="p-1.5 hover:bg-white dark:hover:bg-zinc-700 rounded text-[9px] font-black uppercase text-slate-500 hover:text-success dark:text-zinc-400 cursor-pointer transition-all active:scale-95"
-                  title="Simulate driving progress steps"
+                  title="Simulate placing customer order"
                 >
-                  Step
+                  +Order
                 </button>
-              )}
-            </div>}
-
-            {/* Dark Mode switcher */}
-            <button
-              onClick={() => setDarkMode(!darkMode)}
-              className="p-2 hover:bg-slate-150 dark:hover:bg-zinc-800 rounded-xl text-slate-500 dark:text-zinc-450 cursor-pointer transition-all active:scale-90"
-              title="Toggle theme"
-            >
-              {darkMode ? <Sun className="h-4.5 w-4.5 text-warning" /> : <Moon className="h-4.5 w-4.5 text-slate-650" />}
+                {activeOrders.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      triggerSimulationTick();
+                      triggerDemoToast('Sim GPS Step', 'Simulated driving movement closer to target stop.', 'info');
+                    }}
+                    title="Simulate driving progress"
+                  >
+                    Step
+                  </button>
+                )}
+              </div>
+            )}
+            <button type="button" onClick={() => setDarkMode(!darkMode)} className="rider-icon-button" title="Toggle theme">
+              {darkMode ? <Sun size={18} /> : <Moon size={18} />}
             </button>
-
-            {/* Wifi Status */}
-            <div className="text-slate-400 dark:text-zinc-550 shrink-0">
-              {isOnline ? <Wifi className="h-4.5 w-4.5 text-success" /> : <WifiOff className="h-4.5 w-4.5" />}
-            </div>
-
-            {/* Online Toggle Pill */}
+            <button type="button" className="rider-icon-button rider-notification-button" title="Notifications">
+              <Bell size={18} />
+              {newRequest && <span />}
+            </button>
             <button
+              type="button"
               onClick={toggleOnline}
-              className={`px-3 py-1.5 rounded-full text-[10px] font-black tracking-wide uppercase flex items-center space-x-1.5 transition-all active:scale-95 cursor-pointer shadow-xs ${
-                isOnline 
-                  ? 'bg-success text-white' 
-                  : 'bg-slate-205 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300'
-              }`}
+              className={`rider-header-status ${isOnline ? 'online' : ''}`}
+              aria-label={isOnline ? 'Go offline' : 'Go online'}
             >
-              <Power className="h-3.5 w-3.5" />
+              {isOnline ? <Wifi size={15} /> : <WifiOff size={15} />}
               <span>{isOnline ? 'Online' : 'Offline'}</span>
             </button>
           </div>
@@ -219,59 +210,42 @@ export const Layout: React.FC<LayoutProps> = ({
       </header>
 
       {/* Main Viewport */}
-      <main className="flex-grow max-w-md w-full mx-auto px-4 py-4 safe-bottom">
+      <main className="rider-main flex-grow max-w-md w-full mx-auto safe-bottom">
         {children}
       </main>
 
-      {/* Floating Modern Tab Navigation */}
-      <nav className="fixed bottom-4 left-4 right-4 z-40 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-md border border-slate-200/50 dark:border-zinc-850/50 px-4 py-2.5 rounded-3xl shadow-xl max-w-md mx-auto transition-transform duration-300">
-        <div className="flex justify-between items-center">
+      <nav className="rider-bottom-nav">
+        <div>
           <button
             onClick={() => setActiveTab('home')}
-            className={`flex items-center space-x-1.5 py-2 px-3.5 rounded-2xl transition-all duration-300 cursor-pointer active:scale-95 ${
-              activeTab === 'home' 
-                ? 'bg-primary-light text-primary font-black shadow-xs' 
-                : 'text-slate-400 dark:text-zinc-500 hover:text-slate-600 hover:bg-slate-50 dark:hover:bg-zinc-800/40'
-            }`}
+            className={activeTab === 'home' ? 'active' : ''}
           >
-            <Home className="h-5 w-5" />
-            <span className="text-[10px] font-black uppercase tracking-wider">Home</span>
+            <Home size={20} />
+            <span>Home</span>
           </button>
 
           <button
             onClick={() => setActiveTab('orders')}
-            className={`flex items-center space-x-1.5 py-2 px-3.5 rounded-2xl transition-all duration-300 cursor-pointer active:scale-95 ${
-              activeTab === 'orders' 
-                ? 'bg-primary-light text-primary font-black shadow-xs' 
-                : 'text-slate-400 dark:text-zinc-500 hover:text-slate-600 hover:bg-slate-50 dark:hover:bg-zinc-800/40'
-            }`}
+            className={activeTab === 'orders' ? 'active' : ''}
           >
-            <Package className="h-5 w-5" />
-            <span className="text-[10px] font-black uppercase tracking-wider">Orders</span>
+            <Package size={20} />
+            <span>Orders</span>
           </button>
 
           <button
             onClick={() => setActiveTab('earnings')}
-            className={`flex items-center space-x-1.5 py-2 px-3.5 rounded-2xl transition-all duration-300 cursor-pointer active:scale-95 ${
-              activeTab === 'earnings' 
-                ? 'bg-primary-light text-primary font-black shadow-xs' 
-                : 'text-slate-400 dark:text-zinc-500 hover:text-slate-600 hover:bg-slate-50 dark:hover:bg-zinc-800/40'
-            }`}
+            className={activeTab === 'earnings' ? 'active' : ''}
           >
-            <IndianRupee className="h-5 w-5" />
-            <span className="text-[10px] font-black uppercase tracking-wider">Earnings</span>
+            <IndianRupee size={20} />
+            <span>Earnings</span>
           </button>
 
           <button
             onClick={() => setActiveTab('profile')}
-            className={`flex items-center space-x-1.5 py-2 px-3.5 rounded-2xl transition-all duration-300 cursor-pointer active:scale-95 ${
-              activeTab === 'profile' 
-                ? 'bg-primary-light text-primary font-black shadow-xs' 
-                : 'text-slate-400 dark:text-zinc-500 hover:text-slate-600 hover:bg-slate-50 dark:hover:bg-zinc-800/40'
-            }`}
+            className={activeTab === 'profile' ? 'active' : ''}
           >
-            <User className="h-5 w-5" />
-            <span className="text-[10px] font-black uppercase tracking-wider">Profile</span>
+            <User size={20} />
+            <span>Profile</span>
           </button>
         </div>
       </nav>

@@ -10,46 +10,67 @@ router.post('/dispatch/accept', authMiddleware, appCheckMiddleware, async (req, 
   const riderId = req.user.uid;
   const now = new Date().toISOString();
 
-  if (!orderId) {
-    return res.status(400).json({ error: 'Bad Request', message: 'Missing orderId parameter.' });
+  if (!orderId || !requestId) {
+    return res.status(400).json({ error: 'Bad Request', message: 'A targeted order and dispatch request are required.' });
   }
 
   try {
     const orderRef = db.collection('orders').doc(orderId);
     const riderProfileRef = db.collection('users').doc(riderId);
+    const riderRuntimeRef = db.collection('riders').doc(riderId);
+    const reqRef = db.collection('dispatchRequests').doc(requestId);
 
     const result = await db.runTransaction(async (transaction) => {
-      const orderSnap = await transaction.get(orderRef);
-      const riderSnap = await transaction.get(riderProfileRef);
+      const [orderSnap, riderSnap, riderRuntimeSnap, reqSnap] = await Promise.all([
+        transaction.get(orderRef),
+        transaction.get(riderProfileRef),
+        transaction.get(riderRuntimeRef),
+        transaction.get(reqRef)
+      ]);
 
       if (!orderSnap.exists) throw new Error('Order not found.');
       const orderData = orderSnap.data();
-      const riderData = riderSnap.exists ? riderSnap.data() : {};
+      const riderData = {
+        ...(riderRuntimeSnap.exists ? riderRuntimeSnap.data() : {}),
+        ...(riderSnap.exists ? riderSnap.data() : {})
+      };
+      const requestData = reqSnap.exists ? reqSnap.data() : null;
+
+      const isApprovedRider = (riderData.role === 'rider' || req.user.role === 'rider') && riderData.documentStatus === 'verified';
+      const isOnline = riderData.status === 'online' || riderData.online === true;
+      if (!isApprovedRider || !isOnline) {
+        return { success: false, status: 403, message: 'Only an approved delivery partner can accept this request.' };
+      }
+      if (!requestData || requestData.status !== 'PENDING') {
+        return { success: false, status: 409, message: 'This delivery request is no longer pending.' };
+      }
+      if (requestData.riderId !== riderId || requestData.orderId !== orderId) {
+        return { success: false, status: 403, message: 'This delivery request belongs to another partner.' };
+      }
+      if (new Date(requestData.expiresAt).getTime() <= Date.now()) {
+        return { success: false, status: 409, message: 'This delivery request has expired. Wait for the next assignment.' };
+      }
+      if (orderData.currentRiderId !== riderId) {
+        return { success: false, status: 409, message: 'This order has already moved to another delivery partner.' };
+      }
 
       // Enforce valid transitions: SEARCHING_RIDER, ACCEPTED, SHOP_ACCEPTED, ready_for_pickup, READY
       const statusUpper = String(orderData.status || '').toUpperCase();
       if (statusUpper !== 'SEARCHING_RIDER' && statusUpper !== 'ACCEPTED' && statusUpper !== 'SHOP_ACCEPTED' && statusUpper !== 'READY_FOR_PICKUP' && statusUpper !== 'READY') {
-        return { success: false, message: `Invalid state transition. Order is in status: ${orderData.status}` };
+        return { success: false, status: 409, message: `Invalid state transition. Order is in status: ${orderData.status}` };
       }
 
       // Check if order is already assigned
       if (orderData.riderId || orderData.rider) {
-        return { success: false, message: 'This delivery request has already been accepted by another rider.' };
+        return { success: false, status: 409, message: 'This delivery request has already been accepted by another rider.' };
       }
 
-      // If targeted dispatch request ID provided, lock request
-      if (requestId) {
-        const reqRef = db.collection('dispatchRequests').doc(requestId);
-        const reqSnap = await transaction.get(reqRef);
-        if (reqSnap.exists) {
-          const reqData = reqSnap.data();
-          if (reqData.status === 'PENDING' && reqData.riderId === riderId) {
-            transaction.update(reqRef, {
-              status: 'ACCEPTED',
-              updatedAt: now
-            });
-          }
-        }
+      transaction.update(reqRef, {
+        status: 'ACCEPTED',
+        updatedAt: now
+      });
+      if (riderRuntimeSnap.exists && riderRuntimeSnap.data().dispatchLockId === requestId) {
+        transaction.update(riderRuntimeRef, { dispatchLockId: null, dispatchLockExpiresAt: null });
       }
 
       const timelineEntry = {
@@ -64,6 +85,7 @@ router.post('/dispatch/accept', authMiddleware, appCheckMiddleware, async (req, 
         status: 'RIDER_ASSIGNED',
         dispatchStatus: 'ASSIGNED',
         riderId: riderId,
+        currentRiderId: riderId,
         rider: {
           uid: riderId,
           name: riderData.fullName || 'Rider Partner',
@@ -75,13 +97,13 @@ router.post('/dispatch/accept', authMiddleware, appCheckMiddleware, async (req, 
         updatedAt: now
       });
 
-      return { success: true, message: 'Order successfully assigned to rider.' };
+      return { success: true, status: 200, message: 'Order successfully assigned to rider.' };
     });
 
     if (result.success) {
       res.status(200).json(result);
     } else {
-      res.status(400).json(result);
+      res.status(result.status || 400).json(result);
     }
   } catch (error) {
     console.error('[DISPATCH ACCEPT TRANSACTION ERROR]', error);
@@ -102,25 +124,45 @@ router.post('/dispatch/reject', authMiddleware, appCheckMiddleware, async (req, 
   try {
     const orderRef = db.collection('orders').doc(orderId);
     const reqRef = db.collection('dispatchRequests').doc(requestId);
+    const riderProfileRef = db.collection('users').doc(riderId);
+    const riderRuntimeRef = db.collection('riders').doc(riderId);
 
     const result = await db.runTransaction(async (transaction) => {
-      const orderSnap = await transaction.get(orderRef);
-      const reqSnap = await transaction.get(reqRef);
+      const [orderSnap, reqSnap, riderSnap, riderRuntimeSnap] = await Promise.all([
+        transaction.get(orderRef),
+        transaction.get(reqRef),
+        transaction.get(riderProfileRef),
+        transaction.get(riderRuntimeRef)
+      ]);
 
       if (!orderSnap.exists) throw new Error('Order not found.');
       if (!reqSnap.exists) throw new Error('Dispatch request not found.');
 
       const orderData = orderSnap.data();
       const reqData = reqSnap.data();
+      const riderData = {
+        ...(riderRuntimeSnap.exists ? riderRuntimeSnap.data() : {}),
+        ...(riderSnap.exists ? riderSnap.data() : {})
+      };
+
+      if ((riderData.role !== 'rider' && req.user.role !== 'rider') || riderData.documentStatus !== 'verified') {
+        return { success: false, status: 403, message: 'Only an approved delivery partner can reject this request.' };
+      }
+      if (reqData.riderId !== riderId || reqData.orderId !== orderId || orderData.currentRiderId !== riderId) {
+        return { success: false, status: 403, message: 'This delivery request belongs to another partner.' };
+      }
 
       if (reqData.status !== 'PENDING') {
-        return { success: false, message: 'Request is no longer pending.' };
+        return { success: false, status: 409, message: 'Request is no longer pending.' };
       }
 
       transaction.update(reqRef, {
         status: 'REJECTED',
         updatedAt: now
       });
+      if (riderRuntimeSnap.exists && riderRuntimeSnap.data().dispatchLockId === requestId) {
+        transaction.update(riderRuntimeRef, { dispatchLockId: null, dispatchLockExpiresAt: null });
+      }
 
       const rejectedRiders = orderData.rejectedRiders || [];
       if (!rejectedRiders.includes(riderId)) {
@@ -134,13 +176,13 @@ router.post('/dispatch/reject', authMiddleware, appCheckMiddleware, async (req, 
         updatedAt: now
       });
 
-      return { success: true, message: 'Request successfully rejected.' };
+      return { success: true, status: 200, message: 'Request successfully rejected.' };
     });
 
     if (result.success) {
       res.status(200).json(result);
     } else {
-      res.status(400).json(result);
+      res.status(result.status || 400).json(result);
     }
   } catch (error) {
     console.error('[DISPATCH REJECT TRANSACTION ERROR]', error);

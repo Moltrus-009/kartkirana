@@ -1,5 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { Suspense, useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { Capacitor } from '@capacitor/core';
+import { App as CapacitorApp } from '@capacitor/app';
 import { HelmetProvider } from 'react-helmet-async';
 import { ThemeProvider } from './context/ThemeContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -20,24 +22,34 @@ import { Button } from './components/ui/Button';
 import { Splash } from './pages/Splash';
 import { Onboarding } from './pages/Onboarding';
 import { Login } from './pages/Login';
-import { Home } from './pages/Home';
-import { Search } from './pages/Search';
-import { Category } from './pages/Category';
-import { ShopPage } from './pages/ShopPage';
-import { ProductDetails } from './pages/ProductDetails';
-import { Cart } from './pages/Cart';
-import { Checkout } from './pages/Checkout';
-import { Orders } from './pages/Orders';
-import { LiveTracking } from './pages/LiveTracking';
-import { Wishlist } from './pages/Wishlist';
-import { Profile } from './pages/Profile';
-import { PreOrders } from './pages/PreOrders';
-import { OrderSuccess } from './pages/OrderSuccess';
-import { Terms } from './pages/Terms';
-import { PrivacyHub } from './pages/privacy/PrivacyHub';
-import { CustomerPrivacy } from './pages/privacy/CustomerPrivacy';
-import { ShopkeeperPrivacy } from './pages/privacy/ShopkeeperPrivacy';
-import { RiderPrivacy } from './pages/privacy/RiderPrivacy';
+const Home = React.lazy(() => import('./pages/Home').then(module => ({ default: module.Home })));
+const Search = React.lazy(() => import('./pages/Search').then(module => ({ default: module.Search })));
+const Category = React.lazy(() => import('./pages/Category').then(module => ({ default: module.Category })));
+const ShopPage = React.lazy(() => import('./pages/ShopPage').then(module => ({ default: module.ShopPage })));
+const ProductDetails = React.lazy(() => import('./pages/ProductDetails').then(module => ({ default: module.ProductDetails })));
+const Cart = React.lazy(() => import('./pages/Cart').then(module => ({ default: module.Cart })));
+const Checkout = React.lazy(() => import('./pages/Checkout').then(module => ({ default: module.Checkout })));
+const Orders = React.lazy(() => import('./pages/Orders').then(module => ({ default: module.Orders })));
+const LiveTracking = React.lazy(() => import('./pages/LiveTracking').then(module => ({ default: module.LiveTracking })));
+const Wishlist = React.lazy(() => import('./pages/Wishlist').then(module => ({ default: module.Wishlist })));
+const Profile = React.lazy(() => import('./pages/Profile').then(module => ({ default: module.Profile })));
+const PreOrders = React.lazy(() => import('./pages/PreOrders').then(module => ({ default: module.PreOrders })));
+const OrderSuccess = React.lazy(() => import('./pages/OrderSuccess').then(module => ({ default: module.OrderSuccess })));
+const Terms = React.lazy(() => import('./pages/Terms').then(module => ({ default: module.Terms })));
+const PrivacyHub = React.lazy(() => import('./pages/privacy/PrivacyHub').then(module => ({ default: module.PrivacyHub })));
+const CustomerPrivacy = React.lazy(() => import('./pages/privacy/CustomerPrivacy').then(module => ({ default: module.CustomerPrivacy })));
+const ShopkeeperPrivacy = React.lazy(() => import('./pages/privacy/ShopkeeperPrivacy').then(module => ({ default: module.ShopkeeperPrivacy })));
+const RiderPrivacy = React.lazy(() => import('./pages/privacy/RiderPrivacy').then(module => ({ default: module.RiderPrivacy })));
+
+const RouteFallback = () => (
+  <div className="mx-auto w-full max-w-xl px-4 py-6" aria-label="Loading page">
+    <div className="mb-5 h-12 w-full rounded-2xl shimmer" />
+    <div className="grid grid-cols-2 gap-4">
+      <div className="h-48 rounded-3xl shimmer" />
+      <div className="h-48 rounded-3xl shimmer" />
+    </div>
+  </div>
+);
 
 // Helper component to auto-sync legacy hash URLs (e.g., /#/privacy/customer) to clean path URLs (/privacy/customer)
 const HashRouteSync: React.FC = () => {
@@ -51,6 +63,81 @@ const HashRouteSync: React.FC = () => {
       navigate(targetPath, { replace: true });
     }
   }, [location, navigate]);
+
+  return null;
+};
+
+// Keep Android hardware Back navigation inside the app until the user reaches Home.
+const NativeNavigationController: React.FC = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { user, loading, onboardingCompleted } = useAuth();
+  const pathnameRef = React.useRef(location.pathname);
+  const initialPathRef = React.useRef(location.pathname);
+  const startupRouteHandledRef = React.useRef(false);
+
+  useEffect(() => {
+    pathnameRef.current = location.pathname;
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform() || loading || startupRouteHandledRef.current) return;
+    startupRouteHandledRef.current = true;
+
+    // Keep Checkout mounted after Android process death so it can reconcile a
+    // persisted Razorpay order before another payment is allowed.
+    const interruptedCheckoutRoutes = ['/cart', '/order-success'];
+    const recoverableSuccessRoute = initialPathRef.current === '/order-success' &&
+      Boolean(new URLSearchParams(window.location.search).get('orderId'));
+    if (user && onboardingCompleted && interruptedCheckoutRoutes.includes(initialPathRef.current) && !recoverableSuccessRoute) {
+      navigate('/', { replace: true });
+    }
+  }, [loading, navigate, onboardingCompleted, user]);
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+
+    let disposed = false;
+    let removeListener: (() => Promise<void>) | undefined;
+
+    void CapacitorApp.addListener('backButton', ({ canGoBack }) => {
+      const pathname = pathnameRef.current;
+
+      if (pathname === '/checkout') {
+        navigate('/cart', { replace: true });
+        return;
+      }
+      if (pathname === '/cart' || pathname === '/order-success') {
+        navigate('/', { replace: true });
+        return;
+      }
+      if (pathname.startsWith('/orders/track/')) {
+        navigate('/orders', { replace: true });
+        return;
+      }
+      if (pathname === '/') {
+        void CapacitorApp.exitApp();
+        return;
+      }
+      if (canGoBack) {
+        window.history.back();
+        return;
+      }
+
+      navigate('/', { replace: true });
+    }).then((handle) => {
+      if (disposed) {
+        void handle.remove();
+      } else {
+        removeListener = () => handle.remove();
+      }
+    });
+
+    return () => {
+      disposed = true;
+      if (removeListener) void removeListener();
+    };
+  }, [navigate]);
 
   return null;
 };
@@ -106,18 +193,23 @@ const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       window.removeEventListener('offline', handleOffline);
     };
   }, []);
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  }, [location.pathname]);
   
   // Routes where header should NOT show (every page renders its own custom header)
   const showHeader = false;
 
   // Pages with no sidebar/navigation tabs (Auth pages & Public legal/privacy pages)
   const isPrivacyPage = location.pathname.startsWith('/privacy');
-  const noNavRoutes = ['/splash', '/onboarding', '/login'];
+  const noNavRoutes = ['/splash', '/onboarding', '/login', '/terms'];
   const showNav = !noNavRoutes.includes(location.pathname) && !isPrivacyPage;
   const isCheckoutFlow = ['/cart', '/checkout'].includes(location.pathname);
+  const isFocusedFlow = isCheckoutFlow || location.pathname === '/order-success' || location.pathname.startsWith('/orders/track/');
 
   return (
-    <div className="flex flex-col min-h-screen w-full max-w-[100vw] overflow-x-hidden bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 transition-colors">
+    <div className="app-viewport flex min-h-screen w-full max-w-full flex-col overflow-x-hidden bg-[var(--bg-main)] text-slate-800 transition-colors dark:text-slate-100">
       {isOffline && (
         <div className="bg-red-600 text-white text-[10px] font-black py-2.5 px-4 text-center sticky top-0 z-50 flex items-center justify-center gap-2 animate-pulse uppercase tracking-widest shadow-md">
           <div className="w-2 h-2 rounded-full bg-white animate-ping shrink-0" />
@@ -125,18 +217,18 @@ const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         </div>
       )}
 
-      <div className="flex-1 flex w-full max-w-[100vw] overflow-x-hidden">
+      <div className="flex w-full max-w-full flex-1 overflow-x-hidden">
         {showNav && <Sidebar />}
         
-        <div className="flex-1 flex flex-col min-w-0 w-full overflow-x-hidden">
+        <div className="flex min-w-0 w-full max-w-full flex-1 flex-col overflow-x-hidden">
           {showHeader && <Header />}
           
-          <main className={`flex-1 w-full min-w-0 overflow-x-hidden pb-24 md:pb-6 ${noNavRoutes.includes(location.pathname) || isPrivacyPage ? '' : isCheckoutFlow ? '' : 'max-w-md sm:max-w-xl md:max-w-4xl px-3 sm:px-4 mx-auto'}`}>
-            {children}
+          <main className={`min-w-0 w-full max-w-full flex-1 overflow-x-hidden pb-24 md:pb-6 ${noNavRoutes.includes(location.pathname) || isPrivacyPage ? '' : isCheckoutFlow ? '' : 'mx-auto px-3 sm:max-w-xl sm:px-4 md:max-w-4xl'}`}>
+            <div key={location.pathname} className="route-enter w-full max-w-full overflow-x-hidden">{children}</div>
           </main>
 
           {showNav && <BottomNavigation />}
-          {showNav && <SupportBot />}
+          {showNav && !isFocusedFlow && <SupportBot />}
         </div>
       </div>
 
@@ -174,7 +266,9 @@ export const AppContent: React.FC = () => {
   return (
     <Router>
       <HashRouteSync />
+      <NativeNavigationController />
       <AppLayout>
+        <Suspense fallback={<RouteFallback />}>
         <Routes>
           {/* Public Auth & Onboarding Routes */}
           <Route path="/splash" element={<Splash />} />
@@ -270,6 +364,7 @@ export const AppContent: React.FC = () => {
           {/* Catch-all fallback redirect */}
           <Route path="*" element={<Navigate to="/splash" replace />} />
         </Routes>
+        </Suspense>
       </AppLayout>
     </Router>
   );

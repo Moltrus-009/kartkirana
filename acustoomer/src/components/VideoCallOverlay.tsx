@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Video, VideoOff, Mic, MicOff, PhoneOff, Phone, Camera } from 'lucide-react';
-import { db, auth, IS_MOCK_MODE, appCheck } from '../infrastructure/firebase/firebase';
-import { getToken } from 'firebase/app-check';
+import { db, auth, IS_MOCK_MODE } from '../infrastructure/firebase/firebase';
+import { getSecureAppCheckToken } from '../services/appCheckService';
 import { doc, setDoc, updateDoc, onSnapshot, collection, addDoc, getDocs, deleteDoc } from 'firebase/firestore';
+import { getApiUrl } from '../config/api';
 
 interface VideoCallOverlayProps {
   orderId: string;
@@ -148,10 +149,7 @@ export const VideoCallOverlay: React.FC<VideoCallOverlayProps> = ({
         const token = auth?.currentUser ? await auth.currentUser.getIdToken() : '';
         let appCheckToken = '';
         try {
-          if (appCheck) {
-            const tokenResult = await getToken(appCheck);
-            appCheckToken = tokenResult.token;
-          }
+          appCheckToken = await getSecureAppCheckToken();
         } catch (e) {}
 
         // Direct Firestore call document initialization (resilient fallback)
@@ -165,7 +163,7 @@ export const VideoCallOverlay: React.FC<VideoCallOverlayProps> = ({
         }, { merge: true });
 
         // Optional Backend Server Authorization Call
-        fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/v1/video/initiate`, {
+        fetch(getApiUrl('/v1/video/initiate'), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -298,13 +296,10 @@ export const VideoCallOverlay: React.FC<VideoCallOverlayProps> = ({
         const token = auth?.currentUser ? await auth.currentUser.getIdToken() : '';
         let appCheckToken = '';
         try {
-          if (appCheck) {
-            const tokenResult = await getToken(appCheck);
-            appCheckToken = tokenResult.token;
-          }
+          appCheckToken = await getSecureAppCheckToken();
         } catch (e) {}
 
-        fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/v1/video/terminate`, {
+        fetch(getApiUrl('/v1/video/terminate'), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

@@ -1,13 +1,13 @@
 const { db } = require('../config/firebase');
 const timeouts = require('../config/timeouts');
+const crypto = require('crypto');
 
 class LockManager {
   async acquireLock(orderId, serverId = 'server-1') {
-    if (!db) return true;
+    const ownerToken = crypto.randomUUID();
+    if (!db) return ownerToken;
     
     const lockRef = db.collection('locks').doc(orderId);
-    let acquired = false;
-
     await db.runTransaction(async (transaction) => {
       const lockSnap = await transaction.get(lockRef);
       const now = Date.now();
@@ -25,19 +25,32 @@ class LockManager {
       transaction.set(lockRef, {
         orderId,
         ownerServer: serverId,
+        ownerToken,
         expiresAt: expiresAtIso,
         createdAt: new Date().toISOString()
       });
-      acquired = true;
     });
 
-    return acquired;
+    return ownerToken;
   }
 
-  async releaseLock(orderId) {
+  async releaseLock(orderId, ownerToken) {
     if (!db) return;
+    if (!ownerToken) {
+      console.warn(`[LOCK WARNING] Refusing to release lock for order ${orderId} without an owner token.`);
+      return;
+    }
     try {
-      await db.collection('locks').doc(orderId).delete();
+      const lockRef = db.collection('locks').doc(orderId);
+      await db.runTransaction(async (transaction) => {
+        const lockSnap = await transaction.get(lockRef);
+        if (!lockSnap.exists) return;
+        if (lockSnap.data().ownerToken !== ownerToken) {
+          console.warn(`[LOCK WARNING] Refusing to release lock for order ${orderId} owned by another process.`);
+          return;
+        }
+        transaction.delete(lockRef);
+      });
     } catch (e) {
       console.warn(`[LOCK WARNING] Failed to release lock for order ${orderId}:`, e.message);
     }

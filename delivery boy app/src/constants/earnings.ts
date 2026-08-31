@@ -22,4 +22,8 @@ export const PER_DELIVERY_FEE = 10;
 export const BATCH_BONUS = 15;
 
 /** Maximum number of orders that can be combined into one Smart Batch. */
-export const MAX_BATCH_SIZE = 2;
+export const MIN_BATCH_SIZE = 2;
+export const MAX_BATCH_SIZE = 3;
+
+/** Maximum straight-line spread between any two delivery points in a batch. */
+export const MAX_BATCH_SPREAD_METERS = 1500;

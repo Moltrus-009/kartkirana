@@ -24,10 +24,68 @@
 // alongside it, not replace it.
 
 import { getMessaging, getToken, onMessage, isSupported, type Messaging } from 'firebase/messaging';
+import { Capacitor } from '@capacitor/core';
+import { PushNotifications } from '@capacitor/push-notifications';
 import { app } from './firebase';
 import { logger } from './logger';
 
 let messaging: Messaging | null = null;
+let nativeRegistrationPromise: Promise<string | null> | null = null;
+
+async function registerNativePush(): Promise<string | null> {
+  if (nativeRegistrationPromise) return nativeRegistrationPromise;
+
+  nativeRegistrationPromise = (async () => {
+    let permission = await PushNotifications.checkPermissions();
+    if (permission.receive === 'prompt') {
+      permission = await PushNotifications.requestPermissions();
+    }
+    if (permission.receive !== 'granted') {
+      logger.info('Push', `Native notification permission: ${permission.receive}`);
+      return null;
+    }
+
+    await PushNotifications.createChannel({
+      id: 'kart_kirana_orders',
+      name: 'Delivery assignments',
+      description: 'New delivery and batch assignment alerts',
+      importance: 5,
+      visibility: 1,
+      vibration: true
+    });
+
+    return new Promise<string | null>((resolve) => {
+      let settled = false;
+      const finish = (token: string | null) => {
+        if (settled) return;
+        settled = true;
+        resolve(token);
+      };
+
+      void (async () => {
+        const registrationHandle = await PushNotifications.addListener('registration', ({ value }) => finish(value || null));
+        const errorHandle = await PushNotifications.addListener('registrationError', (error) => {
+          logger.warn('Push', 'Native push registration failed:', error);
+          finish(null);
+        });
+        window.setTimeout(() => finish(null), 15000);
+        await PushNotifications.register();
+
+        // The one-time listeners are removed after the token/error arrives;
+        // persistent foreground message listeners are installed separately.
+        window.setTimeout(() => {
+          void registrationHandle.remove();
+          void errorHandle.remove();
+        }, 16000);
+      })().catch((error) => {
+        logger.warn('Push', 'Native push setup failed:', error);
+        finish(null);
+      });
+    });
+  })();
+
+  return nativeRegistrationPromise;
+}
 
 async function getMessagingInstance(): Promise<Messaging | null> {
   if (messaging) return messaging;
@@ -52,6 +110,10 @@ async function getMessagingInstance(): Promise<Messaging | null> {
  * progressive enhancement, not a hard requirement to use the app).
  */
 export async function registerForPushNotifications(): Promise<string | null> {
+  if (Capacitor.isNativePlatform()) {
+    return registerNativePush();
+  }
+
   if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('Notification' in window)) {
     return null;
   }
@@ -88,6 +150,17 @@ export async function registerForPushNotifications(): Promise<string | null> {
  * subscription and independent of the app being open.
  */
 export async function onForegroundMessage(callback: (payload: { title?: string; body?: string; data?: Record<string, string> }) => void) {
+  if (Capacitor.isNativePlatform()) {
+    const handle = await PushNotifications.addListener('pushNotificationReceived', (notification) => {
+      callback({
+        title: notification.title,
+        body: notification.body,
+        data: notification.data as Record<string, string> | undefined
+      });
+    });
+    return () => { void handle.remove(); };
+  }
+
   const msg = await getMessagingInstance();
   if (!msg) return () => {};
   return onMessage(msg, (payload) => {

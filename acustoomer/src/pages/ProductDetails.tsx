@@ -7,11 +7,16 @@ import { useCart } from '../context/CartContext';
 import { Button } from '../components/ui/Button';
 import { ProductCard } from '../components/product/ProductCard';
 import { ReviewComposer } from '../components/reviews/ReviewComposer';
+import { PreorderModal } from '../components/PreorderModal';
+import { useAuth } from '../context/AuthContext';
+import { CUSTOMER_STORAGE_KEYS, getCustomerStorageItem, setCustomerStorageItem } from '../utils/customerStorage';
+import { SafeImage } from '../components/ui/SafeImage';
 
 export const ProductDetails: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { cartItems, addToCart, updateQuantity, setPreorderSchedule } = useCart();
+  const { user } = useAuth();
+  const { cartItems, addToCart, updateQuantity, preorderSchedule, setPreorderSchedule } = useCart();
 
   const [product, setProduct] = useState<Product | null>(null);
   const [reviews, setReviews] = useState<Review[]>([]);
@@ -24,9 +29,7 @@ export const ProductDetails: React.FC = () => {
   const [isWished, setIsWished] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
 
-  // Preorder Scheduling inputs
-  const [preorderDate, setPreorderDate] = useState('');
-  const [preorderSlot, setPreorderSlot] = useState('');
+  const [isPreorderModalOpen, setIsPreorderModalOpen] = useState(false);
 
   // Cart item matching
   const cartItem = cartItems.find(item => item.product.id === product?.id);
@@ -48,13 +51,6 @@ export const ProductDetails: React.FC = () => {
           setReviews(reviewsData);
           setRelated(relatedData.filter(p => p.id !== foundProduct.id).slice(0, 3));
           
-          // Seed initial preorder date to tomorrow
-          if (foundProduct.isPreorder) {
-            const tomorrow = new Date();
-            tomorrow.setDate(tomorrow.getDate() + 1);
-            setPreorderDate(tomorrow.toISOString().split('T')[0]);
-            setPreorderSlot('Morning (8:00 AM - 12:00 PM)');
-          }
         }
       } catch (e) {
         console.error('Error fetching product details:', e);
@@ -65,9 +61,9 @@ export const ProductDetails: React.FC = () => {
     fetchDetails();
     
     // Check wishlist
-    const list = JSON.parse(localStorage.getItem('wishlist_products') || '[]');
+    const list = JSON.parse(getCustomerStorageItem(CUSTOMER_STORAGE_KEYS.wishlist, user?.uid) || '[]');
     setIsWished(list.includes(id));
-  }, [id]);
+  }, [id, user?.uid]);
 
   if (loading) {
     return (
@@ -93,7 +89,8 @@ export const ProductDetails: React.FC = () => {
   }
 
   const toggleWishlist = () => {
-    const list = JSON.parse(localStorage.getItem('wishlist_products') || '[]');
+    if (!user?.uid) return;
+    const list = JSON.parse(getCustomerStorageItem(CUSTOMER_STORAGE_KEYS.wishlist, user.uid) || '[]');
     let updated = [];
     if (isWished) {
       updated = list.filter((pid: string) => pid !== product.id);
@@ -102,7 +99,8 @@ export const ProductDetails: React.FC = () => {
       updated = [...list, product.id];
       setIsWished(true);
     }
-    localStorage.setItem('wishlist_products', JSON.stringify(updated));
+    setCustomerStorageItem(CUSTOMER_STORAGE_KEYS.wishlist, user.uid, JSON.stringify(updated));
+    window.dispatchEvent(new Event('wishlist_updated'));
   };
 
   const handleShare = async () => {
@@ -125,8 +123,11 @@ export const ProductDetails: React.FC = () => {
 
   const handleAdd = () => {
     if (product.isPreorder) {
-      addToCart(product, 1, true, preorderDate, preorderSlot);
-      setPreorderSchedule({ date: preorderDate, slot: preorderSlot });
+      if (!preorderSchedule) {
+        setIsPreorderModalOpen(true);
+        return;
+      }
+      addToCart(product, 1, true, preorderSchedule.date, preorderSchedule.slot);
     } else {
       addToCart(product, 1);
     }
@@ -141,24 +142,15 @@ export const ProductDetails: React.FC = () => {
   };
 
   const handleBuyNow = () => {
+    if (product.isPreorder && !preorderSchedule) {
+      setIsPreorderModalOpen(true);
+      return;
+    }
     if (quantity === 0) {
       handleAdd();
     }
     navigate('/cart');
   };
-
-  // Preorder slot options
-  const slots = [
-    'Morning (8:00 AM - 12:00 PM)',
-    'Afternoon (12:00 PM - 4:00 PM)',
-    'Evening (4:00 PM - 8:00 PM)'
-  ];
-
-  // Min and Max dates for preorder
-  const todayStr = new Date().toISOString().split('T')[0];
-  const maxPreorderDate = new Date();
-  maxPreorderDate.setDate(maxPreorderDate.getDate() + (product.preorderDaysAhead || 7));
-  const maxPreorderDateStr = maxPreorderDate.toISOString().split('T')[0];
 
   const discountPercent = product.originalPrice > product.price
     ? Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100)
@@ -204,11 +196,12 @@ export const ProductDetails: React.FC = () => {
           onClick={() => setIsZoomed(!isZoomed)}
           className="relative aspect-square w-full rounded-3xl overflow-hidden border border-gray-50 dark:border-slate-850 bg-gray-50 dark:bg-slate-900 flex items-center justify-center p-6 cursor-zoom-in"
         >
-          <img
-            src={product.images[activeImageIdx] || product.image}
+          <SafeImage
+            src={(product.images || [])[activeImageIdx] || product.image}
             alt={product.name}
             className={`h-full w-full object-contain p-2 mix-blend-multiply dark:mix-blend-normal transition-all duration-300
               ${isZoomed ? 'scale-135' : 'scale-100'}`}
+            fallback="📦"
           />
           {discountPercent > 0 && (
             <span className="absolute top-4 left-4 px-3 py-1 rounded-xl bg-blue-500 text-white text-xs font-black shadow-md shadow-blue-500/20">
@@ -218,9 +211,9 @@ export const ProductDetails: React.FC = () => {
         </div>
 
         {/* Thumbnail Selector list */}
-        {product.images.length > 1 && (
+        {(product.images || []).filter(image => image?.trim()).length > 1 && (
           <div className="flex gap-3 justify-center mt-4">
-            {product.images.map((img, index) => (
+            {(product.images || []).filter(image => image?.trim()).map((img, index) => (
               <button
                 key={index}
                 onClick={() => {
@@ -230,7 +223,7 @@ export const ProductDetails: React.FC = () => {
                 className={`h-14 w-14 rounded-2xl overflow-hidden border-2 transition-all p-1 bg-white
                   ${index === activeImageIdx ? 'border-blue-500' : 'border-gray-100 dark:border-slate-800'}`}
               >
-                <img src={img} alt="" className="h-full w-full object-contain" />
+                <SafeImage src={img} alt="" className="h-full w-full object-contain" fallback="📦" />
               </button>
             ))}
           </div>
@@ -279,7 +272,7 @@ export const ProductDetails: React.FC = () => {
           {/* Cart Quantity Adder */}
           <div className="w-24">
             {quantity > 0 && !product.isPreorder ? (
-              <div className="flex items-center justify-between border border-blue-500 bg-blue-50 dark:bg-emerald-950/30 rounded-2xl px-2 py-1.5 shadow-sm">
+              <div className="flex items-center justify-between border border-blue-500 bg-blue-50 dark:bg-blue-950/30 rounded-2xl px-2 py-1.5 shadow-sm">
                 <button
                   onClick={handleDecrement}
                   className="p-1 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900 rounded cursor-pointer"
@@ -311,36 +304,19 @@ export const ProductDetails: React.FC = () => {
 
         {/* Preorder Configuration Panel */}
         {product.isPreorder && (
-          <div className="mt-6 p-5 rounded-3xl border border-purple-200/50 dark:border-purple-950/50 bg-purple-50/50 dark:bg-purple-950/10 flex flex-col gap-4">
-            <div className="flex items-center gap-2 text-purple-700 dark:text-purple-400">
+          <div className="mt-6 flex flex-col gap-3 rounded-3xl border border-blue-100 bg-blue-50/70 p-5 dark:border-blue-900/40 dark:bg-blue-950/20">
+            <div className="flex items-center gap-2 text-[#0758C7] dark:text-blue-300">
               <CalendarClock className="h-5 w-5" />
-              <span className="text-xs font-black uppercase tracking-wider">Configure Preorder Delivery Slot</span>
+              <span className="text-xs font-black uppercase tracking-wider">Scheduled delivery</span>
             </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-              <div className="flex flex-col gap-1 text-left">
-                <label className="font-bold text-gray-500">Pick Date</label>
-                <input
-                  type="date"
-                  value={preorderDate}
-                  min={todayStr}
-                  max={maxPreorderDateStr}
-                  onChange={(e) => setPreorderDate(e.target.value)}
-                  className="px-3.5 py-2.5 rounded-xl border border-gray-150 dark:border-slate-800 bg-white dark:bg-slate-900 font-semibold text-gray-800 dark:text-gray-250 outline-none"
-                />
-              </div>
-
-              <div className="flex flex-col gap-1 text-left">
-                <label className="font-bold text-gray-500">Pick Delivery Slot</label>
-                <select
-                  value={preorderSlot}
-                  onChange={(e) => setPreorderSlot(e.target.value)}
-                  className="px-3.5 py-2.5 rounded-xl border border-gray-150 dark:border-slate-800 bg-white dark:bg-slate-900 font-semibold text-gray-800 dark:text-gray-255 outline-none"
-                >
-                  {slots.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-              </div>
-            </div>
+            <p className="text-xs font-semibold leading-relaxed text-slate-600 dark:text-slate-300">
+              {preorderSchedule
+                ? `${preorderSchedule.date} · ${preorderSchedule.slot}${preorderSchedule.time ? ` · preferred ${preorderSchedule.time}` : ''}`
+                : 'Choose a convenient two-hour window before adding this item.'}
+            </p>
+            <Button variant="secondary" onClick={() => setIsPreorderModalOpen(true)} className="self-start text-xs">
+              {preorderSchedule ? 'Change delivery slot' : 'Choose delivery slot'}
+            </Button>
           </div>
         )}
 
@@ -437,7 +413,7 @@ export const ProductDetails: React.FC = () => {
           </Button>
           
           {quantity > 0 && !product.isPreorder ? (
-            <div className="flex-1 flex items-center justify-between border-2 border-blue-500 bg-blue-50 dark:bg-emerald-950/30 rounded-2xl px-4 py-2">
+            <div className="flex-1 flex items-center justify-between border-2 border-blue-500 bg-blue-50 dark:bg-blue-950/30 rounded-2xl px-4 py-2">
               <button onClick={handleDecrement} className="p-1 text-blue-600 dark:text-blue-400"><Minus className="h-4 w-4" /></button>
               <span className="text-sm font-black text-blue-700 dark:text-blue-300">{quantity}</span>
               <button onClick={handleIncrement} className="p-1 text-blue-600 dark:text-blue-400"><Plus className="h-4 w-4" /></button>
@@ -454,6 +430,20 @@ export const ProductDetails: React.FC = () => {
         </div>
       </div>
 
+      <PreorderModal
+        isOpen={isPreorderModalOpen}
+        onClose={() => setIsPreorderModalOpen(false)}
+        onConfirm={(schedule) => {
+          setPreorderSchedule(schedule);
+          if (!cartItems.some(item => item.product.id === product.id)) {
+            addToCart(product, 1, true, schedule.date, schedule.slot);
+          }
+        }}
+        initialDate={preorderSchedule?.date}
+        initialSlot={preorderSchedule?.slot}
+        initialTime={preorderSchedule?.time}
+        maxDaysAhead={product.preorderDaysAhead || 7}
+      />
     </div>
   );
 };

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import { Layout } from './components/Layout';
 import { Login } from './pages/Login';
@@ -18,6 +18,10 @@ const MainAppContent: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'home' | 'orders' | 'earnings' | 'profile'>('home');
   const [viewActiveMap, setViewActiveMap] = useState(false);
   const [currentView, setCurrentView] = useState<'app' | 'terms' | 'privacy'>('app');
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }, [activeTab, currentView, user?.uid, viewActiveMap]);
 
   if (loading) {
     return (

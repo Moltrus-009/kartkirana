@@ -89,7 +89,7 @@ export const Category: React.FC = () => {
                   onClick={() => setSelectedShopId('all')}
                   className={`px-3.5 py-2 rounded-xl text-xs font-bold border whitespace-nowrap transition-all cursor-pointer
                     ${selectedShopId === 'all'
-                      ? 'border-blue-500 bg-blue-50 dark:bg-emerald-950/20 text-blue-600'
+                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/20 text-blue-600'
                       : 'border-gray-100 dark:border-slate-800 text-gray-500 dark:text-gray-400 bg-white dark:bg-slate-900'
                     }`}
                 >
@@ -101,7 +101,7 @@ export const Category: React.FC = () => {
                     onClick={() => setSelectedShopId(shop.id)}
                     className={`px-3.5 py-2 rounded-xl text-xs font-bold border whitespace-nowrap transition-all cursor-pointer
                       ${selectedShopId === shop.id
-                        ? 'border-blue-500 bg-blue-50 dark:bg-emerald-950/20 text-blue-600'
+                        ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/20 text-blue-600'
                         : 'border-gray-100 dark:border-slate-800 text-gray-500 dark:text-gray-400 bg-white dark:bg-slate-900'
                       }`}
                   >

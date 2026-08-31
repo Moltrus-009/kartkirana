@@ -1,18 +1,24 @@
 const { getAppCheck } = require('firebase-admin/app-check');
 const env = require('../config/env');
+const { AppError } = require('../utils/errors');
 
 module.exports = async (req, res, next) => {
-  // Skip App Check verification in development/testing
-  if (process.env.NODE_ENV !== 'production' || env.USE_MOCK_DB) {
+  const isManagedRuntime = Boolean(process.env.K_SERVICE || process.env.FUNCTION_TARGET);
+  const shouldEnforce = env.NODE_ENV === 'production' || isManagedRuntime;
+
+  // Local development and explicit test mode may use emulator/debug clients.
+  // Managed Firebase/Cloud Run deployments always enforce App Check.
+  if (!shouldEnforce && (env.NODE_ENV === 'development' || env.NODE_ENV === 'test')) {
     return next();
   }
   
   const appCheckToken = req.header('X-Firebase-AppCheck');
   if (!appCheckToken) {
-    return res.status(401).json({ 
-      error: 'Unauthorized', 
-      message: 'Missing Firebase App Check token. Requests must come from an authorized client app.' 
-    });
+    return next(new AppError(
+      'Unable to verify this app session. Please retry.',
+      401,
+      'APP_CHECK_REQUIRED'
+    ));
   }
   
   try {
@@ -20,10 +26,14 @@ module.exports = async (req, res, next) => {
     req.appCheckClaims = appCheckClaims;
     next();
   } catch (err) {
-    console.error('[APP CHECK ERROR] Verification failed:', err.message);
-    return res.status(401).json({ 
-      error: 'Unauthorized', 
-      message: 'Invalid, revoked, or expired App Check token.' 
+    console.error('[APP CHECK ERROR] Verification failed:', {
+      code: err?.code,
+      requestId: req.id,
     });
+    return next(new AppError(
+      'Unable to verify this app session. Please retry.',
+      401,
+      'APP_CHECK_INVALID'
+    ));
   }
 };

@@ -536,7 +536,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     await updateDoc(doc(db, 'shops', shopId), { verificationStep: 'approved', status: 'open' });
     setShops(prev => prev.map(s => s.id === shopId ? { ...s, verificationStep: 'approved', status: 'open' } : s));
     if (ownerUid) {
-      await updateDoc(doc(db, 'users', ownerUid), { accountStatus: 'active', role: 'owner', shopId });
+      await updateDoc(doc(db, 'merchants', ownerUid), { accountStatus: 'active', role: 'owner', shopId });
       setUsers(prev => prev.map(u => u.uid === ownerUid ? { ...u, accountStatus: 'active', role: 'owner', shopId } : u));
     }
   };

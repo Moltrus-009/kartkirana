@@ -1,15 +1,17 @@
 module.exports = {
   // Taxes and Fees
   fees: {
-    platformFee: 2.00, // Platform usage fee
-    packagingFee: 5.00, // Safe packaging fee
-    gstRate: 0.05, // 5% Goods and Services Tax
+    // Keep these values identical to the customer bill preview. Product prices
+    // are tax-inclusive, so checkout must not add GST a second time.
+    platformFee: 5.00,
+    packagingFee: 0.00,
+    gstRate: 0.00,
   },
   
   // Delivery Fee Structure
   delivery: {
-    freeThreshold: 500.00, // Free delivery above ₹500
-    baseFee: 30.00, // Base fee for orders under threshold
+    freeThreshold: 149.00,
+    baseFee: 25.00,
     distanceChargePerKm: 5.00, // Extra fee per km
   },
   

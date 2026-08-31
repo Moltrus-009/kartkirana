@@ -24,7 +24,7 @@ const start = (command, args, cwd) => {
   const child = spawn(command, args, {
     cwd,
     stdio: "inherit",
-    shell: false,
+    shell: process.platform === 'win32',
   });
 
   child.on("error", (err) => {

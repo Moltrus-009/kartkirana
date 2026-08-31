@@ -1,280 +1,237 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useAppStore } from '../core/store/useAppStore';
 import type { OfferDocument } from '../core/store/useAppStore';
-import { Plus, Ticket, Calendar, Trash2 } from 'lucide-react';
+import { BadgePercent, Calendar, Crown, Gift, Plus, Repeat2, Trash2, Users } from 'lucide-react';
 import EmptyState from '../components/shared/EmptyState';
 
+type OfferDraft = Omit<OfferDocument, 'id' | 'shopId'>;
+
+const localDate = (daysAhead = 0) => {
+  const date = new Date();
+  date.setHours(12, 0, 0, 0);
+  date.setDate(date.getDate() + daysAhead);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+};
+
+const createDefaultForm = (): OfferDraft => ({
+  title: '',
+  description: '',
+  offerType: 'sale',
+  discountType: 'percentage',
+  value: 20,
+  minOrder: 0,
+  maxDiscount: 200,
+  scope: 'order',
+  productIds: [],
+  audience: 'all',
+  buyQuantity: 1,
+  getQuantity: 1,
+  subscriptionPrice: 99,
+  billingPeriod: 'monthly',
+  targetCustomerIds: [],
+  startDate: localDate(),
+  endDate: localDate(15),
+  isActive: true,
+  automatic: true,
+  promotionVersion: 1,
+});
+
+const offerTypes = [
+  { id: 'sale' as const, title: 'Public sale', copy: '20%, 50% or flat discounts for every shopper.', icon: BadgePercent },
+  { id: 'loyalty' as const, title: 'Loyal customer', copy: 'A private recurring benefit for customers you select.', icon: Crown },
+  { id: 'addon' as const, title: 'BOGO / add-on', copy: 'Buy-one-get-one and product-specific extras.', icon: Gift },
+  { id: 'subscription' as const, title: 'Subscription plan', copy: 'Publish a monthly or quarterly member plan.', icon: Repeat2 },
+];
+
 export default function Offers() {
-  const { offers, addPromoOffer, removePromoOffer } = useAppStore();
+  const { offers, orders, products, addPromoOffer, removePromoOffer } = useAppStore();
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [form, setForm] = useState<OfferDraft>(createDefaultForm);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
 
-  // Form State
-  const defaultForm: Omit<OfferDocument, 'id' | 'shopId'> = {
-    code: '',
-    description: '',
-    discountType: 'percentage',
-    value: 10,
-    minOrder: 100,
-    maxDiscount: 50,
-    startDate: new Date().toISOString().split('T')[0],
-    endDate: new Date(Date.now() + 15 * 24 * 3600 * 1000).toISOString().split('T')[0],
-    isActive: true
-  };
-  const [form, setForm] = useState(defaultForm);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!form.code || form.value < 0) return;
-
-    await addPromoOffer({
-      ...form,
-      code: form.code.toUpperCase().replace(/\s+/g, '')
+  const customers = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; phone: string; orders: number; spent: number }>();
+    orders.forEach(order => {
+      if (!order.userId) return;
+      const current = map.get(order.userId) || {
+        id: order.userId,
+        name: order.contact?.name || 'Customer',
+        phone: order.contact?.phone || '',
+        orders: 0,
+        spent: 0,
+      };
+      current.orders += 1;
+      current.spent += Number(order.total || 0);
+      map.set(order.userId, current);
     });
+    return [...map.values()].sort((a, b) => b.orders - a.orders || b.spent - a.spent);
+  }, [orders]);
 
-    setForm(defaultForm);
-    setIsFormOpen(false);
+  const selectType = (offerType: OfferDocument['offerType']) => {
+    setForm(current => ({
+      ...current,
+      offerType,
+      discountType: offerType === 'addon' ? 'bogo' : 'percentage',
+      scope: offerType === 'addon' ? 'products' : 'order',
+      audience: offerType === 'loyalty' ? 'selected_customers' : offerType === 'subscription' ? 'subscribers' : 'all',
+      productIds: offerType === 'addon' ? current.productIds : [],
+      targetCustomerIds: offerType === 'loyalty' ? current.targetCustomerIds : [],
+    }));
   };
 
-  const handleDelete = async (id: string) => {
-    if (confirm('Delete this coupon code permanently?')) {
-      await removePromoOffer(id);
+  const openCreate = (type: OfferDocument['offerType'] = 'sale') => {
+    const next = createDefaultForm();
+    setForm({
+      ...next,
+      offerType: type,
+      discountType: type === 'addon' ? 'bogo' : 'percentage',
+      scope: type === 'addon' ? 'products' : 'order',
+      audience: type === 'loyalty' ? 'selected_customers' : type === 'subscription' ? 'subscribers' : 'all',
+    });
+    setError('');
+    setIsFormOpen(true);
+  };
+
+  const validate = () => {
+    if (!form.title.trim() || !form.description.trim()) return 'Add a clear title and customer-facing description.';
+    if (form.endDate < form.startDate) return 'End date must be on or after the start date.';
+    if (form.discountType === 'percentage' && (form.value <= 0 || form.value > 90)) return 'Percentage discounts must be between 1% and 90%.';
+    if (form.discountType === 'flat' && form.value <= 0) return 'Flat discount must be greater than ₹0.';
+    if (form.offerType === 'loyalty' && !form.targetCustomerIds?.length) return 'Select at least one loyal customer.';
+    if (form.offerType === 'addon' && !form.productIds.length) return 'Select at least one product for the BOGO offer.';
+    if (form.offerType === 'subscription' && Number(form.subscriptionPrice) < 0) return 'Subscription price cannot be negative.';
+    return '';
+  };
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const message = validate();
+    if (message) return setError(message);
+    setSaving(true);
+    setError('');
+    try {
+      await addPromoOffer({
+        ...form,
+        title: form.title.trim(),
+        description: form.description.trim(),
+        value: form.offerType === 'subscription' ? Number(form.value || 0) : form.value,
+      });
+      setIsFormOpen(false);
+      setForm(createDefaultForm());
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Unable to create this shop special.');
+    } finally {
+      setSaving(false);
     }
+  };
+
+  const describeBenefit = (offer: OfferDocument) => {
+    if (offer.offerType === 'subscription') return `₹${offer.subscriptionPrice || 0}/${offer.billingPeriod === 'quarterly' ? 'quarter' : 'month'} · ${offer.value}% member saving`;
+    if (offer.discountType === 'percentage') return `${offer.value}% off${offer.maxDiscount ? ` up to ₹${offer.maxDiscount}` : ''}`;
+    if (offer.discountType === 'flat') return `₹${offer.value} off`;
+    if (offer.discountType === 'free_delivery') return 'Free delivery';
+    return `Buy ${offer.buyQuantity || 1}, get ${offer.getQuantity || 1} free`;
   };
 
   return (
     <div className="space-y-6">
-      
-      {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-xl font-black text-slate-800 dark:text-zinc-100">Offers & Coupons</h2>
-          <p className="text-xs text-slate-400 dark:text-zinc-500 font-bold mt-0.5">Configure discounts, coupons, free deliveries, & scheduled festival campaigns</p>
+          <h1 className="text-xl font-black text-slate-800 dark:text-zinc-100">Shop specials</h1>
+          <p className="mt-0.5 text-xs font-bold text-slate-400">Reward loyal buyers, run public sales, add BOGO deals, or publish a subscription plan.</p>
         </div>
-
-        <button
-          onClick={() => setIsFormOpen(true)}
-          className="px-4.5 py-2.5 bg-primary text-white text-xs font-black rounded-xl hover:bg-primary-hover shadow-md shadow-primary/10 hover:shadow-lg transition cursor-pointer flex items-center gap-1.5"
-        >
-          <Plus className="h-4.5 w-4.5" />
-          Create Coupon
+        <button onClick={() => openCreate()} className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-primary px-4 text-xs font-black text-white shadow-md shadow-primary/10 transition hover:bg-primary-hover">
+          <Plus className="h-4 w-4" /> Create special
         </button>
       </div>
 
-      {/* OFFERS DIRECTORY LIST */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {offerTypes.map(type => {
+          const Icon = type.icon;
+          return (
+            <button key={type.id} onClick={() => openCreate(type.id)} className="rounded-2xl border border-slate-100 bg-white p-4 text-left shadow-xs transition hover:border-primary/30 hover:shadow-md dark:border-dark-border dark:bg-dark-card">
+              <span className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-primary"><Icon className="h-4.5 w-4.5" /></span>
+              <strong className="block text-xs font-black text-slate-800 dark:text-zinc-100">{type.title}</strong>
+              <span className="mt-1 block text-[10px] font-semibold leading-relaxed text-slate-400">{type.copy}</span>
+            </button>
+          );
+        })}
+      </div>
+
       {offers.length === 0 ? (
-        <EmptyState
-          icon={Ticket}
-          title="No Coupons Active"
-          description="Create your first promotional discount coupon to attract shoppers."
-          actionText="Create Coupon"
-          onAction={() => setIsFormOpen(true)}
-        />
+        <EmptyState icon={Gift} title="No shop specials" description="Create a sale, loyalty reward, BOGO deal, or subscription plan." actionText="Create special" onAction={() => openCreate()} />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {offers.map((offer) => {
-            const isExpired = new Date(offer.endDate).getTime() < Date.now();
-            const active = offer.isActive && !isExpired;
-
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {offers.map(offer => {
+            const expired = offer.endDate ? offer.endDate < localDate() : false;
+            const active = offer.isActive && !expired;
             return (
-              <div 
-                key={offer.id} 
-                className="bg-white dark:bg-dark-card border border-slate-100 dark:border-dark-border p-5 rounded-3xl shadow-xs text-xs text-left space-y-4 relative overflow-hidden"
-              >
-                {/* Coupon Dashed Line Border Style */}
-                <div className="absolute top-0 bottom-0 left-0 w-2.5 bg-gradient-to-b from-primary to-emerald-500 rounded-l-3xl"></div>
-
-                <div className="pl-3 flex justify-between items-start">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono font-black text-sm text-slate-800 dark:text-zinc-100 tracking-wider bg-slate-50 dark:bg-zinc-800 px-2 py-0.5 border border-slate-100 rounded">
-                        {offer.code}
-                      </span>
-                      <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider ${
-                        active 
-                          ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/20 dark:text-emerald-400' 
-                          : 'bg-red-50 text-red-500 dark:bg-red-950/20'
-                      }`}>
-                        {active ? 'Active' : isExpired ? 'Expired' : 'Paused'}
-                      </span>
+              <article key={offer.id} className="relative overflow-hidden rounded-3xl border border-slate-100 bg-white p-5 text-left shadow-xs dark:border-dark-border dark:bg-dark-card">
+                <div className="absolute inset-y-0 left-0 w-1.5 bg-primary" />
+                <div className="flex items-start justify-between gap-3 pl-2">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded-lg bg-primary/10 px-2 py-1 text-[8px] font-black uppercase tracking-wider text-primary">{offer.offerType || 'sale'}</span>
+                      <span className={`rounded-full px-2 py-1 text-[8px] font-black uppercase ${active ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-500'}`}>{active ? 'Active' : expired ? 'Expired' : 'Paused'}</span>
                     </div>
-                    <p className="text-[10px] text-slate-400 font-bold leading-tight pt-1">{offer.description}</p>
+                    <h2 className="mt-3 text-sm font-black text-slate-800 dark:text-zinc-100">{offer.title || offer.code || 'Shop special'}</h2>
+                    <p className="mt-1 text-[10px] font-semibold leading-relaxed text-slate-400">{offer.description}</p>
                   </div>
-
-                  <button
-                    onClick={() => handleDelete(offer.id)}
-                    className="p-1 text-slate-400 hover:text-red-500 rounded-lg hover:bg-slate-50 transition cursor-pointer"
-                    title="Delete Coupon"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+                  <button aria-label={`Delete ${offer.title}`} onClick={() => confirm('Delete this shop special permanently?') && removePromoOffer(offer.id)} className="rounded-lg p-2 text-slate-400 transition hover:bg-red-50 hover:text-red-500"><Trash2 className="h-4 w-4" /></button>
                 </div>
-
-                <div className="pl-3 border-t border-slate-50 dark:border-dark-border/40 pt-3 grid grid-cols-2 gap-4">
-                  <div>
-                    <span className="text-[9px] text-slate-400 font-extrabold uppercase tracking-widest block">Benefit</span>
-                    <span className="font-black text-slate-700 dark:text-zinc-200">
-                      {offer.discountType === 'percentage' 
-                        ? `${offer.value}% Discount` 
-                        : offer.discountType === 'flat' 
-                        ? `₹${offer.value} Flat Off` 
-                        : offer.discountType === 'free_delivery'
-                        ? 'Free Delivery'
-                        : 'Buy 1 Get 1 (BOGO)'}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-[9px] text-slate-400 font-extrabold uppercase tracking-widest block">Min Order</span>
-                    <span className="font-black text-slate-700 dark:text-zinc-200">₹{offer.minOrder}</span>
-                  </div>
+                <div className="mt-4 grid grid-cols-2 gap-3 pl-2 text-xs">
+                  <div className="rounded-xl bg-slate-50 p-3 dark:bg-zinc-900/40"><span className="block text-[8px] font-black uppercase tracking-wider text-slate-400">Benefit</span><strong className="mt-1 block text-slate-700 dark:text-zinc-200">{describeBenefit(offer)}</strong></div>
+                  <div className="rounded-xl bg-slate-50 p-3 dark:bg-zinc-900/40"><span className="block text-[8px] font-black uppercase tracking-wider text-slate-400">Audience</span><strong className="mt-1 block text-slate-700 dark:text-zinc-200">{offer.audience === 'selected_customers' ? `${offer.targetCustomerIds?.length || 0} selected` : offer.audience === 'subscribers' ? 'Members' : 'Everyone'}</strong></div>
                 </div>
-
-                <div className="pl-3 flex items-center gap-1.5 text-[9px] text-slate-400 font-bold bg-slate-50 dark:bg-zinc-900/30 p-2 rounded-xl">
-                  <Calendar className="h-3.5 w-3.5" />
-                  <span>Valid: {offer.startDate} to {offer.endDate}</span>
-                </div>
-              </div>
+                <div className="mt-3 flex items-center gap-1.5 pl-2 text-[9px] font-bold text-slate-400"><Calendar className="h-3.5 w-3.5" />{offer.startDate} to {offer.endDate}</div>
+              </article>
             );
           })}
         </div>
       )}
 
-      {/* CREATE OFFER MODAL DIALOG */}
       {isFormOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 dark:bg-black/60 backdrop-blur-xs p-4">
-          <div className="bg-white dark:bg-dark-card border border-slate-100 dark:border-dark-border rounded-3xl w-full max-w-md shadow-2xl p-6 md:p-8 animate-in zoom-in-95 duration-200 text-left">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-dark-border mb-5">
-              <h3 className="font-black text-sm text-slate-800 dark:text-zinc-100">Create Discount Coupon</h3>
-              <button 
-                onClick={() => setIsFormOpen(false)}
-                className="text-slate-400 hover:text-slate-600 font-extrabold text-sm cursor-pointer"
-              >
-                ✕
-              </button>
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/55 p-0 backdrop-blur-sm sm:items-center sm:p-4">
+          <div className="max-h-[92vh] w-full overflow-y-auto rounded-t-3xl border border-slate-100 bg-white p-5 text-left shadow-2xl sm:max-w-2xl sm:rounded-3xl sm:p-7 dark:border-dark-border dark:bg-dark-card">
+            <div className="mb-5 flex items-start justify-between border-b border-slate-100 pb-4 dark:border-dark-border">
+              <div><h2 className="text-base font-black text-slate-800 dark:text-zinc-100">Create shop special</h2><p className="mt-0.5 text-[10px] font-semibold text-slate-400">The best eligible offer is applied automatically at checkout.</p></div>
+              <button aria-label="Close" onClick={() => !saving && setIsFormOpen(false)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-50">✕</button>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4 text-xs font-bold text-slate-600">
-              
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-[10px] font-extrabold uppercase text-slate-400 block mb-1">Coupon Code</label>
-                  <input
-                    type="text"
-                    required
-                    value={form.code}
-                    onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase().replace(/\s+/g, '') })}
-                    placeholder="E.g., FESTIVE50"
-                    className="w-full p-2.5 bg-slate-50 dark:bg-zinc-900 border border-slate-100 dark:border-dark-border rounded-xl font-bold outline-none font-mono tracking-wider"
-                  />
-                </div>
+            <form onSubmit={handleSubmit} className="space-y-5 text-xs font-bold text-slate-600">
+              <fieldset><legend className="mb-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Special type</legend><div className="grid grid-cols-2 gap-2 sm:grid-cols-4">{offerTypes.map(type => { const Icon = type.icon; const selected = form.offerType === type.id; return <button type="button" key={type.id} onClick={() => selectType(type.id)} className={`min-h-20 rounded-2xl border p-3 text-left transition ${selected ? 'border-primary bg-primary/5 text-primary ring-2 ring-primary/10' : 'border-slate-100 dark:border-dark-border'}`}><Icon className="mb-2 h-4 w-4" /><span className="block text-[10px] font-black">{type.title}</span></button>; })}</div></fieldset>
 
-                <div>
-                  <label className="text-[10px] font-extrabold uppercase text-slate-400 block mb-1">Discount Type</label>
-                  <select
-                    value={form.discountType}
-                    onChange={(e) => setForm({ ...form, discountType: e.target.value as any })}
-                    className="w-full p-2.5 bg-slate-50 dark:bg-zinc-900 border border-slate-100 dark:border-dark-border rounded-xl font-bold outline-none"
-                  >
-                    <option value="percentage">Percentage (%)</option>
-                    <option value="flat">Flat Cash (₹)</option>
-                    <option value="free_delivery">Free Delivery</option>
-                    <option value="bogo">Buy 1 Get 1 (BOGO)</option>
-                  </select>
-                </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block"><span className="mb-1 block text-[10px] font-black uppercase text-slate-400">Title</span><input required value={form.title} onChange={event => setForm({ ...form, title: event.target.value })} placeholder="Weekend grocery sale" className="w-full rounded-xl border border-slate-100 bg-slate-50 p-3 outline-none focus:border-primary dark:border-dark-border dark:bg-zinc-900" /></label>
+                <label className="block"><span className="mb-1 block text-[10px] font-black uppercase text-slate-400">Minimum order</span><input type="number" min="0" value={form.minOrder} onChange={event => setForm({ ...form, minOrder: Number(event.target.value) })} className="w-full rounded-xl border border-slate-100 bg-slate-50 p-3 outline-none focus:border-primary dark:border-dark-border dark:bg-zinc-900" /></label>
               </div>
+              <label className="block"><span className="mb-1 block text-[10px] font-black uppercase text-slate-400">Customer-facing description</span><input required value={form.description} onChange={event => setForm({ ...form, description: event.target.value })} placeholder="Save on your regular household essentials." className="w-full rounded-xl border border-slate-100 bg-slate-50 p-3 outline-none focus:border-primary dark:border-dark-border dark:bg-zinc-900" /></label>
 
-              <div>
-                <label className="text-[10px] font-extrabold uppercase text-slate-400 block mb-1">Campaign Description</label>
-                <input
-                  type="text"
-                  required
-                  value={form.description}
-                  onChange={(e) => setForm({ ...form, description: e.target.value })}
-                  placeholder="Get 20% discount on bakery specials..."
-                  className="w-full p-2.5 bg-slate-50 dark:bg-zinc-900 border border-slate-100 dark:border-dark-border rounded-xl font-bold outline-none"
-                />
-              </div>
-
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <label className="text-[10px] font-extrabold uppercase text-slate-400 block mb-1">Value</label>
-                  <input
-                    type="number"
-                    required
-                    disabled={form.discountType === 'free_delivery' || form.discountType === 'bogo'}
-                    value={form.discountType === 'free_delivery' || form.discountType === 'bogo' ? 0 : form.value}
-                    onChange={(e) => setForm({ ...form, value: parseFloat(e.target.value) || 0 })}
-                    className="w-full p-2 bg-slate-50 dark:bg-zinc-900 border border-slate-100 dark:border-dark-border rounded-xl font-bold outline-none disabled:opacity-50"
-                  />
+              {form.offerType !== 'addon' && (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  <label><span className="mb-1 block text-[10px] font-black uppercase text-slate-400">Benefit</span><select value={form.discountType} onChange={event => setForm({ ...form, discountType: event.target.value as OfferDocument['discountType'] })} className="w-full rounded-xl border border-slate-100 bg-slate-50 p-3 dark:border-dark-border dark:bg-zinc-900"><option value="percentage">Percentage</option><option value="flat">Flat amount</option><option value="free_delivery">Free delivery</option></select></label>
+                  <label><span className="mb-1 block text-[10px] font-black uppercase text-slate-400">{form.discountType === 'percentage' ? 'Percent' : 'Value'}</span><input type="number" min="0" max={form.discountType === 'percentage' ? 90 : undefined} disabled={form.discountType === 'free_delivery'} value={form.discountType === 'free_delivery' ? 0 : form.value} onChange={event => setForm({ ...form, value: Number(event.target.value) })} className="w-full rounded-xl border border-slate-100 bg-slate-50 p-3 disabled:opacity-50 dark:border-dark-border dark:bg-zinc-900" /></label>
+                  <label><span className="mb-1 block text-[10px] font-black uppercase text-slate-400">Maximum saving</span><input type="number" min="0" disabled={form.discountType !== 'percentage'} value={form.maxDiscount || ''} onChange={event => setForm({ ...form, maxDiscount: Number(event.target.value) || undefined })} className="w-full rounded-xl border border-slate-100 bg-slate-50 p-3 disabled:opacity-50 dark:border-dark-border dark:bg-zinc-900" /></label>
                 </div>
+              )}
 
-                <div>
-                  <label className="text-[10px] font-extrabold uppercase text-slate-400 block mb-1">Min Order</label>
-                  <input
-                    type="number"
-                    required
-                    value={form.minOrder}
-                    onChange={(e) => setForm({ ...form, minOrder: parseFloat(e.target.value) || 0 })}
-                    className="w-full p-2 bg-slate-50 dark:bg-zinc-900 border border-slate-100 dark:border-dark-border rounded-xl font-bold outline-none"
-                  />
-                </div>
+              {form.offerType === 'addon' && <div className="grid grid-cols-2 gap-3"><label><span className="mb-1 block text-[10px] font-black uppercase text-slate-400">Customer buys</span><input type="number" min="1" max="10" value={form.buyQuantity} onChange={event => setForm({ ...form, buyQuantity: Number(event.target.value) })} className="w-full rounded-xl border border-slate-100 bg-slate-50 p-3 dark:border-dark-border dark:bg-zinc-900" /></label><label><span className="mb-1 block text-[10px] font-black uppercase text-slate-400">Customer gets free</span><input type="number" min="1" max="5" value={form.getQuantity} onChange={event => setForm({ ...form, getQuantity: Number(event.target.value) })} className="w-full rounded-xl border border-slate-100 bg-slate-50 p-3 dark:border-dark-border dark:bg-zinc-900" /></label></div>}
 
-                <div>
-                  <label className="text-[10px] font-extrabold uppercase text-slate-400 block mb-1">Max Cap (₹)</label>
-                  <input
-                    type="number"
-                    disabled={form.discountType !== 'percentage'}
-                    value={form.discountType !== 'percentage' ? 0 : form.maxDiscount || ''}
-                    onChange={(e) => setForm({ ...form, maxDiscount: parseFloat(e.target.value) || undefined })}
-                    className="w-full p-2 bg-slate-50 dark:bg-zinc-900 border border-slate-100 dark:border-dark-border rounded-xl font-bold outline-none disabled:opacity-50"
-                  />
-                </div>
-              </div>
+              {(form.offerType === 'addon' || form.scope === 'products') && <fieldset><legend className="mb-2 text-[10px] font-black uppercase text-slate-400">Eligible products</legend><div className="max-h-40 space-y-2 overflow-y-auto rounded-2xl border border-slate-100 p-3 dark:border-dark-border">{products.filter(product => product.status === 'active').map(product => <label key={product.id} className="flex items-center gap-2 rounded-xl p-2 hover:bg-slate-50 dark:hover:bg-zinc-900"><input type="checkbox" checked={form.productIds.includes(product.id)} onChange={() => setForm(current => ({ ...current, productIds: current.productIds.includes(product.id) ? current.productIds.filter(id => id !== product.id) : [...current.productIds, product.id] }))} /><span className="flex-1 truncate text-[11px] font-bold text-slate-700 dark:text-zinc-200">{product.name}</span><span className="text-[10px] text-slate-400">₹{product.price}</span></label>)}</div></fieldset>}
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-[10px] font-extrabold uppercase text-slate-400 block mb-1">Start Date</label>
-                  <input
-                    type="date"
-                    required
-                    value={form.startDate}
-                    onChange={(e) => setForm({ ...form, startDate: e.target.value })}
-                    className="w-full p-2 bg-slate-50 dark:bg-zinc-900 border border-slate-100 dark:border-dark-border rounded-xl font-bold outline-none"
-                  />
-                </div>
+              {form.offerType === 'loyalty' && <fieldset><legend className="mb-2 flex items-center gap-1 text-[10px] font-black uppercase text-slate-400"><Users className="h-3.5 w-3.5" /> Select loyal customers</legend><div className="max-h-48 space-y-2 overflow-y-auto rounded-2xl border border-slate-100 p-3 dark:border-dark-border">{customers.length ? customers.map(customer => <label key={customer.id} className="flex items-center gap-2 rounded-xl p-2 hover:bg-amber-50/50"><input type="checkbox" checked={form.targetCustomerIds?.includes(customer.id)} onChange={() => setForm(current => ({ ...current, targetCustomerIds: current.targetCustomerIds?.includes(customer.id) ? current.targetCustomerIds.filter(id => id !== customer.id) : [...(current.targetCustomerIds || []), customer.id] }))} /><span className="flex-1"><strong className="block text-[11px] text-slate-700 dark:text-zinc-200">{customer.name}</strong><span className="text-[9px] text-slate-400">{customer.orders} orders · ₹{Math.round(customer.spent)} spent</span></span></label>) : <p className="p-4 text-center text-[10px] text-slate-400">Customers appear here after placing an order.</p>}</div></fieldset>}
 
-                <div>
-                  <label className="text-[10px] font-extrabold uppercase text-slate-400 block mb-1">End Date</label>
-                  <input
-                    type="date"
-                    required
-                    value={form.endDate}
-                    onChange={(e) => setForm({ ...form, endDate: e.target.value })}
-                    className="w-full p-2 bg-slate-50 dark:bg-zinc-900 border border-slate-100 dark:border-dark-border rounded-xl font-bold outline-none"
-                  />
-                </div>
-              </div>
+              {form.offerType === 'subscription' && <div className="grid grid-cols-2 gap-3"><label><span className="mb-1 block text-[10px] font-black uppercase text-slate-400">Plan price</span><input type="number" min="0" value={form.subscriptionPrice} onChange={event => setForm({ ...form, subscriptionPrice: Number(event.target.value) })} className="w-full rounded-xl border border-slate-100 bg-slate-50 p-3 dark:border-dark-border dark:bg-zinc-900" /></label><label><span className="mb-1 block text-[10px] font-black uppercase text-slate-400">Billing period</span><select value={form.billingPeriod} onChange={event => setForm({ ...form, billingPeriod: event.target.value as 'monthly' | 'quarterly' })} className="w-full rounded-xl border border-slate-100 bg-slate-50 p-3 dark:border-dark-border dark:bg-zinc-900"><option value="monthly">Monthly</option><option value="quarterly">Quarterly</option></select></label></div>}
 
-              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 dark:border-dark-border">
-                <button
-                  type="button"
-                  onClick={() => setIsFormOpen(false)}
-                  className="px-4 py-2 border border-slate-100 dark:border-dark-border text-slate-450 font-black rounded-xl uppercase cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-primary text-white font-black rounded-xl uppercase cursor-pointer shadow-md shadow-primary/10"
-                >
-                  Create Offer
-                </button>
-              </div>
+              <div className="grid grid-cols-2 gap-3"><label><span className="mb-1 block text-[10px] font-black uppercase text-slate-400">Starts</span><input required type="date" min={localDate()} value={form.startDate} onChange={event => setForm({ ...form, startDate: event.target.value })} className="w-full rounded-xl border border-slate-100 bg-slate-50 p-3 dark:border-dark-border dark:bg-zinc-900" /></label><label><span className="mb-1 block text-[10px] font-black uppercase text-slate-400">Ends</span><input required type="date" min={form.startDate} value={form.endDate} onChange={event => setForm({ ...form, endDate: event.target.value })} className="w-full rounded-xl border border-slate-100 bg-slate-50 p-3 dark:border-dark-border dark:bg-zinc-900" /></label></div>
 
+              {error && <p role="alert" className="rounded-xl border border-red-100 bg-red-50 p-3 text-[11px] font-bold text-red-600">{error}</p>}
+              <div className="flex justify-end gap-3 border-t border-slate-100 pt-4 dark:border-dark-border"><button type="button" disabled={saving} onClick={() => setIsFormOpen(false)} className="min-h-10 rounded-xl border border-slate-200 px-4 text-xs font-black text-slate-600">Cancel</button><button type="submit" disabled={saving} className="min-h-10 rounded-xl bg-primary px-5 text-xs font-black text-white disabled:opacity-50">{saving ? 'Saving…' : 'Publish special'}</button></div>
             </form>
           </div>
         </div>
       )}
-
     </div>
   );
 }

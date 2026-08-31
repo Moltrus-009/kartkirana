@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Star, MapPin, Clock, Search, MessageSquare, ShieldCheck, Heart } from 'lucide-react';
+import { ArrowLeft, Star, MapPin, Clock, Search, MessageSquare, ShieldCheck, Heart, BadgePercent, Crown, Gift, Repeat2 } from 'lucide-react';
 import { dbService } from '../services/dbService';
 import { Shop, Product, Review } from '../types';
 import { ProductCard } from '../components/product/ProductCard';
@@ -8,10 +8,16 @@ import { Button } from '../components/ui/Button';
 import { SkeletonCard } from '../components/layout/Skeleton';
 import { ReviewComposer } from '../components/reviews/ReviewComposer';
 import { useAppStore } from '../core/store/useAppStore';
+import { useAuth } from '../context/AuthContext';
+import { usePromotions } from '../hooks/usePromotions';
+import { describePromotion } from '../utils/promotions';
+import { SafeImage } from '../components/ui/SafeImage';
 
 export const ShopPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const { promotions } = usePromotions(id, user?.uid);
 
   const [shop, setShop] = useState<Shop | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
@@ -96,7 +102,7 @@ export const ShopPage: React.FC = () => {
       
       {/* Cover Banner header */}
       <div className="relative w-full aspect-video md:aspect-[21/9] overflow-hidden md:rounded-b-3xl">
-        <img src={shop.coverImage} alt={shop.name} className="w-full h-full object-cover" />
+        <SafeImage src={shop.coverImage} alt={shop.name} className="w-full h-full object-cover" fallback="🏪" />
         <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-900/40 to-black/30" />
         
         {/* Floating header tools */}
@@ -119,7 +125,7 @@ export const ShopPage: React.FC = () => {
         {/* Shop logo & details overlay */}
         <div className="absolute bottom-5 left-5 right-5 flex items-end gap-4 z-10 text-white">
           <div className="h-16 w-16 rounded-2xl border border-white/20 overflow-hidden shadow-lg bg-white shrink-0">
-            <img src={shop.logo} alt={shop.name} className="h-full w-full object-cover" />
+            <SafeImage src={shop.logo} alt={shop.name} className="h-full w-full object-cover" fallback="🏪" />
           </div>
           <div className="flex-1">
             <span className="text-[9px] font-black uppercase text-blue-400 tracking-widest block mb-0.5">
@@ -161,22 +167,29 @@ export const ShopPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Special Offers list */}
-      {shop.offers && shop.offers.length > 0 && (
+      {/* Live shop specials */}
+      {promotions.length > 0 ? (
         <div className="px-4 mt-4.5">
+          <div className="mb-2 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-slate-500"><Gift className="h-3.5 w-3.5 text-[#0B74E8]" /> Shop specials</div>
           <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
-            {shop.offers.map((offer, index) => (
-              <div
-                key={index}
-                className="px-3.5 py-2 border border-orange-200/50 dark:border-orange-950/50 bg-orange-50/50 dark:bg-orange-950/10 rounded-2xl text-[10px] font-black text-orange-600 dark:text-orange-400 uppercase tracking-wider flex items-center gap-1 whitespace-nowrap shadow-sm"
-              >
-                <span className="text-xs">⚡</span>
-                {offer}
-              </div>
-            ))}
+            {promotions.map(promotion => {
+              const Icon = promotion.offerType === 'loyalty' ? Crown : promotion.offerType === 'addon' ? Gift : promotion.offerType === 'subscription' ? Repeat2 : BadgePercent;
+              return (
+                <div key={promotion.id} className={`min-w-[210px] rounded-2xl border p-3.5 ${promotion.eligible ? 'border-blue-100 bg-blue-50/70 dark:border-blue-900/40 dark:bg-blue-950/20' : 'border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900'}`}>
+                  <div className="flex items-start gap-2.5">
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#0B74E8] text-white"><Icon className="h-4 w-4" /></span>
+                    <div className="min-w-0"><strong className="block truncate text-xs font-black text-slate-800 dark:text-white">{promotion.title}</strong><span className="mt-0.5 block text-[10px] font-black text-[#0758C7] dark:text-blue-300">{describePromotion(promotion)}</span></div>
+                  </div>
+                  <p className="mt-2 line-clamp-2 text-[10px] font-semibold leading-relaxed text-slate-500">{promotion.description}</p>
+                  {promotion.offerType === 'loyalty' && promotion.eligible && <span className="mt-2 inline-block rounded-lg bg-[#FFC928] px-2 py-1 text-[8px] font-black uppercase text-[#071128]">Your loyal-customer reward</span>}
+                </div>
+              );
+            })}
           </div>
         </div>
-      )}
+      ) : shop.offers && shop.offers.length > 0 ? (
+        <div className="px-4 mt-4.5"><div className="flex gap-2 overflow-x-auto no-scrollbar">{shop.offers.map((offer, index) => <span key={index} className="whitespace-nowrap rounded-xl bg-[#FFC928] px-3 py-2 text-[10px] font-black text-[#071128]">{offer}</span>)}</div></div>
+      ) : null}
 
       {/* Tabs selector */}
       <div className="px-4 mt-6">
@@ -226,7 +239,7 @@ export const ShopPage: React.FC = () => {
               onClick={() => setSelectedCat('all')}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold border whitespace-nowrap transition-all cursor-pointer
                 ${selectedCat === 'all'
-                  ? 'border-blue-500 bg-blue-50 dark:bg-emerald-950/20 text-blue-600'
+                  ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/20 text-blue-600'
                   : 'border-gray-100 dark:border-slate-850 text-gray-500'
                 }`}
             >
@@ -238,7 +251,7 @@ export const ShopPage: React.FC = () => {
                 onClick={() => setSelectedCat(cat)}
                 className={`px-3 py-1.5 rounded-xl text-xs font-bold border capitalize whitespace-nowrap transition-all cursor-pointer
                   ${selectedCat === cat
-                    ? 'border-blue-500 bg-blue-50 dark:bg-emerald-950/20 text-blue-600'
+                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/20 text-blue-600'
                     : 'border-gray-100 dark:border-slate-850 text-gray-500'
                   }`}
               >
@@ -251,7 +264,11 @@ export const ShopPage: React.FC = () => {
           {displayProducts.length > 0 ? (
             <div className="grid grid-cols-2 gap-3.5">
               {displayProducts.map(product => (
-                <ProductCard key={product.id} product={product} />
+                <ProductCard
+                  key={product.id}
+                  product={product}
+                  promotion={promotions.find(promotion => promotion.eligible && promotion.offerType !== 'subscription' && (promotion.scope === 'order' || promotion.productIds.includes(product.id)))}
+                />
               ))}
             </div>
           ) : (

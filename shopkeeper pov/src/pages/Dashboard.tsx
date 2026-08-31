@@ -157,20 +157,20 @@ export default function Dashboard() {
     trackComponent('Dashboard', 'render');
   });
   return (
-    <div className="space-y-6 max-w-lg mx-auto pb-8 text-left text-xs font-semibold">
+    <div className="merchant-dashboard space-y-5 max-w-5xl mx-auto pb-8 text-left text-xs font-semibold">
       
       {/* Top Welcome Header Block */}
-      <div className="bg-white dark:bg-dark-card border border-slate-100 dark:border-dark-border p-5 rounded-3xl shadow-xs flex items-center justify-between gap-4">
+      <div className="merchant-hero p-5 md:p-7 rounded-[28px] flex items-center justify-between gap-4 text-white">
         <div className="space-y-1">
-          <div className="flex items-center gap-1.5 text-slate-450 dark:text-zinc-400 font-extrabold uppercase tracking-wider">
-            <Clock className="h-3.5 w-3.5 text-emerald-500 animate-pulse-subtle" />
+          <div className="flex items-center gap-1.5 text-white/70 font-extrabold uppercase tracking-wider">
+            <Clock className="h-3.5 w-3.5 text-[#ffd34e] animate-pulse-subtle" />
             <span>{currentTime || 'Loading...'}</span>
           </div>
-          <h1 className="text-lg font-black text-slate-800 dark:text-zinc-100 capitalize">
+          <h1 className="text-xl md:text-2xl font-black text-white capitalize">
             {t(greeting as any)}, {user?.fullName?.split(' ')[0] || 'Partner'}!
           </h1>
-          <p className="text-[10px] text-slate-400 font-bold">
-            Store: <span className="font-extrabold text-slate-700 dark:text-zinc-300">{shop?.name || 'Loading Store'}</span>
+          <p className="text-[10px] text-white/70 font-bold">
+            Store: <span className="font-extrabold text-[#ffd34e]">{shop?.name || 'Loading Store'}</span>
           </p>
         </div>
 
@@ -180,7 +180,7 @@ export default function Dashboard() {
             onClick={toggleStoreStatus}
             className={`px-4 py-2.5 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center gap-1.5 cursor-pointer shadow-xs transition duration-200 ${
               shop.status === 'open' 
-                ? 'bg-emerald-500 text-white shadow-emerald-500/10' 
+                ? 'bg-white/15 text-white border border-white/25 shadow-black/10'
                 : 'bg-red-500 text-white shadow-red-500/10'
             }`}
           >
@@ -191,9 +191,9 @@ export default function Dashboard() {
       </div>
 
       {/* METRICS GRID */}
-      <div className="grid grid-cols-2 gap-3.5">
+      <div className="merchant-metrics grid grid-cols-2 md:grid-cols-4 gap-3.5">
         {/* Earnings Card */}
-        <div className="bg-gradient-to-tr from-emerald-500 to-emerald-600 p-4.5 rounded-3xl text-white shadow-md shadow-emerald-500/15">
+        <div className="merchant-sales-card p-4.5 rounded-3xl text-white shadow-md shadow-primary/15">
           <DollarSign className="h-5 w-5 opacity-80 mb-2" />
           <span className="text-[9px] font-bold uppercase tracking-widest opacity-85 block">{t('today_sales')}</span>
           <h3 className="text-xl font-black mt-0.5">₹{todaySales.toLocaleString()}</h3>
@@ -206,7 +206,7 @@ export default function Dashboard() {
 
         {/* Today's Orders Card */}
         <div className="bg-white dark:bg-dark-card border border-slate-100 dark:border-dark-border p-4.5 rounded-3xl shadow-xs">
-          <ShoppingBag className="h-5 w-5 text-emerald-500 mb-2" />
+          <ShoppingBag className="h-5 w-5 text-primary mb-2" />
           <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block font-extrabold">{t('today_sales')} ({t('orders')})</span>
           <h3 className="text-xl font-black text-slate-800 dark:text-zinc-150 mt-0.5">{todayOrders.length} {t('orders')}</h3>
           <span className="text-[9px] text-slate-400 font-semibold mt-2.5 block">⚡ Fast local delivery active</span>
@@ -236,7 +236,7 @@ export default function Dashboard() {
             <h3 className="text-xs font-black text-slate-800 dark:text-zinc-200">{t('sales_trend')}</h3>
             <p className="text-[9px] text-slate-400 font-bold leading-none mt-0.5">Sales progress tracker over last 7 days</p>
           </div>
-          <div className="flex items-center gap-1.5 text-[9px] bg-emerald-500/10 text-emerald-500 px-2 py-0.5 rounded-lg">
+          <div className="flex items-center gap-1.5 text-[9px] bg-primary/10 text-primary px-2 py-0.5 rounded-lg">
             <TrendingUp className="h-3 w-3" />
             <span>+15% weekly</span>
           </div>
@@ -260,7 +260,7 @@ export default function Dashboard() {
 
         {lowStockItemsList.length === 0 ? (
           <div className="p-4 border border-dashed border-slate-100 dark:border-dark-border rounded-2xl text-center text-slate-400 font-bold text-[10px] flex items-center justify-center gap-1">
-            <PackageCheck className="h-4 w-4 text-emerald-500" />
+            <PackageCheck className="h-4 w-4 text-primary" />
             All inventory catalog stock items are healthy!
           </div>
         ) : (
@@ -305,7 +305,7 @@ export default function Dashboard() {
             onClick={() => navigate('/products?add=true')}
             className="flex items-center gap-2.5 p-3.5 bg-slate-50 dark:bg-zinc-900 border border-slate-100/50 dark:border-dark-border/40 rounded-2xl font-black text-left cursor-pointer hover:bg-slate-100 text-xs"
           >
-            <Plus className="h-4.5 w-4.5 text-emerald-500 shrink-0" />
+            <Plus className="h-4.5 w-4.5 text-primary shrink-0" />
             <span>Add Product</span>
           </button>
 

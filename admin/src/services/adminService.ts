@@ -1,12 +1,32 @@
-import { auth } from '../lib/firebase';
+import { getToken as getAppCheckToken } from 'firebase/app-check';
+import { auth, appCheck } from '../lib/firebase';
 
-const getAuthHeaders = async () => {
+const configuredApiOrigin = String(
+  import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || ''
+).trim().replace(/\/$/, '');
+const productionApiOrigin = configuredApiOrigin || 'https://api-lna3kdnwxq-el.a.run.app';
+
+if (import.meta.env.PROD && !productionApiOrigin.startsWith('https://')) {
+  throw new Error('The production admin API URL must use HTTPS.');
+}
+
+const browserFetch = globalThis.fetch.bind(globalThis);
+const fetch: typeof globalThis.fetch = (input, init) => {
+  if (typeof input === 'string' && input.startsWith('/v1/') && import.meta.env.PROD) {
+    return browserFetch(`${productionApiOrigin}${input}`, init);
+  }
+  return browserFetch(input, init);
+};
+
+const getAuthHeaders = async (): Promise<Record<string, string>> => {
   if (auth && auth.currentUser) {
     try {
       const token = await auth.currentUser.getIdToken();
+      const appCheckResult = appCheck ? await getAppCheckToken(appCheck, false) : null;
       return {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
+        'Authorization': `Bearer ${token}`,
+        ...(appCheckResult ? { 'X-Firebase-AppCheck': appCheckResult.token } : {})
       };
     } catch (e) {
       console.warn('[adminService] Failed to obtain Firebase ID token:', e);
@@ -227,6 +247,7 @@ export const adminService = {
   // Razorpay Payments refund
   async refundOrder(orderId: string, amount: number, reason: string) {
     const headers = await getAuthHeaders();
+    headers['Idempotency-Key'] = `refund_${crypto.randomUUID().replace(/-/g, '')}`;
     const res = await fetch('/v1/payments/refund', {
       method: 'POST',
       headers,

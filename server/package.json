@@ -2,7 +2,7 @@
   "name": "kartkirana-backend",
   "version": "1.0.0",
   "description": "Backend API server for KartKirana Razorpay Payments",
-  "main": "index.js",
+  "main": "functions.js",
   "type": "commonjs",
   "scripts": {
     "start": "node index.js",
@@ -14,8 +14,12 @@
     "express": "^4.19.2",
     "express-rate-limit": "^8.5.2",
     "firebase-admin": "^14.1.0",
+    "firebase-functions": "^7.3.2",
     "helmet": "^8.2.0",
-    "razorpay": "^2.9.2",
-    "sqlite3": "^6.0.1"
+    "razorpay": "^2.9.2"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
+    "firebase": "^12.18.0"
   }
 }

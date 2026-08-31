@@ -48,15 +48,15 @@ export const SupportBot: React.FC = () => {
     // Preorders
     if (q.includes('preorder') || q.includes('pre-order') || q.includes('schedule') || q.includes('प्रीऑर्डर') || q.includes('बुक') || q.includes('शेड्यूल')) {
       return isHindi
-        ? '📅 **प्रीऑर्डर (Preorder)**:\nआप 7 दिन पहले तक अपनी डिलीवरी शेड्यूल कर सकते हैं। डिलीवरी स्लॉट शुरू होने से 12 घंटे पहले तक प्रीऑर्डर को कभी भी बदला या रद्द किया जा सकता है।'
-        : '📅 **Preorder Bookings**:\nYou can schedule your grocery deliveries up to 7 days in advance. Preorders can be modified or cancelled up to 12 hours before the delivery slot begins.';
+        ? '📅 **प्रीऑर्डर (Preorder)**:\nआप 7 दिन पहले तक अपनी डिलीवरी शेड्यूल कर सकते हैं। दुकान द्वारा ऑर्डर प्रोसेस करना शुरू करने से पहले स्लॉट बदला जा सकता है।'
+        : '📅 **Preorder Bookings**:\nYou can schedule grocery delivery up to 7 days in advance. The slot can be changed until the shop starts processing the order.';
     }
 
     // Delivery charges & Free delivery
     if (q.includes('charge') || q.includes('delivery fee') || q.includes('free') || q.includes('शुल्क') || q.includes('पैसे') || q.includes('मुफ्त') || q.includes('डिलीवरी चार्ज')) {
       return isHindi
-        ? '🚚 **डिलीवरी शुल्क**:\n₹199 से अधिक के सभी ऑर्डर्स पर डिलीवरी बिल्कुल **मुफ्त (FREE)** है! ₹199 से कम के ऑर्डर्स पर ₹29 का छोटा डिलीवरी शुल्क लगता है।'
-        : '🚚 **Delivery Charges**:\nDelivery is completely **FREE** for all orders above ₹199! For orders below ₹199, a flat delivery charge of ₹29 applies.';
+        ? '🚚 **डिलीवरी शुल्क**:\n₹149 या अधिक के ऑर्डर पर डिलीवरी **मुफ्त (FREE)** है। इससे कम के ऑर्डर पर ₹25 डिलीवरी शुल्क लगता है।'
+        : '🚚 **Delivery Charges**:\nDelivery is **FREE** on orders of ₹149 or more. A ₹25 delivery fee applies below that amount.';
     }
 
     // Delivery speeds

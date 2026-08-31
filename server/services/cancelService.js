@@ -2,6 +2,10 @@ const { db } = require('../config/firebase');
 const OrderRepository = require('../repositories/OrderRepository');
 const InventoryService = require('./inventoryService');
 const NotificationService = require('./notificationService');
+const CouponService = require('./couponService');
+const PaymentRepository = require('../repositories/PaymentRepository');
+const PaymentAttemptRepository = require('../repositories/PaymentAttemptRepository');
+const { AppError } = require('../utils/errors');
 
 /**
  * Cancellation states from which an order can be cancelled.
@@ -45,7 +49,7 @@ class CancelService {
    * @returns {{ success: boolean, message: string }}
    */
   async cancelOrder(orderId, cancelledBy, cancellerRole, reason = '') {
-    if (!db) throw new Error('Database connection is unavailable.');
+    if (!db) throw new AppError('Database connection is unavailable.', 503);
 
     const finalStatus = cancellerRole === 'shopkeeper' ? 'SHOP_REJECTED' : 'CANCELLED';
     const now = new Date().toISOString();
@@ -53,34 +57,53 @@ class CancelService {
     // Check for active reservations BEFORE the transaction
     // (Firestore transactions cannot do collection queries, only doc gets)
     const hasReservations = await InventoryService.hasActiveReservations(orderId);
+    const paymentHint = await PaymentRepository.getByOrderId(orderId);
+    const attemptHint = await PaymentAttemptRepository.getLatestByOrderId(orderId);
 
-    await db.runTransaction(async (transaction) => {
+    const cancellationApplied = await db.runTransaction(async (transaction) => {
       // Phase 1: ALL READS
       const orderRef = OrderRepository.collection.doc(orderId);
       const orderSnap = await transaction.get(orderRef);
 
       if (!orderSnap.exists) {
-        throw new Error('Order not found.');
+        throw new AppError('Order not found.', 404);
       }
 
       const orderData = orderSnap.data();
+      const paymentRef = paymentHint ? PaymentRepository.collection.doc(paymentHint.id) : null;
+      const attemptRef = attemptHint ? PaymentAttemptRepository.collection.doc(attemptHint.id || attemptHint.attemptId) : null;
+      const paymentSnap = paymentRef ? await transaction.get(paymentRef) : null;
+      const attemptSnap = attemptRef ? await transaction.get(attemptRef) : null;
+      const couponRedemption = await CouponService.prepareOrderRedemption(transaction, { ...orderData, orderId });
 
       // Authorization check
       if (cancellerRole === 'customer' && orderData.userId !== cancelledBy) {
-        throw new Error('Unauthorized: You do not own this order.');
+        throw new AppError('You do not own this order.', 403);
+      }
+
+      // Idempotency: a retry after a completed cancellation is successful.
+      if (orderData.status === 'CANCELLED' || orderData.status === 'SHOP_REJECTED' || orderData.status === 'AUTO_CANCELLED') {
+        return false;
+      }
+
+      const paymentStatus = paymentSnap?.data()?.status;
+      if (
+        orderData.paymentStatus === 'completed' ||
+        ['CAPTURED', 'CAPTURED_REVIEW', 'PARTIALLY_REFUNDED'].includes(paymentStatus)
+      ) {
+        throw new AppError(
+          'This paid order cannot be cancelled until a verified refund is started. Please contact support.',
+          409
+        );
       }
 
       // State guard: prevent cancellation of non-cancellable orders
       if (!CANCELLABLE_STATUSES.has(orderData.status)) {
-        throw new Error(
+        throw new AppError(
           `Order cannot be cancelled in its current state (${orderData.status}). ` +
-          'Orders that have been picked up or delivered cannot be cancelled.'
+          'Orders that have been picked up or delivered cannot be cancelled.',
+          409
         );
-      }
-
-      // Idempotency: if already cancelled, return silently
-      if (orderData.status === 'CANCELLED' || orderData.status === 'SHOP_REJECTED' || orderData.status === 'AUTO_CANCELLED') {
-        return;
       }
 
       // Determine inventory release strategy:
@@ -98,6 +121,7 @@ class CancelService {
           await InventoryService.restoreCommittedStock(transaction, items, cancelledBy);
         }
       }
+      CouponService.releaseReservedRedemption(transaction, couponRedemption, finalStatus);
 
       // Phase 2: ALL WRITES
       const currentTimeline = orderData.timeline || [];
@@ -110,11 +134,33 @@ class CancelService {
 
       transaction.update(orderRef, {
         status: finalStatus,
+        paymentStatus: 'cancelled',
         timeline: [...currentTimeline, timelineEntry],
         updatedAt: now,
         updatedBy: cancelledBy,
       });
+      if (paymentRef && paymentSnap?.exists && ['PENDING', 'CREATED', 'COD_PENDING'].includes(paymentStatus)) {
+        transaction.update(paymentRef, {
+          status: 'CANCELLED',
+          updatedAt: now,
+          updatedBy: cancelledBy
+        });
+      }
+      if (attemptRef && attemptSnap?.exists && ['PENDING', 'CREATED'].includes(attemptSnap.data().status)) {
+        transaction.update(attemptRef, {
+          status: 'CANCELLED',
+          updatedAt: now,
+          updatedBy: cancelledBy
+        });
+      }
+      return true;
     });
+
+    // A repeated cancellation request is successful, but it must not enqueue a
+    // second customer notification or repeat any other post-transaction work.
+    if (!cancellationApplied) {
+      return { success: true, message: `Order ${finalStatus === 'SHOP_REJECTED' ? 'rejected' : 'cancelled'} successfully.` };
+    }
 
     // Post-transaction: fire-and-forget notifications (non-critical)
     try {

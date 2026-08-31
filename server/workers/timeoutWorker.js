@@ -3,8 +3,10 @@ const ReservationRepository = require('../repositories/ReservationRepository');
 const ProductRepository = require('../repositories/ProductRepository');
 const OrderRepository = require('../repositories/OrderRepository');
 const PaymentAttemptRepository = require('../repositories/PaymentAttemptRepository');
+const PaymentRepository = require('../repositories/PaymentRepository');
 const InventoryService = require('../services/inventoryService');
 const NotificationService = require('../services/notificationService');
+const CouponService = require('../services/couponService');
 
 const runTimeoutWorker = async () => {
   if (!db) return;
@@ -31,6 +33,7 @@ const runTimeoutWorker = async () => {
     for (const [orderId, reservations] of reservationsByOrder.entries()) {
       try {
         const latestAttempt = await PaymentAttemptRepository.getLatestByOrderId(orderId);
+        const paymentHint = await PaymentRepository.getByOrderId(orderId);
         const userId = reservations[0]?.createdBy || 'system';
 
         await db.runTransaction(async (transaction) => {
@@ -56,22 +59,29 @@ const runTimeoutWorker = async () => {
 
           const orderRef = OrderRepository.collection.doc(orderId);
           const orderSnap = await transaction.get(orderRef);
+          const paymentRef = paymentHint ? PaymentRepository.collection.doc(paymentHint.id) : null;
+          const paymentSnap = paymentRef ? await transaction.get(paymentRef) : null;
+          const couponRedemption = orderSnap.exists
+            ? await CouponService.prepareOrderRedemption(transaction, { ...orderSnap.data(), orderId })
+            : null;
 
           // Phase 2: ALL WRITES
-          for (const res of reservations) {
-            if (resRefsMap.has(res.reservationId)) {
-              const { prodSnap } = prodSnapsMap.get(res.productId);
-              if (prodSnap && prodSnap.exists) {
-                await ProductRepository.adjustStockInTransaction(transaction, res.productId, -res.quantity, true, prodSnap);
-              }
-
-              const { resRef } = resRefsMap.get(res.reservationId);
-              transaction.update(resRef, {
-                status: 'EXPIRED',
-                updatedAt: new Date().toISOString(),
-                updatedBy: 'timeout_worker'
-              });
+          const quantities = new Map();
+          for (const { resData } of resRefsMap.values()) {
+            quantities.set(resData.productId, (quantities.get(resData.productId) || 0) + resData.quantity);
+          }
+          for (const [productId, quantity] of quantities) {
+            const { prodSnap } = prodSnapsMap.get(productId);
+            if (prodSnap && prodSnap.exists) {
+              await ProductRepository.adjustStockInTransaction(transaction, productId, -quantity, true, prodSnap);
             }
+          }
+          for (const { resRef } of resRefsMap.values()) {
+            transaction.update(resRef, {
+              status: 'EXPIRED',
+              updatedAt: new Date().toISOString(),
+              updatedBy: 'timeout_worker'
+            });
           }
 
           if (orderSnap.exists) {
@@ -92,10 +102,18 @@ const runTimeoutWorker = async () => {
               });
             }
           }
+          CouponService.releaseReservedRedemption(transaction, couponRedemption, 'PAYMENT_TIMEOUT');
 
-          if (latestAttempt && latestAttempt.status === 'CREATED') {
+          if (latestAttempt && ['CREATED', 'PENDING'].includes(latestAttempt.status)) {
             const attemptRef = PaymentAttemptRepository.collection.doc(latestAttempt.attemptId);
             transaction.update(attemptRef, {
+              status: 'EXPIRED',
+              updatedAt: new Date().toISOString(),
+              updatedBy: 'timeout_worker'
+            });
+          }
+          if (paymentRef && paymentSnap && paymentSnap.exists && ['CREATED', 'PENDING'].includes(paymentSnap.data().status)) {
+            transaction.update(paymentRef, {
               status: 'EXPIRED',
               updatedAt: new Date().toISOString(),
               updatedBy: 'timeout_worker'

@@ -35,7 +35,7 @@ export const Orders: React.FC = () => {
       case 'DELIVERED':
       case 'COMPLETED':
       case 'delivered' as any:
-        return 'bg-blue-50 dark:bg-emerald-950/20 text-emerald-750 dark:text-blue-400 border-blue-100 dark:border-blue-900/20';
+        return 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border-emerald-100 dark:border-emerald-900/20';
       case 'SHOP_REJECTED':
       case 'cancelled' as any:
       case 'CANCELLED' as any:
@@ -243,7 +243,7 @@ export const Orders: React.FC = () => {
             return (
               <div
                 key={order.id}
-                className="rounded-[20px] bg-white dark:bg-[#1E293B] border border-[#E2E8F0] dark:border-[#334155] overflow-hidden shadow-[0_4px_16px_rgba(46,125,50,0.02)] transition-all"
+                className="rounded-[20px] bg-white dark:bg-[#1E293B] border border-[#E2E8F0] dark:border-[#334155] overflow-hidden shadow-[0_8px_24px_-20px_rgba(5,10,36,0.45)] transition-all"
               >
                 {/* Header info */}
                 <div

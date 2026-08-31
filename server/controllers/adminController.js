@@ -506,36 +506,54 @@ class AdminController {
   async getFinancialSummary(req, res, next) {
     try {
       if (!firestoreDb) throw new Error('Firestore not initialized.');
-      // Fetch orders to calculate real platform metrics
-      const snap = await firestoreDb.collection('orders').where('paymentStatus', '==', 'completed').get();
+      const paymentsSnap = await firestoreDb.collection('payments').get();
+      const paidPayments = paymentsSnap.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .filter(payment => !payment.isDeleted && ['CAPTURED', 'CAPTURED_REVIEW', 'COD_COLLECTED', 'PARTIALLY_REFUNDED', 'REFUNDED'].includes(payment.status));
+      const orderSnaps = await Promise.all(paidPayments.map(payment => firestoreDb.collection('orders').doc(payment.orderId).get()));
       
       let platformEarnings = 0;
       let taxCollection = 0;
       let deliveryEarnings = 0;
-      let payoutsSum = 0;
+      let totalCaptured = 0;
+      let totalRefunded = 0;
+      let unmatchedCount = 0;
       
       const details = [];
 
-      snap.docs.forEach(doc => {
-        const data = doc.data();
-        const subtotal = data.subtotal || 0;
-        const total = data.total || 0;
-        const platformFee = data.platformFee || 0;
-        const tax = data.tax || 0;
-        const deliveryFee = data.deliveryFee || 0;
-        
-        platformEarnings += platformFee;
-        taxCollection += tax;
-        deliveryEarnings += deliveryFee;
+      paidPayments.forEach((payment, index) => {
+        const orderSnap = orderSnaps[index];
+        const order = orderSnap.exists ? orderSnap.data() : null;
+        const paymentAmount = Number(payment.amount || 0);
+        const expectedAmount = Number(order?.total || 0);
+        const amountMatches = order && Math.round(paymentAmount * 100) === Math.round(expectedAmount * 100);
+        const orderPaid = order && ['completed', 'partially_refunded', 'refunded'].includes(order.paymentStatus);
+        const reconciliationStatus = !order ? 'ORDER_MISSING' : !amountMatches ? 'AMOUNT_MISMATCH' : !orderPaid ? 'ORDER_NOT_PAID' : 'MATCHED';
+        if (reconciliationStatus !== 'MATCHED') unmatchedCount += 1;
 
+        const refundedAmount = Number(payment.refundedAmount || 0);
+        totalCaptured += paymentAmount;
+        totalRefunded += refundedAmount;
+        if (order && reconciliationStatus === 'MATCHED') {
+          platformEarnings += Number(order.platformFee || 0);
+          taxCollection += Number(order.tax || 0);
+          deliveryEarnings += Number(order.deliveryFee || 0);
+        }
         details.push({
-          orderId: doc.id,
-          amount: total,
-          subtotal,
-          platformFee,
-          tax,
-          deliveryFee,
-          createdAt: data.createdAt
+          paymentId: payment.id,
+          transactionId: payment.gatewayPaymentId || (payment.gateway === 'cod' ? `cod_${payment.orderId}` : null),
+          orderId: payment.orderId,
+          paymentMethod: payment.paymentMethod || payment.gateway,
+          paymentRecordStatus: payment.status,
+          reconciliationStatus,
+          amount: paymentAmount,
+          refundedAmount,
+          netAmount: paymentAmount - refundedAmount,
+          subtotal: Number(order?.subtotal || 0),
+          platformFee: Number(order?.platformFee || 0),
+          tax: Number(order?.tax || 0),
+          deliveryFee: Number(order?.deliveryFee || 0),
+          createdAt: payment.capturedAt || payment.collectedAt || payment.createdAt
         });
       });
 
@@ -544,7 +562,11 @@ class AdminController {
           platformEarnings,
           taxCollection,
           deliveryEarnings,
-          totalRevenue: platformEarnings + taxCollection + deliveryEarnings
+          totalRevenue: platformEarnings + taxCollection + deliveryEarnings,
+          totalCaptured,
+          totalRefunded,
+          netCollected: totalCaptured - totalRefunded,
+          unmatchedCount
         },
         orders: details
       });

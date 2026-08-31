@@ -1,6 +1,18 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { CartItem, Product, Coupon, PriceBreakdown } from '../types';
+import { CartItem, Product, Coupon, PriceBreakdown, AppliedPromotion } from '../types';
 import { dbService } from '../services/dbService';
+import { paymentService } from '../services/paymentService';
+import { IS_MOCK_MODE } from '../infrastructure/firebase/firebase';
+import { PreorderSchedule, isValidPreorderSchedule } from '../utils/preorder';
+import { useAuth } from './AuthContext';
+import { usePromotions } from '../hooks/usePromotions';
+import { calculateBestPromotion } from '../utils/promotions';
+import {
+  CUSTOMER_STORAGE_KEYS,
+  getCustomerStorageItem,
+  removeCustomerStorageItem,
+  setCustomerStorageItem
+} from '../utils/customerStorage';
 
 interface CartContextType {
   cartItems: CartItem[];
@@ -14,17 +26,14 @@ interface CartContextType {
   clearCart: () => void;
   applyCoupon: (code: string) => Promise<{ success: boolean; message: string }>;
   removeCoupon: () => void;
-  preorderSchedule: { date?: string; slot?: string } | null;
-  setPreorderSchedule: (schedule: { date?: string; slot?: string } | null) => void;
+  preorderSchedule: PreorderSchedule | null;
+  setPreorderSchedule: (schedule: PreorderSchedule | null) => void;
   conflictItem: { product: Product; quantity: number } | null;
   confirmReplaceCart: () => void;
   cancelReplaceCart: () => void;
 }
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
-
-const LOCAL_STORAGE_KEY = 'shop_app_cart';
-const LOCAL_STORAGE_COUPON_KEY = 'shop_app_coupon';
 
 const getDistanceBetweenCoords = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
   const R = 6371; // Radius of the earth in km
@@ -39,22 +48,55 @@ const getDistanceBetweenCoords = (lat1: number, lon1: number, lat2: number, lon2
 };
 
 export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user, loading: authLoading } = useAuth();
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [coupon, setCoupon] = useState<Coupon | null>(null);
-  const [preorderSchedule, setPreorderScheduleState] = useState<{ date?: string; slot?: string } | null>(null);
+  const [preorderSchedule, setPreorderScheduleState] = useState<PreorderSchedule | null>(null);
   const [allShops, setAllShops] = useState<any[]>([]);
   const [conflictItem, setConflictItem] = useState<{ product: Product; quantity: number } | null>(null);
+  const { promotions } = usePromotions(cartItems[0]?.product.shopId, user?.uid);
 
-  // Load from local storage on mount
+  // Reload the authenticated customer's own cart whenever the account changes.
   useEffect(() => {
-    const savedCart = localStorage.getItem(LOCAL_STORAGE_KEY);
-    if (savedCart) {
-      setCartItems(JSON.parse(savedCart));
+    if (authLoading) return;
+
+    setConflictItem(null);
+    if (!user?.uid) {
+      setCartItems([]);
+      setCoupon(null);
+      setPreorderScheduleState(null);
+      return;
     }
-    const savedCoupon = localStorage.getItem(LOCAL_STORAGE_COUPON_KEY);
-    if (savedCoupon) {
-      setCoupon(JSON.parse(savedCoupon));
+
+    try {
+      const savedCart = JSON.parse(getCustomerStorageItem(CUSTOMER_STORAGE_KEYS.cart, user.uid) || '[]');
+      setCartItems(Array.isArray(savedCart) ? savedCart : []);
+    } catch {
+      setCartItems([]);
+      removeCustomerStorageItem(CUSTOMER_STORAGE_KEYS.cart, user.uid);
     }
+
+    try {
+      setCoupon(JSON.parse(getCustomerStorageItem(CUSTOMER_STORAGE_KEYS.coupon, user.uid) || 'null'));
+    } catch {
+      setCoupon(null);
+      removeCustomerStorageItem(CUSTOMER_STORAGE_KEYS.coupon, user.uid);
+    }
+
+    try {
+      const savedSchedule = JSON.parse(getCustomerStorageItem(CUSTOMER_STORAGE_KEYS.preorderSchedule, user.uid) || 'null');
+      if (savedSchedule && isValidPreorderSchedule(savedSchedule)) setPreorderScheduleState(savedSchedule);
+      else {
+        setPreorderScheduleState(null);
+        removeCustomerStorageItem(CUSTOMER_STORAGE_KEYS.preorderSchedule, user.uid);
+      }
+    } catch {
+      setPreorderScheduleState(null);
+      removeCustomerStorageItem(CUSTOMER_STORAGE_KEYS.preorderSchedule, user.uid);
+    }
+  }, [authLoading, user?.uid]);
+
+  useEffect(() => {
     // Fetch all shops to resolve coordinates
     dbService.getShops().then(list => setAllShops(list));
   }, []);
@@ -62,14 +104,15 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Save to local storage on changes
   const saveCart = (items: CartItem[]) => {
     setCartItems(items);
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(items));
+    setCustomerStorageItem(CUSTOMER_STORAGE_KEYS.cart, user?.uid, JSON.stringify(items));
   };
 
   const clearCart = () => {
     saveCart([]);
     setCoupon(null);
     setPreorderScheduleState(null);
-    localStorage.removeItem(LOCAL_STORAGE_COUPON_KEY);
+    removeCustomerStorageItem(CUSTOMER_STORAGE_KEYS.coupon, user?.uid);
+    removeCustomerStorageItem(CUSTOMER_STORAGE_KEYS.preorderSchedule, user?.uid);
   };
 
   // Determine active shop from items
@@ -128,6 +171,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (updated.length === 0) {
       setCoupon(null);
       setPreorderScheduleState(null);
+      removeCustomerStorageItem(CUSTOMER_STORAGE_KEYS.preorderSchedule, user?.uid);
     }
   };
 
@@ -144,8 +188,35 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const applyCoupon = async (code: string): Promise<{ success: boolean; message: string }> => {
     try {
+      const normalizedCode = code.trim().toUpperCase();
+      const subtotal = cartItems.reduce((acc, item) => acc + (item.product.price * item.quantity), 0);
+      if (!normalizedCode || !cartShopId || subtotal <= 0) {
+        return { success: false, message: 'Add items to your cart before applying a coupon.' };
+      }
+
+      // The live service is authoritative for expiry, shop eligibility, global
+      // and per-customer limits. The same validation runs again at checkout.
+      if (!IS_MOCK_MODE) {
+        const result = await paymentService.validateCoupon(normalizedCode, cartShopId, subtotal);
+        const data = result.coupon || {};
+        const appliedCoupon: Coupon = {
+          code: result.code,
+          discountType: result.type === 'percentage' ? 'percentage' : 'fixed',
+          discountValue: Number(data.discountValue ?? data.value ?? 0),
+          minOrderValue: Number(data.minOrderValue ?? data.minPurchase ?? 0),
+          maxDiscount: Number(data.maxDiscount ?? data.maxDiscountCap ?? 0) || undefined,
+          description: String(data.description || `${result.code} applied`),
+          expiryDate: String(data.validUntil ?? data.expiryDate ?? ''),
+          validatedDiscount: result.discount,
+          freeDelivery: result.isFreeDelivery
+        };
+        setCoupon(appliedCoupon);
+        setCustomerStorageItem(CUSTOMER_STORAGE_KEYS.coupon, user?.uid, JSON.stringify(appliedCoupon));
+        return { success: true, message: 'Coupon applied successfully!' };
+      }
+
       const coupons = await dbService.getCoupons();
-      const found = coupons.find(c => c.code.toUpperCase() === code.toUpperCase());
+      const found = coupons.find(c => c.code.toUpperCase() === normalizedCode);
       
       if (!found) {
         return { success: false, message: 'Invalid coupon code.' };
@@ -156,14 +227,12 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { success: false, message: 'Coupon code has expired.' };
       }
 
-      // Calculate subtotal
-      const subtotal = cartItems.reduce((acc, item) => acc + (item.product.price * item.quantity), 0);
       if (subtotal < found.minOrderValue) {
         return { success: false, message: `Minimum order value for this coupon is ₹${found.minOrderValue}.` };
       }
 
       setCoupon(found);
-      localStorage.setItem(LOCAL_STORAGE_COUPON_KEY, JSON.stringify(found));
+      setCustomerStorageItem(CUSTOMER_STORAGE_KEYS.coupon, user?.uid, JSON.stringify(found));
       return { success: true, message: 'Coupon applied successfully!' };
     } catch (error) {
       return { success: false, message: 'Failed to apply coupon. Try again.' };
@@ -172,11 +241,14 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const removeCoupon = () => {
     setCoupon(null);
-    localStorage.removeItem(LOCAL_STORAGE_COUPON_KEY);
+    removeCustomerStorageItem(CUSTOMER_STORAGE_KEYS.coupon, user?.uid);
   };
 
-  const setPreorderSchedule = (schedule: { date?: string; slot?: string } | null) => {
+  const setPreorderSchedule = (schedule: PreorderSchedule | null) => {
+    if (schedule && !isValidPreorderSchedule(schedule)) return;
     setPreorderScheduleState(schedule);
+    if (schedule) setCustomerStorageItem(CUSTOMER_STORAGE_KEYS.preorderSchedule, user?.uid, JSON.stringify(schedule));
+    else removeCustomerStorageItem(CUSTOMER_STORAGE_KEYS.preorderSchedule, user?.uid);
   };
 
   // Compute price breakdown
@@ -185,11 +257,8 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     
     let discount = 0;
     if (coupon) {
-      const code = coupon.code.toUpperCase();
-      if (code === 'FLAT50') {
-        discount = Math.min(50, subtotal);
-      } else if (code === 'SAVE20') {
-        discount = Math.round(subtotal * 0.20);
+      if (coupon.validatedDiscount !== undefined) {
+        discount = coupon.validatedDiscount;
       } else if (subtotal >= coupon.minOrderValue) {
         if (coupon.discountType === 'percentage') {
           discount = subtotal * (coupon.discountValue / 100);
@@ -204,7 +273,16 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Free delivery check (above ₹149)
     const qualifiesFreeDelivery = subtotal >= 149;
-    const deliveryCharge = cartItems.length > 0 && !qualifiesFreeDelivery ? 25 : 0;
+    const baseDeliveryCharge = cartItems.length > 0 && !qualifiesFreeDelivery ? 25 : 0;
+    let deliveryCharge = coupon?.freeDelivery ? 0 : baseDeliveryCharge;
+    let appliedPromotion: AppliedPromotion | null = null;
+    const bestPromotion = calculateBestPromotion(promotions, cartItems, subtotal, baseDeliveryCharge);
+    const couponSaving = discount + (coupon?.freeDelivery ? baseDeliveryCharge : 0);
+    if (bestPromotion && bestPromotion.saving > couponSaving) {
+      appliedPromotion = bestPromotion;
+      discount = bestPromotion.discount;
+      deliveryCharge = bestPromotion.isFreeDelivery ? 0 : baseDeliveryCharge;
+    }
     
     // Flat handling fee of ₹5 per delivery
     const platformFee = cartItems.length > 0 ? 5 : 0;
@@ -222,6 +300,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       platformFee,
       packagingFee,
       grandTotal: Math.round(grandTotal * 100) / 100,
+      appliedPromotion,
     };
   };
 
@@ -234,7 +313,8 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
       saveCart([newItem]);
       setCoupon(null);
-      setPreorderScheduleState(conflictItem.product.isPreorder ? { date: newItem.preorderDate, slot: newItem.preorderSlot } : null);
+      setPreorderScheduleState(null);
+      removeCustomerStorageItem(CUSTOMER_STORAGE_KEYS.preorderSchedule, user?.uid);
       setConflictItem(null);
     }
   };

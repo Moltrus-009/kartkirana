@@ -1,4 +1,9 @@
-require('dotenv').config();
+const path = require('path');
+
+// Developer secrets belong in the ignored .env.local file. The tracked .env
+// fallback is retained for non-secret defaults in existing deployments.
+require('dotenv').config({ path: path.join(__dirname, '..', '.env.local') });
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const env = {
   NODE_ENV: process.env.NODE_ENV || 'development',

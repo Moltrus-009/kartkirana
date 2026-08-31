@@ -1,6 +1,8 @@
+const { AppError } = require('../utils/errors');
+
 module.exports = async (req, res, next) => {
   if (!req.user) {
-    return res.status(401).json({ error: 'Unauthorized', message: 'User context not found.' });
+    return next(new AppError('Please sign in to continue.', 401, 'AUTH_REQUIRED'));
   }
 
   const role = req.user.role;
@@ -10,6 +12,5 @@ module.exports = async (req, res, next) => {
     return next();
   }
 
-  res.status(403).json({ error: 'Forbidden', message: 'Administrative privileges required.' });
+  return next(new AppError('Administrative privileges required.', 403, 'ADMIN_REQUIRED'));
 };
-

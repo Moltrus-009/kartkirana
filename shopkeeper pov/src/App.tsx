@@ -2,6 +2,10 @@ import { Component, lazy, Suspense, type ErrorInfo, type ReactNode, useEffect } 
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { LanguageProvider, useLanguage } from './context/LanguageContext';
 import { useAppStore } from './core/store/useAppStore';
+import type { Merchant } from './domain/entities/Merchant';
+import type { Shop } from './domain/entities/Shop';
+import type { Product } from './domain/entities/Product';
+import type { Order } from './domain/entities/Order';
 
 const DashboardLayout = lazy(() => import('./components/layout/DashboardLayout'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
@@ -9,10 +13,14 @@ const Customers = lazy(() => import('./pages/Customers'));
 const Login = lazy(() => import('./pages/Login'));
 const Onboarding = lazy(() => import('./pages/Onboarding'));
 const Orders = lazy(() => import('./pages/Orders'));
+const Offers = lazy(() => import('./pages/Offers'));
 const Products = lazy(() => import('./pages/Products'));
 const Profile = lazy(() => import('./pages/Profile'));
 const Terms = lazy(() => import('./pages/Terms'));
 const Privacy = lazy(() => import('./pages/Privacy'));
+const Analytics = lazy(() => import('./pages/Analytics'));
+const Inventory = lazy(() => import('./pages/Inventory'));
+const Reviews = lazy(() => import('./pages/Reviews'));
 
 class GlobalErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
   state = { hasError: false };
@@ -92,10 +100,77 @@ function AuthRoute({ children }: { children: ReactNode }) {
 
 function AppContent() {
   const initStore = useAppStore((state) => state.initStore);
+  const merchantPreview = import.meta.env.DEV && new URLSearchParams(window.location.search).has('merchant-preview');
   useEffect(() => {
+    if (merchantPreview) {
+      const now = new Date();
+      const iso = now.toISOString();
+      const previewUser: Merchant = {
+        uid: 'merchant-preview', fullName: 'Mehul Kumar', phone: '+91 98765 43210',
+        role: 'owner', shopId: 'shop-preview', accountStatus: 'active', createdAt: iso, lastLogin: iso,
+      };
+      const previewShop: Shop = {
+        id: 'shop-preview', name: 'Mehul Super Store', ownerId: previewUser.uid,
+        image: '/logo.jpeg', logo: '/logo.jpeg', rating: 4.8, reviewsCount: 128,
+        deliveryTime: 18, distance: 1.2, deliveryFee: 0, productsCount: 3,
+        status: 'open', featured: true, address: 'Civil Lines, Gorakhpur',
+        ownerName: previewUser.fullName, ownerPhone: previewUser.phone,
+        openingTime: '08:00', closingTime: '22:00', categories: ['Groceries', 'Essentials'],
+      };
+      const previewProducts: Product[] = [
+        {
+          id: 'preview-rice', shopId: previewShop.id, shopName: previewShop.name,
+          name: 'Premium Basmati Rice', image: '/favicon.svg', images: [], price: 349, mrp: 399,
+          discount: 13, rating: 4.8, reviewsCount: 42, category: 'Groceries', stock: 24,
+          description: 'Long-grain everyday basmati rice.', specs: {}, tags: ['rice'], featured: true,
+          minStockAlert: 5, status: 'active',
+        },
+        {
+          id: 'preview-oil', shopId: previewShop.id, shopName: previewShop.name,
+          name: 'Fortune Sunflower Oil', image: '/favicon.svg', images: [], price: 142, mrp: 155,
+          discount: 8, rating: 4.7, reviewsCount: 35, category: 'Cooking', stock: 4,
+          description: 'Refined sunflower cooking oil.', specs: {}, tags: ['oil'], featured: false,
+          minStockAlert: 5, status: 'active',
+        },
+        {
+          id: 'preview-milk', shopId: previewShop.id, shopName: previewShop.name,
+          name: 'Fresh Toned Milk', image: '/favicon.svg', images: [], price: 32, mrp: 32,
+          discount: 0, rating: 4.9, reviewsCount: 64, category: 'Dairy', stock: 0,
+          description: 'Fresh toned milk, 500 ml.', specs: {}, tags: ['milk'], featured: false,
+          minStockAlert: 6, status: 'active',
+        },
+      ];
+      const makeOrder = (id: string, status: Order['status'], customer: string, total: number, minutesAgo: number): Order => ({
+        id, userId: `user-${id}`, shopId: previewShop.id, shopName: previewShop.name,
+        shopAddress: previewShop.address,
+        items: [{
+          product: { id: previewProducts[0].id, name: previewProducts[0].name, price: previewProducts[0].price, image: previewProducts[0].image, shopId: previewShop.id, shopName: previewShop.name },
+          quantity: 1, shopId: previewShop.id,
+        }],
+        subtotal: total, deliveryFee: 0, platformFee: 5, tax: 0, platformDiscount: 5,
+        couponDiscount: 0, total, paymentMethod: 'COD', paymentStatus: 'pending', status,
+        createdAt: new Date(now.getTime() - minutesAgo * 60_000).toISOString(), updatedAt: iso,
+        deliveryAddress: { name: customer, phone: '9999999999', street: 'Civil Lines', city: 'Gorakhpur', address: 'Civil Lines, Gorakhpur', coords: { lat: 26.7606, lng: 83.3732 } },
+        contact: { name: customer, phone: '9999999999' }, rider: null,
+        timeline: [{ status, timestamp: iso, title: 'Order placed', desc: 'Customer placed the order.' }],
+      });
+      useAppStore.setState({
+        user: previewUser,
+        shop: previewShop,
+        products: previewProducts,
+        orders: [
+          makeOrder('KK12852', 'PLACED', 'Rahul Verma', 620, 4),
+          makeOrder('KK12851', 'SHOP_ACCEPTED', 'Anita Singh', 485, 27),
+          makeOrder('KK12850', 'DELIVERED', 'Amit Kumar', 810, 62),
+        ],
+        notifications: [],
+        loading: false,
+      });
+      return;
+    }
     const unsubscribe = initStore();
     return () => unsubscribe?.();
-  }, [initStore]);
+  }, [initStore, merchantPreview]);
   return (
     <Suspense fallback={<LoadingScreen />}>
     <Routes>
@@ -104,8 +179,12 @@ function AppContent() {
       <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="/orders" element={<ProtectedRoute><Orders /></ProtectedRoute>} />
       <Route path="/products" element={<ProtectedRoute><Products /></ProtectedRoute>} />
+      <Route path="/offers" element={<ProtectedRoute><Offers /></ProtectedRoute>} />
       <Route path="/customers" element={<ProtectedRoute><Customers /></ProtectedRoute>} />
       <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+      <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
+      <Route path="/inventory" element={<ProtectedRoute><Inventory /></ProtectedRoute>} />
+      <Route path="/reviews" element={<ProtectedRoute><Reviews /></ProtectedRoute>} />
       <Route path="/terms" element={<Terms />} />
       <Route path="/privacy" element={<Privacy />} />
       <Route path="*" element={<Navigate to="/" replace />} />

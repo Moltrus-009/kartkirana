@@ -4,6 +4,18 @@ const env = require('../config/env');
 module.exports = (err, req, res, next) => {
   err.statusCode = err.statusCode || 500;
   err.status = err.status || 'error';
+  const defaultCodes = {
+    400: 'VALIDATION_ERROR',
+    401: 'AUTH_REQUIRED',
+    403: 'FORBIDDEN',
+    404: 'NOT_FOUND',
+    409: 'CONFLICT',
+    422: 'BUSINESS_VALIDATION_ERROR',
+    429: 'RATE_LIMITED',
+    502: 'DEPENDENCY_UNAVAILABLE',
+    503: 'SERVICE_UNAVAILABLE'
+  };
+  const errorCode = err.code || defaultCodes[err.statusCode] || 'INTERNAL_ERROR';
 
   const logDetails = {
     timestamp: new Date().toISOString(),
@@ -14,6 +26,7 @@ module.exports = (err, req, res, next) => {
     paymentAttemptId: req.body ? req.body.paymentAttemptId : 'N/A',
     environment: env.PAYMENT_ENVIRONMENT,
     statusCode: err.statusCode,
+    code: errorCode,
     message: err.message
   };
 
@@ -29,6 +42,8 @@ module.exports = (err, req, res, next) => {
     : err.message;
 
   res.status(err.statusCode).json({
+    success: false,
+    code: errorCode,
     status: err.status,
     error: {
       message: displayMessage,
@@ -39,4 +54,3 @@ module.exports = (err, req, res, next) => {
     stack: env.NODE_ENV === 'development' ? err.stack : undefined
   });
 };
-

@@ -5,6 +5,7 @@ const appCheckMiddleware = require('../middleware/appCheck');
 const { orderLimiter } = require('../gateway/rateLimiter');
 const CancelService = require('../services/cancelService');
 const { db } = require('../config/firebase');
+const { AppError } = require('../utils/errors');
 
 /**
  * POST /v1/orders/:orderId/cancel
@@ -38,12 +39,12 @@ router.post('/orders/:orderId/cancel', authMiddleware, appCheckMiddleware, order
         if (orderSnap.exists) {
           const orderData = orderSnap.data();
           const shopSnap = await db.collection('shops').doc(orderData.shopId).get();
-          if (shopSnap.exists && (shopSnap.data().ownerId === uid || !shopSnap.data().ownerId)) {
+          if (shopSnap.exists && shopSnap.data().ownerId === uid) {
             cancellerRole = 'shopkeeper';
           }
         }
       } else {
-        cancellerRole = 'shopkeeper';
+        throw new AppError('Database authorization is unavailable.', 503);
       }
     }
 
@@ -51,13 +52,6 @@ router.post('/orders/:orderId/cancel', authMiddleware, appCheckMiddleware, order
     res.status(200).json(result);
   } catch (error) {
     console.error(`[CANCEL ORDER ERROR] Order ${orderId}:`, error.message);
-    
-    if (error.message.includes('Unauthorized')) {
-      return res.status(403).json({ error: 'Forbidden', message: error.message });
-    }
-    if (error.message.includes('cannot be cancelled') || error.message.includes('not found')) {
-      return res.status(400).json({ error: 'Bad Request', message: error.message });
-    }
     
     next(error);
   }

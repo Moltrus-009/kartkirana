@@ -33,6 +33,7 @@ export type OrderStatus =
 /** Legacy/alternate spellings this codebase has been seen to read or write, mapped to the canonical value. */
 const LEGACY_STATUS_MAP: Record<string, OrderStatus> = {
   placed: 'PLACED',
+  order_placed: 'PLACED',
   confirmed: 'SHOP_ACCEPTED',
   shop_accepted: 'SHOP_ACCEPTED',
   preparing: 'SEARCHING_RIDER',
@@ -40,7 +41,8 @@ const LEGACY_STATUS_MAP: Record<string, OrderStatus> = {
   accepted: 'RIDER_ASSIGNED',
   assigned: 'RIDER_ASSIGNED',
   rider_assigned: 'RIDER_ASSIGNED',
-  ready_for_pickup: 'ARRIVED_AT_SHOP',
+  ready_for_pickup: 'SEARCHING_RIDER',
+  ready: 'SEARCHING_RIDER',
   arrived_at_shop: 'ARRIVED_AT_SHOP',
   rider_picked_up: 'PICKED_UP',
   picked_up: 'PICKED_UP',

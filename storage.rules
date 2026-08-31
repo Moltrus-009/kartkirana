@@ -73,23 +73,25 @@ service firebase.storage {
       }
     }
     
-    // Shop logo, banner, and legal documents
-    match /shops/{shopId}/{allPaths=**} {
-      allow read: if true; // Shops are public
-      
-      match /logo.png {
-        allow write: if (isShopkeeper(shopId) || isAdmin()) && isValidImage(5 * 1024 * 1024);
-      }
-      match /banner.jpg {
-        allow write: if (isShopkeeper(shopId) || isAdmin()) && isValidImage(5 * 1024 * 1024);
-      }
-      match /license.pdf {
-        allow read: if isShopkeeper(shopId) || isAdmin();
-        allow write: if (isShopkeeper(shopId) || isAdmin()) && isAppCheckVerified() && isValidDocument(10 * 1024 * 1024);
-      }
-      match /gallery/{filename} {
-        allow write: if (isShopkeeper(shopId) || isAdmin()) && isValidImage(5 * 1024 * 1024);
-      }
+    // Only customer-facing shop media is public. Legal files remain private.
+    match /shops/{shopId}/logo.png {
+      allow read: if true;
+      allow write: if (isShopkeeper(shopId) || isAdmin()) && isValidImage(5 * 1024 * 1024);
+    }
+
+    match /shops/{shopId}/banner.jpg {
+      allow read: if true;
+      allow write: if (isShopkeeper(shopId) || isAdmin()) && isValidImage(5 * 1024 * 1024);
+    }
+
+    match /shops/{shopId}/license.pdf {
+      allow read: if isShopkeeper(shopId) || isAdmin();
+      allow write: if (isShopkeeper(shopId) || isAdmin()) && isAppCheckVerified() && isValidDocument(10 * 1024 * 1024);
+    }
+
+    match /shops/{shopId}/gallery/{filename} {
+      allow read: if true;
+      allow write: if (isShopkeeper(shopId) || isAdmin()) && isValidImage(5 * 1024 * 1024);
     }
     
     // Product cover and gallery images
@@ -127,10 +129,10 @@ service firebase.storage {
       allow write: if isAdmin() && isAppCheckVerified() && isValidImage(5 * 1024 * 1024);
     }
     
-    // Temp folder rules
-    match /temp/{allPaths=**} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn() && isAppCheckVerified() && isValidDocument(10 * 1024 * 1024);
+    // Temporary uploads are isolated to the authenticated user.
+    match /temp/{userId}/{allPaths=**} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow write: if isOwner(userId) && isAppCheckVerified() && isValidDocument(10 * 1024 * 1024);
     }
   }
 }

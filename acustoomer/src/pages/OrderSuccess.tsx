@@ -6,7 +6,10 @@ import { Button } from '../components/ui/Button';
 export const OrderSuccess: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { orderId, shopName } = (location.state as { orderId?: string; shopName?: string }) || {};
+  const routeState = (location.state as { orderId?: string; shopName?: string }) || {};
+  const searchParams = new URLSearchParams(location.search);
+  const orderId = routeState.orderId || searchParams.get('orderId') || undefined;
+  const shopName = routeState.shopName || searchParams.get('shopName') || undefined;
 
   const [animateState, setAnimateState] = useState<'loading' | 'success'>('loading');
 
@@ -77,7 +80,7 @@ export const OrderSuccess: React.FC = () => {
           </div>
 
           {/* Progress Timeline card (like Swiggy) */}
-          <div className="w-full mt-8 p-4 rounded-3xl bg-white dark:bg-[#1E293B] border border-[#E2E8F0] dark:border-[#334155] shadow-[0_4px_16px_rgba(46,125,50,0.02)] text-left flex flex-col gap-3">
+          <div className="w-full mt-8 p-4 rounded-3xl bg-white dark:bg-[#1E293B] border border-[#E2E8F0] dark:border-[#334155] shadow-[0_8px_24px_-20px_rgba(5,10,36,0.45)] text-left flex flex-col gap-3">
             <div className="flex items-center gap-2.5">
               <div className="w-2.5 h-2.5 rounded-full bg-[#1565C0] dark:bg-[#1E88E5] animate-ping" />
               <span className="text-[10px] font-black uppercase text-gray-400 dark:text-[#94A3B8] tracking-wider">Current Status</span>

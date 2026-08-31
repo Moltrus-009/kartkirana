@@ -8,6 +8,7 @@ const PATTERNS = [
   { name: 'Private Key Block', regex: /-----BEGIN[A-Z0-9 ]*PRIVATE KEY-----/i },
   { name: 'Firebase Service Account Type', regex: /"type":\s*"service_account"/ },
   { name: 'Razorpay / Stripe Live Secret Key Prefix', regex: /(rzp_live_|sk_live_)[A-Za-z0-9]+/ },
+  { name: 'Razorpay Secret Assignment', regex: /RAZORPAY_KEY_SECRET(?:_[A-Z]+)?[ \t]*=[ \t]*(?!(?:your_|replace|example|dummy|changeme|<))[^\s#][^\r\n#]*/i },
   { name: 'AWS Access Key ID Assignment', regex: /(aws_access_key_id|aws_access_key)\s*[:=]\s*['"]?[A-Z0-9]{20}['"]?/i },
   { name: 'AWS Secret Access Key Assignment', regex: /(aws_secret_access_key|aws_secret_key|aws_secret)\s*[:=]\s*['"]?[A-Za-z0-9/+=]{40}['"]?/i },
   { name: 'JWT/Session Secret Assignment', regex: /(JWT_SECRET|SESSION_SECRET|COOKIE_SECRET)\s*=\s*.+/i },
@@ -47,7 +48,8 @@ function scanFile(filePath) {
   if (basename === 'serviceAccountKey.json' || 
       basename === 'scanSecrets.js' || 
       filePath.includes('google-services') || 
-      filePath.includes('GoogleService-Info.plist')) {
+      filePath.includes('GoogleService-Info.plist') ||
+      /^\.env\.(?:local|development\.local|test\.local|production\.local)$/.test(basename)) {
     return;
   }
 
@@ -75,7 +77,9 @@ function scanFile(filePath) {
         findings.push({
           file: path.relative(WORKSPACE_DIR, filePath),
           type: name,
-          detail: match[0].trim().substring(0, 60)
+          detail: /secret|private|credential/i.test(name)
+            ? '[REDACTED: sensitive value matched]'
+            : match[0].trim().substring(0, 60)
         });
       }
     });
