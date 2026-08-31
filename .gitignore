@@ -35,6 +35,9 @@ FINAL APKAAB/
 .env.development.local
 .env.test.local
 .env.production.local
+# Vite client identifiers are public by design. This production file contains
+# no backend credentials and is required for reproducible Vercel builds.
+!acustoomer/.env.production
 
 # Logs and temporary files
 *.log
