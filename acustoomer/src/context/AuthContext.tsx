@@ -241,13 +241,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } else {
           const persistedRole = (profile as UserProfile & { role?: string }).role;
           if (persistedRole && persistedRole !== 'customer') {
-            await authService.logout().catch(() => undefined);
-            throw new Error('This mobile number belongs to a partner account. Please use the correct Kart Kirana partner app.');
+            // Older builds stored every role in users/{uid}. Preserve the
+            // merchant/rider document and replace only the legacy customer
+            // slot so one verified phone can use every Kart Kirana app.
+            profile = await dbService.createUserProfile(firebaseUser.uid, {
+              name: signupProfile?.name || (profile as any).name || (profile as any).fullName || (firebaseUser as any).displayName || 'Customer',
+              phone: firebaseUser.phoneNumber || profile.phone || '',
+              email: signupProfile?.email || profile.email || (firebaseUser as any).email || '',
+            });
+          } else {
+            profile = await dbService.updateUserProfile(firebaseUser.uid, {
+              lastLogin: new Date().toISOString(),
+              ...(signupProfile ? { name: signupProfile.name, email: signupProfile.email } : {})
+            });
           }
-          profile = await dbService.updateUserProfile(firebaseUser.uid, {
-            lastLogin: new Date().toISOString(),
-            ...(signupProfile ? { name: signupProfile.name, email: signupProfile.email } : {})
-          });
         }
       } catch (err) {
         logger.error('Auth', 'Profile synchronization failed after OTP verification.', err);

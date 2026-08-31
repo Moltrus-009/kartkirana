@@ -460,20 +460,16 @@ class DispatchService {
 
       console.log(`[DISPATCH SYSTEM] Found ${ordersToDispatch.length} orders waiting for assignment.`);
 
-      // Query riders profiles and locations
-      const ridersSnap = await db.collection('users').where('role', '==', 'rider').get();
-      const riderLocationsSnap = await db.collection('riders').get();
-      
-      const locationsMap = {};
-      riderLocationsSnap.docs.forEach(doc => {
-        locationsMap[doc.id] = doc.data();
-      });
+      // Rider identity and runtime state share riders/{uid}. Customer and
+      // merchant profiles remain independent, allowing one phone/UID to use
+      // every app without breaking dispatch eligibility.
+      const ridersSnap = await db.collection('riders').where('role', '==', 'rider').get();
 
       // Filter riders to find active online ones
       const onlineRiders = [];
       for (const doc of ridersSnap.docs) {
         const profile = doc.data();
-        const loc = locationsMap[doc.id];
+        const loc = profile;
         
         const isOnline = profile.status === 'online' || (loc && loc.online === true);
         const isVerified = profile.documentStatus === 'verified';

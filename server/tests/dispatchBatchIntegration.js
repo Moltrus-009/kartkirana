@@ -46,17 +46,13 @@ async function main() {
   const orders = orderIds.map(makeOrder);
 
   await Promise.all([
-    db.collection('users').doc(riderId).set({
+    db.collection('riders').doc(riderId).set({
+      uid: riderId,
       role: 'rider',
       fullName: rider.fullName,
       phone: rider.phone,
       documentStatus: 'verified',
       status: 'online',
-      coords: rider.coords,
-      updatedAt: now
-    }),
-    db.collection('riders').doc(riderId).set({
-      uid: riderId,
       online: true,
       coords: rider.coords,
       updatedAt: now

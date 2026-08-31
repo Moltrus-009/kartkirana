@@ -16,24 +16,19 @@ router.post('/dispatch/accept', authMiddleware, appCheckMiddleware, async (req, 
 
   try {
     const orderRef = db.collection('orders').doc(orderId);
-    const riderProfileRef = db.collection('users').doc(riderId);
-    const riderRuntimeRef = db.collection('riders').doc(riderId);
+    const riderProfileRef = db.collection('riders').doc(riderId);
     const reqRef = db.collection('dispatchRequests').doc(requestId);
 
     const result = await db.runTransaction(async (transaction) => {
-      const [orderSnap, riderSnap, riderRuntimeSnap, reqSnap] = await Promise.all([
+      const [orderSnap, riderSnap, reqSnap] = await Promise.all([
         transaction.get(orderRef),
         transaction.get(riderProfileRef),
-        transaction.get(riderRuntimeRef),
         transaction.get(reqRef)
       ]);
 
       if (!orderSnap.exists) throw new Error('Order not found.');
       const orderData = orderSnap.data();
-      const riderData = {
-        ...(riderRuntimeSnap.exists ? riderRuntimeSnap.data() : {}),
-        ...(riderSnap.exists ? riderSnap.data() : {})
-      };
+      const riderData = riderSnap.exists ? riderSnap.data() : {};
       const requestData = reqSnap.exists ? reqSnap.data() : null;
 
       const isApprovedRider = (riderData.role === 'rider' || req.user.role === 'rider') && riderData.documentStatus === 'verified';
@@ -69,8 +64,8 @@ router.post('/dispatch/accept', authMiddleware, appCheckMiddleware, async (req, 
         status: 'ACCEPTED',
         updatedAt: now
       });
-      if (riderRuntimeSnap.exists && riderRuntimeSnap.data().dispatchLockId === requestId) {
-        transaction.update(riderRuntimeRef, { dispatchLockId: null, dispatchLockExpiresAt: null });
+      if (riderSnap.exists && riderData.dispatchLockId === requestId) {
+        transaction.update(riderProfileRef, { dispatchLockId: null, dispatchLockExpiresAt: null });
       }
 
       const timelineEntry = {
@@ -124,15 +119,13 @@ router.post('/dispatch/reject', authMiddleware, appCheckMiddleware, async (req, 
   try {
     const orderRef = db.collection('orders').doc(orderId);
     const reqRef = db.collection('dispatchRequests').doc(requestId);
-    const riderProfileRef = db.collection('users').doc(riderId);
-    const riderRuntimeRef = db.collection('riders').doc(riderId);
+    const riderProfileRef = db.collection('riders').doc(riderId);
 
     const result = await db.runTransaction(async (transaction) => {
-      const [orderSnap, reqSnap, riderSnap, riderRuntimeSnap] = await Promise.all([
+      const [orderSnap, reqSnap, riderSnap] = await Promise.all([
         transaction.get(orderRef),
         transaction.get(reqRef),
-        transaction.get(riderProfileRef),
-        transaction.get(riderRuntimeRef)
+        transaction.get(riderProfileRef)
       ]);
 
       if (!orderSnap.exists) throw new Error('Order not found.');
@@ -140,10 +133,7 @@ router.post('/dispatch/reject', authMiddleware, appCheckMiddleware, async (req, 
 
       const orderData = orderSnap.data();
       const reqData = reqSnap.data();
-      const riderData = {
-        ...(riderRuntimeSnap.exists ? riderRuntimeSnap.data() : {}),
-        ...(riderSnap.exists ? riderSnap.data() : {})
-      };
+      const riderData = riderSnap.exists ? riderSnap.data() : {};
 
       if ((riderData.role !== 'rider' && req.user.role !== 'rider') || riderData.documentStatus !== 'verified') {
         return { success: false, status: 403, message: 'Only an approved delivery partner can reject this request.' };
@@ -160,8 +150,8 @@ router.post('/dispatch/reject', authMiddleware, appCheckMiddleware, async (req, 
         status: 'REJECTED',
         updatedAt: now
       });
-      if (riderRuntimeSnap.exists && riderRuntimeSnap.data().dispatchLockId === requestId) {
-        transaction.update(riderRuntimeRef, { dispatchLockId: null, dispatchLockExpiresAt: null });
+      if (riderSnap.exists && riderData.dispatchLockId === requestId) {
+        transaction.update(riderProfileRef, { dispatchLockId: null, dispatchLockExpiresAt: null });
       }
 
       const rejectedRiders = orderData.rejectedRiders || [];

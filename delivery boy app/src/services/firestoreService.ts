@@ -218,7 +218,9 @@ export async function getUserProfile(uid: string): Promise<UserProfileDoc | null
 export async function createUserProfile(uid: string, profile: UserProfileDoc): Promise<void> {
   if (isFirebaseActive() && db) {
     try {
-      await setDoc(doc(db, 'riders', uid), profile);
+      // Merge with any legacy rider runtime document so dispatch locks and
+      // location state are not lost when the role profile is first created.
+      await setDoc(doc(db, 'riders', uid), profile, { merge: true });
       return;
     } catch (e) {
       console.error("Error creating user profile:", e);

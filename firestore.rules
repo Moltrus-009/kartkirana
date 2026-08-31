@@ -56,6 +56,26 @@ service cloud.firestore {
       (!data.keys().hasAny(['notificationPreferences']) || data.notificationPreferences is map);
     }
 
+    function canMigrateLegacyRoleToCustomer(userId, before, after) {
+      return isOwner(userId) &&
+        isValidCustomerProfile(userId, after) &&
+        (
+          (before.get('role', '') in ['owner', 'employee'] &&
+           exists(/databases/$(database)/documents/merchants/$(userId))) ||
+          (before.get('role', '') == 'rider' &&
+           exists(/databases/$(database)/documents/riders/$(userId)))
+        );
+    }
+
+    function isValidRiderOnboardingProfile(riderId, data) {
+      return data.uid == riderId &&
+        data.role == 'rider' &&
+        data.phone == request.auth.token.phone_number &&
+        data.documentStatus == 'pending' &&
+        data.status == 'offline' &&
+        !data.keys().hasAny(['earnings', 'commission', 'walletBalance']);
+    }
+
     function isPublicOffer(data) {
       return data.isActive == true && data.automatic == true && data.promotionVersion == 1;
     }
@@ -162,17 +182,19 @@ service cloud.firestore {
       // live in merchants/{uid} and riders/{uid}, respectively.
       allow create: if isOwner(userId) && isValidCustomerProfile(userId, request.resource.data);
 
-      allow update: if isAdmin() || (
-        isOwner(userId) &&
-        isCustomerRecord(resource.data) &&
-        request.resource.data.uid == resource.data.uid &&
-        request.resource.data.phone == resource.data.phone &&
-        request.resource.data.role == 'customer' &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'role', 'name', 'email', 'profileImage', 'addresses', 'lastLogin',
-          'updatedAt', 'savedPaymentMethods', 'notificationPreferences'
-        ])
-      );
+      allow update: if isAdmin() ||
+        canMigrateLegacyRoleToCustomer(userId, resource.data, request.resource.data) ||
+        (
+          isOwner(userId) &&
+          isCustomerRecord(resource.data) &&
+          request.resource.data.uid == resource.data.uid &&
+          request.resource.data.phone == resource.data.phone &&
+          request.resource.data.role == 'customer' &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'role', 'name', 'email', 'profileImage', 'addresses', 'lastLogin',
+            'updatedAt', 'savedPaymentMethods', 'notificationPreferences'
+          ])
+        );
       
       allow delete: if isAdmin();
 
@@ -388,25 +410,26 @@ service cloud.firestore {
     match /riders/{riderId} {
       allow read: if isOwner(riderId) || isMerchant() || isAdmin();
       allow create: if isOwner(riderId) &&
-        request.resource.data.uid == riderId &&
-        request.resource.data.role == 'rider' &&
-        request.resource.data.phone == request.auth.token.phone_number &&
-        request.resource.data.documentStatus == 'pending' &&
-        request.resource.data.status == 'offline' &&
-        !request.resource.data.keys().hasAny(['earnings', 'commission', 'walletBalance']);
+        isValidRiderOnboardingProfile(riderId, request.resource.data);
       allow update: if isAdmin() || (
         isOwner(riderId) &&
-        request.resource.data.uid == resource.data.uid &&
-        request.resource.data.role == resource.data.role &&
-        request.resource.data.phone == resource.data.phone &&
-        request.resource.data.documentStatus == resource.data.documentStatus &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'fullName', 'email', 'vehicleType', 'vehicleNumber', 'status', 'coords',
-          'lastLogin', 'avatarUrl', 'dlUrl', 'aadhaarUrl', 'rcUrl', 'fcmToken',
-          'online', 'latitude', 'longitude', 'heading', 'speed', 'accuracy',
-          'timestamp', 'updatedAt'
-        ]) &&
-        (resource.data.documentStatus == 'verified' || request.resource.data.status == 'offline')
+        (
+          (!resource.data.keys().hasAny(['role']) &&
+           isValidRiderOnboardingProfile(riderId, request.resource.data)) ||
+          (
+            request.resource.data.uid == resource.data.uid &&
+            request.resource.data.role == resource.data.role &&
+            request.resource.data.phone == resource.data.phone &&
+            request.resource.data.documentStatus == resource.data.documentStatus &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'fullName', 'email', 'vehicleType', 'vehicleNumber', 'status', 'coords',
+              'lastLogin', 'avatarUrl', 'dlUrl', 'aadhaarUrl', 'rcUrl', 'fcmToken',
+              'online', 'latitude', 'longitude', 'heading', 'speed', 'accuracy',
+              'timestamp', 'updatedAt'
+            ]) &&
+            (resource.data.documentStatus == 'verified' || request.resource.data.status == 'offline')
+          )
+        )
       );
       allow delete: if isAdmin();
     }

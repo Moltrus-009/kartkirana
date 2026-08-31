@@ -258,9 +258,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             setUser(profile);
             setIsOnline(profile.status === 'online');
             syncRiderDatabaseDetails(profile.uid);
-          } else {
-            logger.warn('Auth', 'Rejected a persisted Firebase session that is not a rider account.');
+          } else if (profile?.role) {
+            logger.warn('Auth', 'Rejected an invalid role stored inside the rider profile collection.');
             await signOut(firebaseAuth);
+            setUser(null);
+            setIsOnline(false);
+          } else {
+            // A verified Firebase session may not have a rider profile yet.
+            // Keep the session alive so OTP onboarding can create it even if
+            // the same UID already has customer or merchant profiles.
             setUser(null);
             setIsOnline(false);
           }
@@ -1207,7 +1213,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
 
         let profile = await getUserProfile(fUserUid);
-        if (!profile) {
+        if (!profile || !profile.role) {
           profile = {
             uid: fUserUid,
             fullName: name || 'Rider Partner',
@@ -1231,7 +1237,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         } else {
           if (profile.role !== 'rider') {
             if (auth) await signOut(auth);
-            throw new Error('This mobile number belongs to a different Kart Kirana account. Please use the correct app.');
+            throw new Error('The rider profile is invalid. Please contact Kart Kirana support.');
           }
           await updateUserProfile(fUserUid, { lastLogin: new Date().toISOString() });
         }

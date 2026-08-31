@@ -16,13 +16,9 @@ async function runDispatchEngineBenchmark() {
     const r2 = { uid: 'r_bench_2', rating: 4.2, acceptanceRate: 85, lastUpdated: new Date().toISOString(), coords: { lat: 28.581, lng: 77.311 } };
     const r3 = { uid: 'r_bench_3', rating: 5.0, acceptanceRate: 100, lastUpdated: new Date().toISOString(), coords: { lat: 28.600, lng: 77.330 } };
 
-    await db.collection('users').doc(r1.uid).set({ role: 'rider', status: 'online', documentStatus: 'verified', fullName: 'Rider High Rating', ...r1 });
-    await db.collection('users').doc(r2.uid).set({ role: 'rider', status: 'online', documentStatus: 'verified', fullName: 'Rider Closer Low Rating', ...r2 });
-    await db.collection('users').doc(r3.uid).set({ role: 'rider', status: 'online', documentStatus: 'verified', fullName: 'Rider Top Rated Farther', ...r3 });
-
-    await db.collection('riders').doc(r1.uid).set({ online: true, coords: r1.coords, updatedAt: r1.lastUpdated });
-    await db.collection('riders').doc(r2.uid).set({ online: true, coords: r2.coords, updatedAt: r2.lastUpdated });
-    await db.collection('riders').doc(r3.uid).set({ online: true, coords: r3.coords, updatedAt: r3.lastUpdated });
+    await db.collection('riders').doc(r1.uid).set({ role: 'rider', status: 'online', online: true, documentStatus: 'verified', fullName: 'Rider High Rating', ...r1 });
+    await db.collection('riders').doc(r2.uid).set({ role: 'rider', status: 'online', online: true, documentStatus: 'verified', fullName: 'Rider Closer Low Rating', ...r2 });
+    await db.collection('riders').doc(r3.uid).set({ role: 'rider', status: 'online', online: true, documentStatus: 'verified', fullName: 'Rider Top Rated Farther', ...r3 });
 
     const testOrderId = 'ord_bench_dispatch_1';
     await db.collection('orders').doc(testOrderId).set({
@@ -110,9 +106,6 @@ async function runDispatchEngineBenchmark() {
     await db.collection('orders').doc('ord_bench_dispatch_1').delete();
     await db.collection('orders').doc('ord_bench_concur_2').delete();
     await db.collection('orders').doc('ord_bench_concur_3').delete();
-    await db.collection('users').doc('r_bench_1').delete();
-    await db.collection('users').doc('r_bench_2').delete();
-    await db.collection('users').doc('r_bench_3').delete();
     await db.collection('riders').doc('r_bench_1').delete();
     await db.collection('riders').doc('r_bench_2').delete();
     await db.collection('riders').doc('r_bench_3').delete();

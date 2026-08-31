@@ -68,13 +68,18 @@ export const authService = {
             } else {
               const persistedRole = (profile as UserProfile & { role?: string }).role;
               if (persistedRole && persistedRole !== 'customer') {
-                await signOut(firebaseAuth);
-                finish(resolve, null);
-                return;
+                profile = await dbService.createUserProfile(firebaseUser.uid, {
+                  name: (profile as any).name || (profile as any).fullName || firebaseUser.displayName || 'Customer',
+                  phone: firebaseUser.phoneNumber,
+                  email: (profile as any).email || firebaseUser.email || '',
+                  profileImage: firebaseUser.photoURL || '',
+                  addresses: [],
+                });
+              } else {
+                profile = await dbService.updateUserProfile(firebaseUser.uid, {
+                  lastLogin: new Date().toISOString()
+                });
               }
-              profile = await dbService.updateUserProfile(firebaseUser.uid, {
-                lastLogin: new Date().toISOString()
-              });
             }
             finish(resolve, profile);
           } catch (err) {

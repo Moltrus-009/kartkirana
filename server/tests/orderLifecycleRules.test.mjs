@@ -22,7 +22,8 @@ try {
     const database = context.firestore();
     await Promise.all([
       setDoc(doc(database, 'users', ownerId), { uid: ownerId, role: 'owner', shopId }),
-      setDoc(doc(database, 'users', riderId), { uid: riderId, role: 'rider', documentStatus: 'verified', phone: '+919999999999' }),
+      // The same UID can be a customer while its rider role lives separately.
+      setDoc(doc(database, 'users', riderId), { uid: riderId, role: 'customer', phone: '+919999999999' }),
       setDoc(doc(database, 'users', customerId), { uid: customerId, role: 'customer' }),
       setDoc(doc(database, 'users', otherCustomerId), { uid: otherCustomerId, role: 'customer' }),
       setDoc(doc(database, 'shops', shopId), { ownerId, name: 'Rules Test Shop' }),
