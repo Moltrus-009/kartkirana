@@ -1,12 +1,24 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAdmin, type OrderDoc } from '../context/AdminContext';
-import { MapPin, Truck, Trash2 } from 'lucide-react';
+import { adminService } from '../services/adminService';
+import { Ban, MapPin, Search, Truck } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
 import L from 'leaflet';
 
 export default function Orders() {
-  const { orders, updateOrderStatus, deleteOrder } = useAdmin();
+  const { orders, updateOrderStatus } = useAdmin();
+  const location = useLocation();
   const [activeTab, setActiveTab] = useState<'all' | 'pending' | 'active' | 'completed'>('active');
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    const routedSearch = (location.state as { adminSearch?: string } | null)?.adminSearch;
+    if (routedSearch) {
+      setSearch(routedSearch.replace(/^Order\s+/i, ''));
+      setActiveTab('all');
+    }
+  }, [location.state]);
 
   // Map elements
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -20,17 +32,18 @@ export default function Orders() {
   const getTabOrders = () => {
     switch (activeTab) {
       case 'pending':
-        return orders.filter(o => o.status === 'confirmed');
+        return orders.filter(o => ['CONFIRMED', 'PLACED', 'UPCOMING', 'DRAFT'].includes(o.status.toUpperCase()));
       case 'active':
-        return orders.filter(o => ['accepted', 'preparing', 'ready_for_pickup', 'rider_assigned', 'rider_picked_up', 'out_for_delivery'].includes(o.status));
+        return orders.filter(o => ['ACCEPTED', 'SHOP_ACCEPTED', 'PREPARING', 'PACKED', 'READY', 'READY_FOR_PICKUP', 'SEARCHING_RIDER', 'RIDER_ASSIGNED', 'ARRIVED_AT_SHOP', 'RIDER_PICKED_UP', 'PICKED_UP', 'OUT_FOR_DELIVERY'].includes(o.status.toUpperCase()));
       case 'completed':
-        return orders.filter(o => ['delivered', 'cancelled', 'returned'].includes(o.status));
+        return orders.filter(o => ['DELIVERED', 'COMPLETED', 'CANCELLED', 'AUTO_CANCELLED', 'SHOP_REJECTED', 'RETURNED'].includes(o.status.toUpperCase()));
       default:
         return orders;
     }
   };
 
-  const filteredOrders = getTabOrders();
+  const term = search.trim().toLowerCase();
+  const filteredOrders = getTabOrders().filter(order => !term || [order.id, order.shopName, order.contact.name, order.contact.phone, order.status, order.paymentStatus].some(value => String(value || '').toLowerCase().includes(term)));
 
   // Set default selected order on tab change
   useEffect(() => {
@@ -155,14 +168,15 @@ export default function Orders() {
     }
   }, [selectedOrderId, selectedOrder?.rider?.coords]);
 
-  const handleDelete = async (id: string) => {
-    if (window.confirm("Are you sure you want to delete this order from history?")) {
-      try {
-        await deleteOrder(id);
-        setSelectedOrderId(null);
-      } catch (e) {
-        alert("Failed to delete order.");
-      }
+  const handleCancel = async (id: string) => {
+    const reason = window.prompt('Enter the cancellation reason. This action safely restores eligible inventory:');
+    if (!reason?.trim()) return;
+    try {
+      await adminService.cancelOrder(id, reason.trim());
+      setSelectedOrderId(null);
+      alert('Order cancelled safely. Its history remains available for audits.');
+    } catch (error: any) {
+      alert(error.message || 'Failed to cancel order.');
     }
   };
 
@@ -178,13 +192,15 @@ export default function Orders() {
     <div className="space-y-6 text-left select-none">
       
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-black text-slate-800 dark:text-white">
-          📦 Order Fulfillment Queue
-        </h1>
-        <p className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider block mt-0.5">
-          Realtime status overrides, order deletion, & live route tracking
-        </p>
+      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+        <div>
+          <h1 className="text-2xl font-black text-slate-800 dark:text-white">📦 Order Fulfillment Queue</h1>
+          <p className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider block mt-0.5">Realtime tracking, safe cancellation, status control and permanent audit history</p>
+        </div>
+        <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 dark:border-slate-800 dark:bg-slate-900 sm:w-80">
+          <Search className="h-4 w-4 text-slate-400" />
+          <input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search order, shop, customer or phone" className="w-full bg-transparent text-xs font-semibold outline-none dark:text-white" />
+        </label>
       </div>
 
       {/* Tabs */}
@@ -272,13 +288,13 @@ export default function Orders() {
                       Placed: {new Date(selectedOrder.createdAt).toLocaleString()}
                     </span>
                   </div>
-                  <button
-                    onClick={() => handleDelete(selectedOrder.id)}
+                  {!['DELIVERED', 'COMPLETED', 'CANCELLED', 'AUTO_CANCELLED', 'SHOP_REJECTED', 'RETURNED'].includes(selectedOrder.status.toUpperCase()) && <button
+                    onClick={() => handleCancel(selectedOrder.id)}
                     className="p-2 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-xl transition-colors cursor-pointer"
-                    title="Delete order permanently"
+                    title="Cancel safely and preserve audit history"
                   >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+                    <Ban className="h-4 w-4" />
+                  </button>}
                 </div>
 
                 {/* Details */}

@@ -7,26 +7,32 @@ import {
   AlertTriangle,
   ArrowUpRight, 
   Wallet,
-  Activity
+  Activity,
+  RefreshCw
 } from 'lucide-react';
 
 export default function Payments() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   async function loadFinancials() {
     try {
       const summary = await adminService.getFinancialSummary();
       setData(summary);
-    } catch (err) {
+      setError(null);
+    } catch (err: any) {
       console.error('Failed loading financials ledger:', err);
+      setError(err.message || 'Financial records could not be loaded.');
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    loadFinancials();
+    void loadFinancials();
+    const interval = window.setInterval(() => void loadFinancials(), 30000);
+    return () => window.clearInterval(interval);
   }, []);
 
   const handleExportCSV = () => {
@@ -44,23 +50,23 @@ export default function Payments() {
       o.createdAt
     ]);
 
-    const csvContent = "data:text/csv;charset=utf-8," 
-      + [headers.join(','), ...rows.map((e: any) => e.join(','))].join('\n');
-    
-    const encodedUri = encodeURI(csvContent);
+    const escapeCell = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const csvContent = [headers, ...rows].map(row => row.map(escapeCell).join(',')).join('\n');
+    const encodedUri = URL.createObjectURL(new Blob([csvContent], { type: 'text/csv;charset=utf-8' }));
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
     link.setAttribute("download", `kk_financials_${Date.now()}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(encodedUri);
   };
 
   return (
     <div className="space-y-6 text-left">
       
       {/* Header */}
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>
           <h1 className="text-2xl font-black text-slate-800 dark:text-white">
             💳 Financial Ledger & Reconciliation
@@ -70,14 +76,16 @@ export default function Payments() {
           </p>
         </div>
 
-        <button
-          onClick={handleExportCSV}
-          disabled={!data}
-          className="flex items-center gap-1.5 px-4.5 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-slate-950 rounded-2xl shadow-xs text-xs font-black uppercase tracking-wider cursor-pointer transition disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          <Download className="h-4 w-4" /> Export CSV Report
-        </button>
+        <div className="flex gap-2"><button onClick={() => void loadFinancials()} disabled={loading} className="rounded-2xl border border-slate-200 bg-white p-2.5 text-slate-500 dark:border-slate-800 dark:bg-slate-900"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></button><button
+            onClick={handleExportCSV}
+            disabled={!data}
+            className="flex items-center gap-1.5 px-4.5 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-slate-950 rounded-2xl shadow-xs text-xs font-black uppercase tracking-wider cursor-pointer transition disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Download className="h-4 w-4" /> Export CSV Report
+          </button></div>
       </div>
+
+      {error && <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-xs font-bold text-rose-700 dark:border-rose-900 dark:bg-rose-950/20 dark:text-rose-300">{error}</div>}
 
       {loading ? (
         <div className="text-center py-20 text-slate-400 font-bold uppercase tracking-widest animate-pulse text-xs">
@@ -85,6 +93,11 @@ export default function Payments() {
         </div>
       ) : (
         <div className="space-y-6">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900"><span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Captured</span><strong className="mt-1 block text-lg text-slate-900 dark:text-white">₹{data?.reconciliation?.totalCaptured?.toLocaleString() || 0}</strong></div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900"><span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Refunded</span><strong className="mt-1 block text-lg text-amber-600">₹{data?.reconciliation?.totalRefunded?.toLocaleString() || 0}</strong></div>
+            <div className={`rounded-2xl border p-4 ${data?.reconciliation?.unmatchedCount ? 'border-rose-200 bg-rose-50 dark:border-rose-900 dark:bg-rose-950/20' : 'border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/20'}`}><span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Reconciliation issues</span><strong className={`mt-1 block text-lg ${data?.reconciliation?.unmatchedCount ? 'text-rose-600' : 'text-emerald-600'}`}>{data?.reconciliation?.unmatchedCount || 0}</strong></div>
+          </div>
           
           {/* Earnings totals */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

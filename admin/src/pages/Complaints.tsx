@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { adminService } from '../services/adminService';
 import { useAdmin } from '../context/AdminContext';
-import { Clock3, PhoneCall, RefreshCw, Send, WalletCards } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Clock3, PhoneCall, RefreshCw, Search, Send, WalletCards } from 'lucide-react';
 
 interface TicketMessage {
   id: string;
@@ -38,6 +39,8 @@ export default function Complaints() {
   const [complaints, setComplaints] = useState<Complaint[]>([]);
   const [selectedTicket, setSelectedTicket] = useState<Complaint | null>(null);
   const [statusFilter, setStatusFilter] = useState<'all' | 'OPEN' | 'RESOLVED'>('OPEN');
+  const [categoryFilter, setCategoryFilter] = useState<'all' | 'general' | 'refund' | 'callback'>('all');
+  const [search, setSearch] = useState('');
   // Form resolution fields
   const [replyMsg, setReplyMsg] = useState('');
   const [statusVal, setStatusVal] = useState<'OPEN' | 'RESOLVED' | 'CLOSED'>('RESOLVED');
@@ -79,9 +82,15 @@ export default function Complaints() {
     }
   };
 
-  const filteredTickets = complaints.filter(c => 
-    statusFilter === 'all' ? true : c.status === statusFilter
+  const term = search.trim().toLowerCase();
+  const filteredTickets = complaints.filter(c =>
+    (statusFilter === 'all' || c.status === statusFilter) &&
+    (categoryFilter === 'all' || (c.category || 'general') === categoryFilter) &&
+    (!term || [c.subject, c.userName, c.userId, c.orderId, c.contactPhone].some(value => String(value || '').toLowerCase().includes(term)))
   );
+  const openCount = complaints.filter(ticket => ticket.status === 'OPEN').length;
+  const refundCount = complaints.filter(ticket => ticket.status === 'OPEN' && ticket.category === 'refund').length;
+  const overdueCallbacks = complaints.filter(ticket => ticket.status === 'OPEN' && ticket.category === 'callback' && ticket.callbackDueAt && new Date(ticket.callbackDueAt).getTime() < Date.now()).length;
 
   return (
     <div className="space-y-6 text-left select-none">
@@ -95,6 +104,12 @@ export default function Complaints() {
           Read requests, review refunds, manage callbacks and reply to customers
         </p></div>
         <button onClick={() => void loadComplaints()} className="rounded-xl border border-slate-200 bg-white p-2.5 text-slate-500 dark:border-slate-700 dark:bg-slate-900"><RefreshCw className="h-4 w-4" /></button>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900"><span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Open conversations</span><strong className="mt-1 block text-xl text-slate-900 dark:text-white">{openCount}</strong></div>
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/20"><span className="text-[9px] font-black uppercase tracking-widest text-amber-600">Refund reviews</span><strong className="mt-1 block text-xl text-amber-700 dark:text-amber-300">{refundCount}</strong></div>
+        <div className={`rounded-2xl border p-4 ${overdueCallbacks ? 'border-rose-200 bg-rose-50 dark:border-rose-900 dark:bg-rose-950/20' : 'border-blue-200 bg-blue-50 dark:border-blue-900 dark:bg-blue-950/20'}`}><span className="text-[9px] font-black uppercase tracking-widest text-slate-500">Overdue callbacks</span><strong className={`mt-1 block text-xl ${overdueCallbacks ? 'text-rose-600' : 'text-blue-600'}`}>{overdueCallbacks}</strong></div>
       </div>
 
       {/* Tabs */}
@@ -112,6 +127,11 @@ export default function Complaints() {
             {tab}
           </button>
         ))}
+      </div>
+
+      <div className="flex flex-col gap-3 sm:flex-row">
+        <label className="flex flex-1 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900"><Search className="h-4 w-4 text-slate-400" /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search subject, customer, phone or order" className="w-full bg-transparent text-xs font-semibold outline-none dark:text-white" /></label>
+        <select value={categoryFilter} onChange={event => setCategoryFilter(event.target.value as typeof categoryFilter)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs font-black text-slate-700 outline-none dark:border-slate-800 dark:bg-slate-900 dark:text-white"><option value="all">All request types</option><option value="general">General help</option><option value="refund">Refund reviews</option><option value="callback">Callback requests</option></select>
       </div>
 
       {/* Main content grid split layout */}
@@ -197,7 +217,7 @@ export default function Complaints() {
                   {selectedTicket.orderId && (
                     <div>
                       <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-0.5">Linked Order ID</span>
-                      <h4 className="font-mono font-bold text-slate-800 dark:text-zinc-300">{selectedTicket.orderId}</h4>
+                      <div className="flex items-center gap-3"><h4 className="font-mono font-bold text-slate-800 dark:text-zinc-300">{selectedTicket.orderId}</h4><Link to="/orders" state={{ adminSearch: selectedTicket.orderId }} className="rounded-lg bg-blue-500/10 px-2.5 py-1 text-[9px] font-black uppercase text-blue-600">View order</Link></div>
                     </div>
                   )}
 

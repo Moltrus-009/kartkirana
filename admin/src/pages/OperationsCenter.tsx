@@ -26,7 +26,7 @@ export default function OperationsCenter() {
         const hData = await adminService.getSystemHealth();
         setHealth(hData);
         const fData = await adminService.getFraudEvents();
-        setFraudCount(fData.length);
+        setFraudCount(fData.filter((event: any) => event.status !== 'RESOLVED').length);
       } catch (err) {
         console.warn('Failed loading system health metrics:', err);
       }
@@ -37,8 +37,8 @@ export default function OperationsCenter() {
   }, []);
 
   // Compute Live Metrics
-  const pendingOrders = orders.filter(o => o.status === 'confirmed' || o.status === 'PLACED');
-  const activeOrders = orders.filter(o => ['accepted', 'preparing', 'ready_for_pickup', 'rider_assigned', 'rider_picked_up', 'out_for_delivery'].includes(o.status));
+  const pendingOrders = orders.filter(o => ['CONFIRMED', 'PLACED', 'UPCOMING', 'DRAFT'].includes(o.status.toUpperCase()));
+  const activeOrders = orders.filter(o => ['ACCEPTED', 'SHOP_ACCEPTED', 'PREPARING', 'PACKED', 'READY', 'READY_FOR_PICKUP', 'SEARCHING_RIDER', 'RIDER_ASSIGNED', 'ARRIVED_AT_SHOP', 'RIDER_PICKED_UP', 'PICKED_UP', 'OUT_FOR_DELIVERY'].includes(o.status.toUpperCase()));
   const shopsAwaitingApproval = shops.filter(s => s.verificationStep !== 'approved' && s.verificationStep !== 'live');
   const ridersAwaitingApproval = riders.filter(r => r.verificationStatus !== 'approved');
   const onlineRiders = riders.filter(r => r.status === 'online' || r.status === 'busy' || r.status === 'idle');
@@ -46,16 +46,16 @@ export default function OperationsCenter() {
 
   // Delayed deliveries count (> 20 mins since placement & not finished)
   const delayedOrders = orders.filter(o => {
-    if (['delivered', 'cancelled', 'returned', 'COMPLETED', 'DELIVERED'].includes(o.status)) return false;
+    if (['DELIVERED', 'COMPLETED', 'CANCELLED', 'AUTO_CANCELLED', 'RETURNED', 'SHOP_REJECTED'].includes(o.status.toUpperCase())) return false;
     const elapsed = Date.now() - new Date(o.createdAt).getTime();
     return elapsed > 20 * 60 * 1000;
   });
 
-  const failedPayments = orders.filter(o => o.paymentStatus === 'failed');
+  const failedPayments = orders.filter(o => ['FAILED', 'PAYMENT_FAILED'].includes(o.paymentStatus.toUpperCase()));
 
   const revenueToday = orders
     .filter(o => {
-      const isDelivered = ['delivered', 'COMPLETED', 'DELIVERED'].includes(o.status);
+      const isDelivered = ['COMPLETED', 'DELIVERED'].includes(o.status.toUpperCase());
       const isToday = new Date(o.createdAt).toDateString() === new Date().toDateString();
       return isDelivered && isToday;
     })
@@ -299,7 +299,7 @@ export default function OperationsCenter() {
               <div className="bg-slate-50 dark:bg-slate-850 p-4 rounded-2xl">
                 <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1">Mem load</span>
                 <span className="font-black text-slate-800 dark:text-white text-xs">
-                  {health ? `${health.memory?.usagePercentage.toFixed(1)}%` : '--'}
+                  {typeof health?.memory?.usagePercentage === 'number' ? `${health.memory.usagePercentage.toFixed(1)}%` : '--'}
                 </span>
               </div>
               <div className="bg-slate-50 dark:bg-slate-850 p-4 rounded-2xl">

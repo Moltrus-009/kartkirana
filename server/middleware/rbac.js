@@ -6,7 +6,8 @@ const ROLE_PERMISSIONS = {
   admin: [
     'refund_payment', 'approve_shop', 'change_settings', 'view_financials', 
     'broadcast_notifications', 'manage_banners', 'edit_users', 'edit_riders',
-    'view_users', 'view_shops', 'view_products'
+    'view_users', 'view_shops', 'view_products', 'view_riders', 'assign_riders',
+    'edit_products', 'manage_coupons', 'resolve_complaints', 'view_dashboard'
   ],
   operations: [
     'approve_shop', 'broadcast_notifications', 'manage_banners', 'edit_users', 'edit_riders',

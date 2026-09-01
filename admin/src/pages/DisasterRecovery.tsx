@@ -39,6 +39,7 @@ export default function DisasterRecovery() {
   const handleRestore = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!restoreJson.trim()) return;
+    if (!window.confirm('Restore the platform configuration from this payload? The action is audited and may immediately change live feature flags.')) return;
     setLoading(true);
     try {
       const parsed = JSON.parse(restoreJson);
@@ -119,7 +120,7 @@ export default function DisasterRecovery() {
               disabled={loading || !restoreJson.trim()}
               className="w-full py-3 bg-indigo-550 hover:bg-indigo-600 text-white font-black rounded-xl uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-40"
             >
-              <RefreshCw className="h-4 w-4 animate-spin" /> Restore Configurations
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Restore Configurations
             </button>
           </form>
         </div>

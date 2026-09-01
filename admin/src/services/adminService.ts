@@ -257,6 +257,17 @@ export const adminService = {
     return res.json();
   },
 
+  async cancelOrder(orderId: string, reason: string) {
+    const headers = await getAuthHeaders();
+    const res = await fetch(`/v1/orders/${encodeURIComponent(orderId)}/cancel`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ reason })
+    });
+    if (!res.ok) throw new Error((await res.json()).message || 'Failed to cancel the order safely.');
+    return res.json();
+  },
+
   // Disaster Recovery Console
   async triggerBackup() {
     const headers = await getAuthHeaders();

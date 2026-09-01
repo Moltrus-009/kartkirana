@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { onAuthStateChanged, signOut, signInWithPhoneNumber, RecaptchaVerifier } from 'firebase/auth';
-import { collection, doc, query, onSnapshot, getDocs, updateDoc, setDoc, deleteDoc } from 'firebase/firestore';
+import { collection, doc, onSnapshot, getDoc, getDocs, updateDoc, setDoc, deleteDoc } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
 import { adminService } from '../services/adminService';
 import { logger } from '../lib/logger';
@@ -76,7 +76,7 @@ export interface OrderDoc {
   userId: string;
   shopId: string;
   shopName: string;
-  status: 'PLACED' | 'SHOP_ACCEPTED' | 'SEARCHING_RIDER' | 'RIDER_ASSIGNED' | 'ARRIVED_AT_SHOP' | 'PICKED_UP' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'COMPLETED' | 'SHOP_REJECTED' | 'upcoming' | 'confirmed' | 'accepted' | 'preparing' | 'packed' | 'ready_for_pickup' | 'rider_assigned' | 'rider_picked_up' | 'out_for_delivery' | 'delivered' | 'cancelled' | 'returned';
+  status: 'DRAFT' | 'PLACED' | 'SHOP_ACCEPTED' | 'SEARCHING_RIDER' | 'RIDER_ASSIGNED' | 'ARRIVED_AT_SHOP' | 'READY' | 'READY_FOR_PICKUP' | 'PICKED_UP' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'COMPLETED' | 'CANCELLED' | 'AUTO_CANCELLED' | 'SHOP_REJECTED' | 'upcoming' | 'confirmed' | 'accepted' | 'preparing' | 'packed' | 'ready_for_pickup' | 'rider_assigned' | 'rider_picked_up' | 'out_for_delivery' | 'delivered' | 'cancelled' | 'returned';
   total: number;
   paymentMethod: string;
   paymentStatus: string;
@@ -136,6 +136,9 @@ export interface RiderDoc {
 interface AdminContextProps {
   adminUser: any | null;
   loading: boolean;
+  dataLoading: boolean;
+  dataError: string | null;
+  lastSyncedAt: Date | null;
   users: UserDoc[];
   shops: ShopDoc[];
   products: ProductDoc[];
@@ -150,7 +153,6 @@ interface AdminContextProps {
   // Admin management actions
   updateUserRole: (uid: string, role: UserDoc['role'], shopId?: string | null) => Promise<void>;
   updateOrderStatus: (orderId: string, status: OrderDoc['status'], riderCoords?: { lat: number; lng: number }) => Promise<void>;
-  deleteOrder: (orderId: string) => Promise<void>;
   updateShopStatus: (shopId: string, status: 'open' | 'closed') => Promise<void>;
   updateShopVerification: (shopId: string, step: ShopDoc['verificationStep']) => Promise<void>;
   approveShopAndMerchant: (shopId: string, ownerUid?: string) => Promise<void>;
@@ -242,6 +244,9 @@ const AdminContext = createContext<AdminContextProps | undefined>(undefined);
 export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [adminUser, setAdminUser] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
+  const [dataLoading, setDataLoading] = useState(false);
+  const [dataError, setDataError] = useState<string | null>(null);
+  const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
   const [users, setUsers] = useState<UserDoc[]>([]);
   const [shops, setShops] = useState<ShopDoc[]>([]);
   const [products, setProducts] = useState<ProductDoc[]>([]);
@@ -296,7 +301,9 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return;
     }
 
+    let active = true;
     async function loadData() {
+      setDataLoading(true);
       try {
         console.log('[ADMIN API] Pre-fetching users, shops, and products...');
         const [uList, sList, pList] = await Promise.all([
@@ -304,15 +311,31 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           adminService.getShops(),
           adminService.getProducts()
         ]);
+        if (!active) return;
         setUsers(uList.filter((u: any) => !u.isDeleted));
         setShops(sList.filter((s: any) => !s.isDeleted));
         setProducts(pList.filter((p: any) => !p.isDeleted));
+        setDataError(null);
+        setLastSyncedAt(new Date());
       } catch (err: any) {
         console.error('[ADMIN API ERROR] Failed to fetch collections:', err.message);
+        if (active) setDataError(err.message || 'The admin data service could not be reached.');
+      } finally {
+        if (active) setDataLoading(false);
       }
     }
 
-    loadData();
+    void loadData();
+    const interval = window.setInterval(() => void loadData(), 60000);
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void loadData();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, [adminUser]);
 
   // Set up Firebase Real-Time snapshot listeners for real-time dispatch ONLY (orders & riders)
@@ -330,6 +353,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const list = snap.docs.map(d => normalizeOrder(d.id, d.data()));
       list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       setOrders(list);
+      setLastSyncedAt(new Date());
     }, (err) => {
       logger.error('Firestore', 'Unable to load orders for the admin portal.', err);
     });
@@ -338,6 +362,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const unsubRiders = onSnapshot(collection(db, 'riders'), (snap) => {
       const list = snap.docs.map(d => ({ uid: d.id, ...d.data() } as RiderDoc));
       setRiders(list.filter(r => !r.isDeleted));
+      setLastSyncedAt(new Date());
     }, (err) => {
       logger.error('Firestore', 'Unable to load riders for the admin portal.', err);
     });
@@ -352,6 +377,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const refreshAllData = async () => {
     if (!adminUser) return;
+    setDataLoading(true);
     try {
       console.log('[ADMIN API] Forcing data refresh...');
       
@@ -369,8 +395,14 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setUsers(uList.filter((u: any) => !u.isDeleted));
       setShops(sList.filter((s: any) => !s.isDeleted));
       setProducts(pList.filter((p: any) => !p.isDeleted));
+      setDataError(null);
+      setLastSyncedAt(new Date());
     } catch (err: any) {
       console.error('[ADMIN API ERROR] Failed refreshing data:', err.message);
+      setDataError(err.message || 'The admin data service could not be reached.');
+      throw err;
+    } finally {
+      setDataLoading(false);
     }
   };
 
@@ -492,9 +524,8 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       desc = 'Order delivered successfully.';
     }
 
-    const orderSnap = await getDocs(query(collection(db, 'orders')));
-    const foundDoc = orderSnap.docs.find(d => d.id === orderId);
-    if (foundDoc) {
+    const foundDoc = await getDoc(orderRef);
+    if (foundDoc.exists()) {
       const data = normalizeOrder(foundDoc.id, foundDoc.data());
       const timeline = data.timeline || [];
       timeline.push({ 
@@ -513,11 +544,6 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
       await updateDoc(orderRef, updates);
     }
-  };
-
-  const deleteOrder = async (orderId: string) => {
-    if (!db) return;
-    await deleteDoc(doc(db, 'orders', orderId));
   };
 
   const updateShopStatus = async (shopId: string, status: 'open' | 'closed') => {
@@ -580,6 +606,9 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     <AdminContext.Provider value={{
       adminUser,
       loading,
+      dataLoading,
+      dataError,
+      lastSyncedAt,
       users,
       shops,
       products,
@@ -590,7 +619,6 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       logout,
       updateUserRole,
       updateOrderStatus,
-      deleteOrder,
       updateShopStatus,
       updateShopVerification,
       approveShopAndMerchant,

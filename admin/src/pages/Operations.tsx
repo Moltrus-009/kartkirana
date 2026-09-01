@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 
 export default function Operations() {
-  const { orders, riders, shops, updateOrderStatus } = useAdmin();
+  const { orders, riders, shops } = useAdmin();
   const [selectedOrder, setSelectedOrder] = useState<OrderDoc | null>(null);
   
   // Modals / Picker triggers
@@ -108,10 +108,12 @@ export default function Operations() {
   };
 
   const handleCancelOrder = async (orderId: string) => {
-    if (!confirm('Are you sure you want to cancel this order?')) return;
+    const reason = window.prompt('Enter the cancellation reason. Inventory will be released safely:');
+    if (!reason?.trim()) return;
     try {
-      await updateOrderStatus(orderId, 'cancelled');
-      alert('Order status overridden to CANCELLED.');
+      await adminService.cancelOrder(orderId, reason.trim());
+      setSelectedOrder(null);
+      alert('Order cancelled safely and inventory reservations were released.');
     } catch (e: any) {
       alert(`Cancel error: ${e.message}`);
     }
