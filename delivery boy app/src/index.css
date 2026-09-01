@@ -59,6 +59,7 @@
 :root {
   font-family: var(--font-sans);
   color-scheme: light dark;
+  --rider-bottom-nav-clearance: calc(5.5rem + max(env(safe-area-inset-bottom), 12px));
 }
 
 html,
@@ -119,7 +120,7 @@ body.dark {
 }
 
 .safe-bottom {
-  padding-bottom: calc(5rem + max(env(safe-area-inset-bottom), 12px));
+  padding-bottom: var(--rider-bottom-nav-clearance);
 }
 
 .glow-primary {
@@ -296,7 +297,8 @@ body.dark {
 }
 
 .rider-main {
-  padding: 14px 14px 0;
+  padding: 14px 14px var(--rider-bottom-nav-clearance);
+  scroll-padding-bottom: var(--rider-bottom-nav-clearance);
 }
 
 .rider-screen {
