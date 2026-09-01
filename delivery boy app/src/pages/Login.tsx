@@ -18,7 +18,7 @@ export const Login: React.FC<LoginProps> = ({ onOpenTerms, onOpenPrivacy }) => {
   
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
-  const [resendTimer, setResendTimer] = useState(30);
+  const [resendTimer, setResendTimer] = useState(60);
   const [confirmationResult, setConfirmationResult] = useState<any>(null);
   const [fullName, setFullName] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -79,11 +79,10 @@ export const Login: React.FC<LoginProps> = ({ onOpenTerms, onOpenPrivacy }) => {
       if (res.success) {
         setConfirmationResult(res.confirmationResult);
         setStep('otp');
-        setResendTimer(30);
+        setResendTimer(60);
         setInfo(res.message);
       } else {
         setError(res.message);
-        recaptchaManager.clear();
       }
     } finally {
       setSubmitting(false);
@@ -121,7 +120,7 @@ export const Login: React.FC<LoginProps> = ({ onOpenTerms, onOpenPrivacy }) => {
     if (resendTimer > 0) return;
     setOtpCode('');
     setError(null);
-    setResendTimer(30);
+    setResendTimer(60);
     const formattedPhone = `+91${phoneNumber.trim()}`;
 
     const verifier = createRecaptchaVerifier();
@@ -136,7 +135,6 @@ export const Login: React.FC<LoginProps> = ({ onOpenTerms, onOpenPrivacy }) => {
       } else {
         setError(res.message);
         setResendTimer(0);
-        recaptchaManager.clear();
       }
     } finally {
       setSubmitting(false);
@@ -152,7 +150,7 @@ export const Login: React.FC<LoginProps> = ({ onOpenTerms, onOpenPrivacy }) => {
   };
 
   return (
-    <div className="max-w-md mx-auto min-h-[85vh] flex flex-col justify-center px-4 py-8 animate-fade-in text-left">
+    <div className="w-full max-w-md mx-auto min-h-[100dvh] flex flex-col justify-center px-4 pt-[max(env(safe-area-inset-top),2rem)] pb-[max(env(safe-area-inset-bottom),2rem)] animate-fade-in text-left">
       <div className="space-y-8 bg-white dark:bg-zinc-900 p-6 rounded-2xl border border-slate-200/60 dark:border-zinc-800 shadow-md">
         
         {/* App Logo branding */}

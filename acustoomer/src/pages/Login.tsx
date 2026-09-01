@@ -124,7 +124,7 @@ export const Login: React.FC = () => {
       const success = await sendOTPCode(fullPhone, containerId);
       if (success) {
         setStep('otp');
-        setTimer(30);
+        setTimer(60);
         setIsResendActive(false);
         setOtpValues(Array(6).fill(''));
       } else {
@@ -172,7 +172,7 @@ export const Login: React.FC = () => {
       const success = await sendOTPCode(fullPhone, 'recaptcha-container');
       setIsLoading(false);
       if (success) {
-        setTimer(30);
+        setTimer(60);
         setIsResendActive(false);
         setOtpValues(Array(6).fill(''));
       }

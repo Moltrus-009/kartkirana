@@ -161,7 +161,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (err: any) {
       logger.error('Auth', 'Error during sendOTPCode:', err);
       setError(mapFirebaseError(err));
-      recaptchaManager.clear(); // Clear Recaptcha on failure to allow instant retry
+      // Reset the existing widget instead of destroying/recreating it. This is
+      // Firebase's recommended retry path and avoids duplicate image prompts.
+      await recaptchaManager.reset();
       return false;
     } finally {
       window.clearTimeout(timeoutId);

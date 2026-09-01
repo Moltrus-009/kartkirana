@@ -3,6 +3,7 @@ import { logger } from '../core/logger/logger';
 
 class RecaptchaManager {
   private verifier: RecaptchaVerifier | null = null;
+  private widgetId: number | null = null;
   private containerId: string | null = null;
   private auth: Auth | null = null;
   private generation = 0;
@@ -35,10 +36,14 @@ class RecaptchaManager {
         },
         'expired-callback': () => {
           logger.warn('reCAPTCHA', 'reCAPTCHA verification response expired.');
+          void this.reset();
         }
       });
 
       this.verifier = verifier;
+      void verifier.render()
+        .then((widgetId) => { this.widgetId = widgetId; })
+        .catch((err) => logger.warn('reCAPTCHA', 'Background verifier preparation failed:', err));
       return verifier;
     } catch (err) {
       logger.error('reCAPTCHA', 'Failed to initialize RecaptchaVerifier:', err);
@@ -50,6 +55,19 @@ class RecaptchaManager {
     return this.verifier;
   }
 
+  async reset(): Promise<void> {
+    if (!this.verifier) return;
+    try {
+      const widgetId = this.widgetId ?? await this.verifier.render();
+      this.widgetId = widgetId;
+      const grecaptcha = (window as Window & { grecaptcha?: { reset: (id?: number) => void } }).grecaptcha;
+      if (grecaptcha) grecaptcha.reset(widgetId);
+    } catch (err) {
+      logger.warn('reCAPTCHA', 'Unable to reset the existing verifier; recreating it on the next request.', err);
+      this.clear();
+    }
+  }
+
   clear() {
     if (this.verifier) {
       try {
@@ -59,6 +77,7 @@ class RecaptchaManager {
         logger.warn('reCAPTCHA', 'Failed to clear previous verifier instance:', err);
       }
       this.verifier = null;
+      this.widgetId = null;
     }
     
     if (this.containerId) {

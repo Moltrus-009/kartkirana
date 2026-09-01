@@ -1183,7 +1183,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return { success: true, message: 'SMS verification code sent successfully!', confirmationResult };
       } catch (err: any) {
         logger.error('OTP', 'SMS Send Error:', err);
-        recaptchaManager.clear();
+        await recaptchaManager.reset();
         return { success: false, message: mapFirebaseError(err) };
       }
     } else {
@@ -1250,7 +1250,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return { success: true, message: 'Logged in successfully!' };
       } catch (err: any) {
         logger.error('Auth', 'Rider OTP verification failed:', err);
-        recaptchaManager.clear();
+        // An invalid/expired OTP does not invalidate the reusable CAPTCHA
+        // verifier. Keeping it avoids another challenge before a later resend.
         return { success: false, message: mapFirebaseError(err) };
       }
     } else {

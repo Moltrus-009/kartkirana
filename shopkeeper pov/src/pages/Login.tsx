@@ -106,11 +106,11 @@ export default function Login() {
         setStep('verify');
       } else {
         setError(res.error || t('error_send_otp'));
-        recaptchaManager.clear();
+        await recaptchaManager.reset();
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : t('error_sms'));
-      recaptchaManager.clear();
+      await recaptchaManager.reset();
     } finally {
       setSubmitting(false);
     }
