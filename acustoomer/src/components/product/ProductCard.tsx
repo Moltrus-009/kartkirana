@@ -49,6 +49,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, promotion, co
 
   const handleAdd = (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (product.stock <= 0) return;
     if (product.isPreorder) {
       // Navigate to details to select preorder date/slot
       navigate(`/product/${product.id}`);
@@ -59,6 +60,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, promotion, co
 
   const handleIncrement = (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (quantity >= product.stock) return;
     updateQuantity(product.id, quantity + 1);
   };
 
@@ -196,7 +198,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, promotion, co
                 </span>
                 <button
                   onClick={handleIncrement}
-                  className="p-1 text-white hover:bg-blue-600 rounded-full cursor-pointer transition-colors flex items-center justify-center"
+                  disabled={quantity >= product.stock}
+                  className="p-1 text-white hover:bg-blue-600 rounded-full cursor-pointer transition-colors flex items-center justify-center disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <Plus className="h-3 w-3" />
                 </button>

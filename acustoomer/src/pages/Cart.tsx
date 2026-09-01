@@ -39,6 +39,7 @@ export const Cart: React.FC = () => {
 
   // Available coupons modal drawer
   const [isCouponsOpen, setIsCouponsOpen] = useState(false);
+  const unavailableItems = cartItems.filter(item => item.product.stock <= 0 || item.quantity > item.product.stock);
 
   const handleApplyCouponCode = async (code: string) => {
     setCouponMsg(null);
@@ -57,6 +58,10 @@ export const Cart: React.FC = () => {
   };
 
   const handleProceed = () => {
+    if (unavailableItems.length > 0) {
+      alert('Some cart items are out of stock or no longer have enough quantity. Please remove or adjust them before checkout.');
+      return;
+    }
     if (isPreorderCart && (!preorderSchedule || !isValidPreorderSchedule(preorderSchedule))) {
       setPreorderSchedule(null);
       alert('Please select a preorder delivery slot before proceeding.');
@@ -122,7 +127,7 @@ export const Cart: React.FC = () => {
         {cartItems.map(item => (
           <div
             key={item.product.id}
-            className="p-4 rounded-[20px] bg-white dark:bg-[#1E293B] border border-[#E2E8F0] dark:border-[#334155] flex items-start gap-3.5 shadow-[0_8px_24px_-20px_rgba(5,10,36,0.45)]"
+            className={`p-4 rounded-[20px] bg-white dark:bg-[#1E293B] border flex items-start gap-3.5 shadow-[0_8px_24px_-20px_rgba(5,10,36,0.45)] ${item.product.stock <= 0 || item.quantity > item.product.stock ? 'border-red-300 dark:border-red-800' : 'border-[#E2E8F0] dark:border-[#334155]'}`}
           >
             {/* Image */}
             <div className="h-16 w-16 rounded-xl bg-[#F8FAFC] dark:bg-[#1E293B] p-1.5 overflow-hidden shrink-0 flex items-center justify-center border border-[#E2E8F0] dark:border-[#334155]">
@@ -145,6 +150,11 @@ export const Cart: React.FC = () => {
                     </span>
                   )}
                 </div>
+                {item.product.stock <= 0 ? (
+                  <span className="mt-1 block text-[9px] font-black uppercase text-red-500">Out of stock — remove this item</span>
+                ) : item.quantity >= item.product.stock ? (
+                  <span className="mt-1 block text-[9px] font-black text-amber-600 dark:text-amber-400">Only {item.product.stock} available</span>
+                ) : null}
               </div>
 
               {/* Price & Quantity adjusting */}
@@ -165,7 +175,8 @@ export const Cart: React.FC = () => {
                   </span>
                   <button
                     onClick={() => updateQuantity(item.product.id, item.quantity + 1)}
-                    className="p-0.5 text-[#1565C0] dark:text-[#1E88E5] cursor-pointer hover:scale-105"
+                    disabled={item.product.stock <= 0 || item.quantity >= item.product.stock}
+                    className="p-0.5 text-[#1565C0] dark:text-[#1E88E5] cursor-pointer hover:scale-105 disabled:cursor-not-allowed disabled:opacity-35"
                   >
                     <Plus className="h-3.5 w-3.5" />
                   </button>
@@ -377,10 +388,11 @@ export const Cart: React.FC = () => {
           </div>
           <Button
             onClick={handleProceed}
+            disabled={unavailableItems.length > 0}
             fullWidth
             className="min-w-0 rounded-2xl px-4 py-3.5 font-black text-xs sm:w-auto sm:px-6 bg-gradient-to-br from-[#1E88E5] to-[#1565C0]"
           >
-            <span className="truncate">PROCEED TO CHECKOUT</span>
+            <span className="truncate">{unavailableItems.length > 0 ? 'UPDATE UNAVAILABLE ITEMS' : 'PROCEED TO CHECKOUT'}</span>
             <ArrowRight className="h-4.5 w-4.5" />
           </Button>
         </div>

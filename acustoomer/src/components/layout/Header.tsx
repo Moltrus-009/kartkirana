@@ -7,12 +7,14 @@ import { useTheme } from '../../context/ThemeContext';
 import { Dialog } from '../ui/Dialog';
 import { Button } from '../ui/Button';
 import { Logo } from '../ui/Logo';
+import { useNotifications } from '../../hooks/useNotifications';
 
 export const Header: React.FC = () => {
   const navigate = useNavigate();
   const routerLocation = useLocation();
   const { addresses, selectedAddress, selectAddress, detectCurrentLocation, addAddress } = useAddress();
   const { user } = useAuth();
+  const { unreadCount } = useNotifications(user?.uid);
   const { theme, toggleTheme } = useTheme();
   
   const [isLocationOpen, setIsLocationOpen] = useState(false);
@@ -74,11 +76,12 @@ export const Header: React.FC = () => {
 
             {user && (
               <button
-                onClick={() => navigate('/profile')}
+                aria-label={`Open notifications${unreadCount ? `, ${unreadCount} unread` : ''}`}
+                onClick={() => navigate('/notifications')}
                 className="relative p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-300 text-slate-500 dark:text-[#B8B8B8] hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer"
               >
                 <Bell className="h-4.5 w-4.5" />
-                <span className="absolute top-2 right-2 h-2 w-2 rounded-full bg-[#FFD83D] shadow-[0_0_6px_#FFD83D]" />
+                {unreadCount > 0 && <span className="absolute top-2 right-2 h-2 w-2 rounded-full bg-[#FFD83D] shadow-[0_0_6px_#FFD83D]" />}
               </button>
             )}
           </div>

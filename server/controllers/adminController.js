@@ -3,6 +3,7 @@ const { dbRun, dbGet, dbAll } = require('../config/db');
 const financialService = require('../services/financialService');
 const crypto = require('crypto');
 const os = require('os');
+const { FieldValue } = require('firebase-admin/firestore');
 
 // Helper to write audit log to SQLite
 async function writeAuditLog(operatorId, operatorPhone, action, entityType, entityId, oldValue, newValue, reason, ip, device, browser) {
@@ -237,28 +238,96 @@ class AdminController {
     // Derive identity strictly from token context to prevent mass assignment/faking
     const userId = req.user.uid;
     const userType = req.user.role || 'customer';
-    const { userName, orderId, subject, message } = req.body;
+    const { userName, orderId, subject, message, category } = req.body;
     try {
       if (!firestoreDb) throw new Error('Firestore not connected.');
+      const cleanSubject = String(subject || '').trim().slice(0, 120);
+      const cleanMessage = String(message || '').trim().slice(0, 2000);
+      const cleanOrderId = String(orderId || '').trim().slice(0, 100);
+      const cleanCategory = ['general', 'refund', 'callback'].includes(category) ? category : 'general';
+      if (!cleanSubject || !cleanMessage) {
+        return res.status(400).json({ error: 'Bad Request', message: 'Subject and message are required.' });
+      }
+
       const complaintId = `comp_${crypto.randomBytes(6).toString('hex')}`;
+      const createdAt = new Date().toISOString();
+      const acknowledgement = cleanCategory === 'callback'
+        ? 'Sorry for the wait. We have received your callback request and will make sure a support team member contacts you within 24 hours.'
+        : cleanCategory === 'refund'
+          ? 'Your refund review request has been received. Our support team will check the linked order and reply here. Submitting a request does not automatically approve or process a refund.'
+          : 'Thank you for contacting Kart Kirana Support. We have received your request and an admin will reply in this chat.';
       const payload = {
         complaintId,
         userId,
         userName: userName || req.user.name || 'Registered User',
+        contactPhone: cleanCategory === 'callback' ? (req.user.phone_number || req.user.phoneNumber || '') : '',
         userType,
-        orderId: orderId || '',
-        subject,
-        message,
+        orderId: cleanOrderId,
+        subject: cleanSubject,
+        message: cleanMessage,
+        category: cleanCategory,
         status: 'OPEN',
         assignedTo: null,
         reply: '',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
+        callbackRequested: cleanCategory === 'callback',
+        callbackStatus: cleanCategory === 'callback' ? 'REQUESTED' : null,
+        callbackDueAt: cleanCategory === 'callback' ? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() : null,
+        messages: [
+          { id: `msg_${crypto.randomBytes(6).toString('hex')}`, senderId: userId, senderRole: 'customer', senderName: userName || req.user.name || 'Customer', text: cleanMessage, createdAt },
+          { id: `msg_${crypto.randomBytes(6).toString('hex')}`, senderId: 'system', senderRole: 'system', senderName: 'Kart Kirana Support', text: acknowledgement, createdAt }
+        ],
+        createdAt,
+        updatedAt: createdAt
       };
       await firestoreDb.collection('complaints').doc(complaintId).set(payload);
-      res.status(200).json({ status: 'success', id: complaintId });
+      res.status(200).json({ status: 'success', id: complaintId, acknowledgement });
     } catch (err) {
       res.status(500).json({ error: 'Internal Server Error', message: err.message });
+    }
+  }
+
+  async getOwnComplaints(req, res, next) {
+    try {
+      if (!firestoreDb) throw new Error('Firestore not connected.');
+      const snap = await firestoreDb.collection('complaints').where('userId', '==', req.user.uid).get();
+      const list = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt)));
+      res.status(200).json(list);
+    } catch (err) {
+      res.status(500).json({ error: 'Internal Server Error', message: err.message });
+    }
+  }
+
+  async addComplaintMessage(req, res, next) {
+    const { id } = req.params;
+    const cleanMessage = String(req.body?.message || '').trim().slice(0, 2000);
+    if (!cleanMessage) return res.status(400).json({ error: 'Bad Request', message: 'Message is required.' });
+
+    try {
+      if (!firestoreDb) throw new Error('Firestore not connected.');
+      const docRef = firestoreDb.collection('complaints').doc(id);
+      await firestoreDb.runTransaction(async transaction => {
+        const snap = await transaction.get(docRef);
+        if (!snap.exists) throw Object.assign(new Error('Support ticket not found.'), { statusCode: 404 });
+        const ticket = snap.data();
+        if (ticket.userId !== req.user.uid) throw Object.assign(new Error('You cannot access this support ticket.'), { statusCode: 403 });
+        if (ticket.status === 'CLOSED') throw Object.assign(new Error('This support ticket is closed.'), { statusCode: 409 });
+
+        const messages = Array.isArray(ticket.messages) ? ticket.messages.slice(-199) : [];
+        messages.push({
+          id: `msg_${crypto.randomBytes(6).toString('hex')}`,
+          senderId: req.user.uid,
+          senderRole: 'customer',
+          senderName: ticket.userName || req.user.name || 'Customer',
+          text: cleanMessage,
+          createdAt: new Date().toISOString()
+        });
+        transaction.update(docRef, { messages, message: ticket.message || cleanMessage, status: ticket.status === 'RESOLVED' ? 'OPEN' : ticket.status, updatedAt: new Date().toISOString() });
+      });
+      res.status(200).json({ status: 'success', message: 'Message sent.' });
+    } catch (err) {
+      res.status(err.statusCode || 500).json({ error: 'Support Error', message: err.message });
     }
   }
 
@@ -276,14 +345,41 @@ class AdminController {
         return res.status(404).json({ error: 'Not Found', message: 'Complaint not found.' });
       }
 
+      const cleanReply = String(reply || '').trim().slice(0, 2000);
+      let adminMessage = null;
+      if (cleanReply) {
+        adminMessage = {
+          id: `msg_${crypto.randomBytes(6).toString('hex')}`,
+          senderId: operator.uid,
+          senderRole: 'admin',
+          senderName: operator.name || 'Kart Kirana Support',
+          text: cleanReply,
+          createdAt: new Date().toISOString()
+        };
+      }
       const updates = {
         status: status || snap.data().status,
-        reply: reply || snap.data().reply,
+        reply: cleanReply || snap.data().reply,
         assignedTo: assignedTo || snap.data().assignedTo,
+        callbackStatus: snap.data().callbackRequested && (status === 'RESOLVED' || status === 'CLOSED') ? 'COMPLETED' : snap.data().callbackStatus,
         updatedAt: new Date().toISOString()
       };
+      if (adminMessage) updates.messages = FieldValue.arrayUnion(adminMessage);
 
       await docRef.update(updates);
+
+      if (cleanReply && snap.data().userId) {
+        const notificationRef = firestoreDb.collection('users').doc(snap.data().userId).collection('notifications').doc();
+        await notificationRef.set({
+          id: notificationRef.id,
+          title: 'Support replied',
+          body: cleanReply.slice(0, 180),
+          type: 'system',
+          read: false,
+          link: `/support?ticket=${encodeURIComponent(id)}`,
+          createdAt: new Date().toISOString()
+        });
+      }
 
       await writeAuditLog(
         operator.uid,
@@ -292,7 +388,7 @@ class AdminController {
         'complaints',
         id,
         snap.data(),
-        { ...snap.data(), ...updates },
+        { ...snap.data(), status: updates.status, reply: updates.reply, assignedTo: updates.assignedTo, callbackStatus: updates.callbackStatus, updatedAt: updates.updatedAt },
         'Complaint ticket status update',
         req.ip || req.clientIp,
         req.headers['user-agent'],

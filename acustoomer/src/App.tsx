@@ -33,6 +33,8 @@ const Orders = React.lazy(() => import('./pages/Orders').then(module => ({ defau
 const LiveTracking = React.lazy(() => import('./pages/LiveTracking').then(module => ({ default: module.LiveTracking })));
 const Wishlist = React.lazy(() => import('./pages/Wishlist').then(module => ({ default: module.Wishlist })));
 const Profile = React.lazy(() => import('./pages/Profile').then(module => ({ default: module.Profile })));
+const Notifications = React.lazy(() => import('./pages/Notifications').then(module => ({ default: module.Notifications })));
+const SupportCenter = React.lazy(() => import('./pages/SupportCenter').then(module => ({ default: module.SupportCenter })));
 const PreOrders = React.lazy(() => import('./pages/PreOrders').then(module => ({ default: module.PreOrders })));
 const OrderSuccess = React.lazy(() => import('./pages/OrderSuccess').then(module => ({ default: module.OrderSuccess })));
 const Terms = React.lazy(() => import('./pages/Terms').then(module => ({ default: module.Terms })));
@@ -346,6 +348,18 @@ export const AppContent: React.FC = () => {
           <Route path="/profile" element={
             <ProtectedRoute>
               <Profile />
+            </ProtectedRoute>
+          } />
+
+          <Route path="/notifications" element={
+            <ProtectedRoute>
+              <Notifications />
+            </ProtectedRoute>
+          } />
+
+          <Route path="/support" element={
+            <ProtectedRoute>
+              <SupportCenter />
             </ProtectedRoute>
           } />
 

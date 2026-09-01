@@ -311,6 +311,12 @@ export const Checkout: React.FC = () => {
 
   const handlePlaceOrder = async () => {
     if (!user || isPlacingOrder) return;
+    const unavailableItems = cartItems.filter(item => item.product.stock <= 0 || item.quantity > item.product.stock);
+    if (unavailableItems.length > 0) {
+      alert('Your cart contains items that are out of stock or have insufficient quantity. Please update the cart before paying.');
+      navigate('/cart');
+      return;
+    }
     if (pendingPaymentOrderId) {
       await reconcilePendingCheckout(true);
       return;

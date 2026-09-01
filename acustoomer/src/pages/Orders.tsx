@@ -66,7 +66,6 @@ export const Orders: React.FC = () => {
 
   // Invoice / Support modals
   const [selectedInvoiceOrder, setSelectedInvoiceOrder] = useState<Order | null>(null);
-  const [isSupportOpen, setIsSupportOpen] = useState(false);
 
   // Check if navigate passed a newly placed order ID to expand immediately
   const state = location.state as { placedOrderId?: string };
@@ -84,17 +83,27 @@ export const Orders: React.FC = () => {
     }
   }, [user, navigate, state, orders, expandedOrderId]);
 
-  const handleReorder = (order: Order) => {
+  const handleReorder = async (order: Order) => {
+    const liveProducts = await dbService.getProducts();
+    let addedCount = 0;
+    let unavailableCount = 0;
+
     order.items.forEach(item => {
-      const product = item.product || {
-        id: (item as any).productId || (item as any).id,
-        name: (item as any).name || 'Unknown Item',
-        price: (item as any).price || 0,
-        shopId: order.shopId,
-        shopName: order.shopName
-      };
-      addToCart(product as any, item.quantity);
+      const productId = item.product?.id || (item as any).productId || (item as any).id;
+      const liveProduct = liveProducts.find(product => product.id === productId);
+      if (!liveProduct || liveProduct.stock <= 0) {
+        unavailableCount += 1;
+        return;
+      }
+      addToCart(liveProduct, Math.min(item.quantity, liveProduct.stock));
+      addedCount += 1;
     });
+
+    if (addedCount === 0) {
+      alert('None of the items in this order are currently available.');
+      return;
+    }
+    if (unavailableCount > 0) alert(`${unavailableCount} unavailable item${unavailableCount === 1 ? ' was' : 's were'} skipped.`);
     navigate('/cart');
   };
 
@@ -458,7 +467,7 @@ export const Orders: React.FC = () => {
                       </Button>
                       <Button
                         variant="outline"
-                        onClick={() => setIsSupportOpen(true)}
+                        onClick={() => navigate(`/support?order=${encodeURIComponent(order.id)}`)}
                         className="flex-1 rounded-xl py-2 text-xs font-bold border-[#E2E8F0] bg-white text-gray-700"
                       >
                         <HelpCircle className="h-4 w-4 mr-1.5" />
@@ -550,36 +559,6 @@ export const Orders: React.FC = () => {
             </Button>
           </div>
         )}
-      </Dialog>
-
-      {/* Support Modal sheet */}
-      <Dialog isOpen={isSupportOpen} onClose={() => setIsSupportOpen(false)} title="Order Support Desk">
-        <div className="flex flex-col gap-4 text-xs text-left">
-          <p className="font-semibold text-gray-500 dark:text-[#94A3B8] leading-relaxed">
-            Need help with your order? Our support desk is available 24/7. Call or chat with us regarding item missing, quality issues, or payment failures.
-          </p>
-          <div className="flex flex-col gap-2.5 mt-2">
-            <div className="p-3 border border-[#E2E8F0] dark:border-[#334155] rounded-2xl flex items-center justify-between font-bold">
-              <div>
-                <span className="text-gray-800 dark:text-white block">Support Hotline</span>
-                <span className="text-[10px] font-semibold text-gray-400 dark:text-[#94A3B8]">1800-419-3221 (Toll-Free)</span>
-              </div>
-              <a href="tel:18004193221" className="px-3.5 py-2 rounded-xl bg-gradient-to-br from-[#1E88E5] to-[#1565C0] text-white font-black text-[10px] uppercase shadow-sm">
-                Call Now
-              </a>
-            </div>
-            
-            <div className="p-3 border border-[#E2E8F0] dark:border-[#334155] rounded-2xl flex items-center justify-between font-bold">
-              <div>
-                <span className="text-gray-800 dark:text-white block">Instant Chat Help</span>
-                <span className="text-[10px] font-semibold text-gray-400 dark:text-[#94A3B8]">Average response time: 30 secs</span>
-              </div>
-              <button onClick={() => alert('Support chat initialization...')} className="px-3.5 py-2 rounded-xl bg-gradient-to-br from-[#1E88E5] to-[#1565C0] text-white font-black text-[10px] uppercase cursor-pointer shadow-sm">
-                Start Chat
-              </button>
-            </div>
-          </div>
-        </div>
       </Dialog>
 
     </div>

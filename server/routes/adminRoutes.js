@@ -59,6 +59,23 @@ router.post(
 
 // Complaints Ticketing
 router.get(
+  '/support/tickets',
+  authMiddleware,
+  adminController.getOwnComplaints
+);
+router.post(
+  '/support/tickets',
+  authMiddleware,
+  complaintsLimiter,
+  adminController.createComplaint
+);
+router.post(
+  '/support/tickets/:id/messages',
+  authMiddleware,
+  complaintsLimiter,
+  adminController.addComplaintMessage
+);
+router.get(
   '/admin/complaints',
   authMiddleware,
   checkPermission('resolve_complaints'),

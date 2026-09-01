@@ -22,6 +22,7 @@ import { PreorderModal } from '../components/PreorderModal';
 import { CalendarClock } from 'lucide-react';
 import { Shop, PromoBanner, UserAddress } from '../types';
 import { usePromotions } from '../hooks/usePromotions';
+import { useNotifications } from '../hooks/useNotifications';
 import { describePromotion } from '../utils/promotions';
 
 
@@ -135,6 +136,7 @@ export const Home: React.FC = () => {
   const { cartItems, preorderSchedule, setPreorderSchedule } = useCart();
   const { user } = useAuth();
   const { promotions } = usePromotions(undefined, user?.uid);
+  const { unreadCount } = useNotifications(user?.uid);
   const { theme, toggleTheme } = useTheme();
 
   const [isLocationOpen, setIsLocationOpen] = useState(false);
@@ -145,6 +147,7 @@ export const Home: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'shops' | 'items' | 'preorder'>('shops');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [offerFilter, setOfferFilter] = useState<'top' | 'specials' | null>(null);
 
   // Filters State
   const [shopSort, setShopSort] = useState<'distance' | 'rating' | 'eta' | null>(null);
@@ -192,6 +195,7 @@ export const Home: React.FC = () => {
     setItemVegOnly(false);
     setItemInStockOnly(false);
     setSelectedCategory(null);
+    setOfferFilter(null);
   };
 
   // Filter & Sort Shops List
@@ -251,6 +255,17 @@ export const Home: React.FC = () => {
       result = result.filter(p => p.category === selectedCategory);
     }
 
+    if (offerFilter) {
+      result = result.filter(product => promotions.some(promotion =>
+        promotion.isActive &&
+        promotion.eligible &&
+        promotion.offerType !== 'subscription' &&
+        promotion.shopId === product.shopId &&
+        (promotion.scope === 'order' || promotion.productIds.includes(product.id)) &&
+        (offerFilter === 'top' || promotion.discountType === 'bogo' || promotion.offerType === 'addon')
+      ));
+    }
+
     // Dietary & Status Filters
     if (itemVegOnly) {
       result = result.filter(p => p.category === 'fruits-veg' || p.name.toLowerCase().includes('organic') || p.name.toLowerCase().includes('milk') || p.name.toLowerCase().includes('tomato'));
@@ -306,6 +321,7 @@ export const Home: React.FC = () => {
   const selectHomeTab = (tab: 'shops' | 'items' | 'preorder') => {
     setActiveTab(tab);
     setSelectedCategory(null);
+    setOfferFilter(null);
     setIsFilterOpen(false);
 
     window.requestAnimationFrame(() => {
@@ -319,6 +335,16 @@ export const Home: React.FC = () => {
   const chooseCategory = (categoryId: string) => {
     setActiveTab('items');
     setSelectedCategory(categoryId);
+    setOfferFilter(null);
+    window.setTimeout(() => document.getElementById('home-results')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
+  };
+
+  const showOfferProducts = (filter: 'top' | 'specials') => {
+    setActiveTab('items');
+    setSelectedCategory(null);
+    setSearchQuery('');
+    setOfferFilter(filter);
+    setIsFilterOpen(false);
     window.setTimeout(() => document.getElementById('home-results')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
   };
 
@@ -363,12 +389,12 @@ export const Home: React.FC = () => {
 
               {/* Notification icon */}
               <button
-                aria-label={`Open cart with ${cartCount} items`}
-                onClick={() => navigate('/profile')}
+                aria-label={`Open notifications${unreadCount ? `, ${unreadCount} unread` : ''}`}
+                onClick={() => navigate('/notifications')}
                 className="relative p-2.5 rounded-xl bg-white dark:bg-[#1E293B] border border-[#E2E8F0] dark:border-[#334155] shadow-sm text-gray-500 dark:text-[#94A3B8] hover:text-[#1565C0] cursor-pointer transition-colors"
               >
                 <Bell className="h-4 w-4" />
-                <span className="absolute top-2 right-2 h-1.5 w-1.5 rounded-full bg-red-500" />
+                {unreadCount > 0 && <span className="absolute top-2 right-2 h-1.5 w-1.5 rounded-full bg-red-500" />}
               </button>
 
               {/* Top Cart icon */}
@@ -639,10 +665,10 @@ export const Home: React.FC = () => {
           <section className="space-y-3 px-1">
             <SectionTitle eyebrow="Fresh savings" title="Deals made simple" />
             <div className="grid grid-cols-3 gap-2.5">
-              <button onClick={() => setActiveTab('items')} className="group min-h-28 overflow-hidden rounded-[18px] bg-gradient-to-br from-[#0B74E8] to-[#0758C7] p-3 text-left text-white shadow-sm">
+              <button onClick={() => showOfferProducts('top')} className="group min-h-28 overflow-hidden rounded-[18px] bg-gradient-to-br from-[#0B74E8] to-[#0758C7] p-3 text-left text-white shadow-sm">
                 <BadgePercent className="h-5 w-5 text-[#FFC928]" /><strong className="mt-4 block text-sm font-black leading-tight">{salePromotion ? `${salePromotion.value}% off` : 'Top offers'}</strong><span className="mt-1 block text-[8px] font-bold text-blue-100">Everyday savings</span>
               </button>
-              <button onClick={() => setActiveTab('items')} className="group min-h-28 overflow-hidden rounded-[18px] border border-amber-200 bg-gradient-to-br from-[#FFF4C7] to-[#FFC928] p-3 text-left text-[#071128] shadow-sm dark:border-amber-700 dark:from-amber-700 dark:to-amber-500">
+              <button onClick={() => showOfferProducts('specials')} className="group min-h-28 overflow-hidden rounded-[18px] border border-amber-200 bg-gradient-to-br from-[#FFF4C7] to-[#FFC928] p-3 text-left text-[#071128] shadow-sm dark:border-amber-700 dark:from-amber-700 dark:to-amber-500">
                 <Gift className="h-5 w-5" /><strong className="mt-4 block text-sm font-black leading-tight">{bogoPromotion ? `Buy ${bogoPromotion.buyQuantity || 1}, get ${bogoPromotion.getQuantity || 1}` : 'Shop specials'}</strong><span className="mt-1 block text-[8px] font-bold opacity-65">From local stores</span>
               </button>
               <button onClick={() => setIsPreorderModalOpen(true)} className="group min-h-28 overflow-hidden rounded-[18px] border border-cyan-100 bg-gradient-to-br from-[#E0F6FF] to-[#B7E8FF] p-3 text-left text-[#073B5A] shadow-sm dark:border-blue-800 dark:from-blue-950 dark:to-cyan-900 dark:text-white">
@@ -702,7 +728,7 @@ export const Home: React.FC = () => {
         <div className="mb-4">
           <SectionTitle
             eyebrow={searchQuery ? 'Search results' : activeTab === 'shops' ? 'Around you' : activeTab === 'preorder' ? 'Plan ahead' : 'More to explore'}
-            title={activeTab === 'shops' ? 'Nearby stores' : activeTab === 'preorder' ? 'Pre-order favourites' : selectedCategory ? APP_CATEGORIES.find(category => category.id === selectedCategory)?.name || 'Products' : 'All products'}
+            title={activeTab === 'shops' ? 'Nearby stores' : activeTab === 'preorder' ? 'Pre-order favourites' : offerFilter === 'top' ? 'Top offers' : offerFilter === 'specials' ? 'Shop specials' : selectedCategory ? APP_CATEGORIES.find(category => category.id === selectedCategory)?.name || 'Products' : 'All products'}
           />
         </div>
         {loading ? (
@@ -727,6 +753,12 @@ export const Home: React.FC = () => {
               <div className="flex items-center justify-between text-xs font-bold text-slate-500 dark:text-[#94A3B8] px-1">
                 <span>Filtering by: <b className="text-[#1565C0] dark:text-[#1E88E5] font-extrabold">{APP_CATEGORIES.find((c: any) => c.id === selectedCategory)?.name}</b></span>
                 <button onClick={() => setSelectedCategory(null)} className="text-red-500 font-extrabold hover:underline cursor-pointer">Clear</button>
+              </div>
+            )}
+            {offerFilter && (
+              <div className="flex items-center justify-between px-1 text-xs font-bold text-slate-500 dark:text-[#94A3B8]">
+                <span>Showing only <b className="font-extrabold text-[#1565C0] dark:text-[#1E88E5]">{offerFilter === 'top' ? 'active offers' : 'shop specials'}</b></span>
+                <button onClick={() => setOfferFilter(null)} className="cursor-pointer font-extrabold text-red-500 hover:underline">Clear</button>
               </div>
             )}
 
@@ -788,7 +820,7 @@ export const Home: React.FC = () => {
               filteredProducts.length === 0 ? (
                 <div className="text-center py-16 text-gray-400">
                   <Search className="h-10 w-10 mx-auto text-gray-300 dark:text-[#64748B] mb-2" />
-                  <p className="text-xs font-bold">No items match your filters.</p>
+                  <p className="text-xs font-bold">{offerFilter ? 'There are no active offers at this moment. Please check again soon.' : 'No items match your filters.'}</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">

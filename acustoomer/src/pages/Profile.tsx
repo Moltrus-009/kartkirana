@@ -216,7 +216,7 @@ export const Profile: React.FC = () => {
           { id: 'payments' as const, name: t('saved_payment_methods'), icon: CreditCard },
           { id: 'wishlist' as const, name: t('my_favorite_items'), icon: Heart, action: () => navigate('/wishlist') },
           { id: 'notifications' as const, name: t('app_notifications'), icon: Bell, badge: notifications.filter(n => !n.read).length },
-          { id: 'support' as const, name: t('support_helpdesk_faqs'), icon: Headphones },
+          { id: 'support' as const, name: t('support_helpdesk_faqs'), icon: Headphones, action: () => navigate('/support') },
           { id: 'terms' as const, name: 'Terms & Conditions', icon: FileText, action: () => navigate('/terms') },
           { id: 'privacy' as const, name: 'Privacy Policy', icon: Lock, action: () => navigate('/privacy') },
           { id: 'about' as const, name: t('about_kart_kirana'), icon: Shield }
@@ -410,22 +410,6 @@ export const Profile: React.FC = () => {
           <p>Version: 1.0.0 (Production Build)</p>
           <p>Built using React, Vite, Tailwind CSS, and Firebase. Structured to scale for matching Shopkeeper, Delivery Partner, and Administration clients.</p>
           <p>© 2026 Kart Kirana Technology Labs. All rights reserved.</p>
-        </div>
-      </Dialog>
-
-      {/* Support desk Modal */}
-      <Dialog isOpen={activeModal === 'support'} onClose={() => setActiveModal(null)} title="Support Desk">
-        <div className="flex flex-col gap-3 text-left text-xs text-gray-550 dark:text-gray-400 font-semibold leading-relaxed">
-          <p>Our call and chat desks are open 24/7. Average response time is under 1 minute.</p>
-          <div className="p-3 border border-[#E2E8F0] dark:border-[#334155] rounded-2xl flex items-center justify-between font-bold mt-2 text-gray-700 dark:text-white">
-            <div>
-              <span>Toll Free Number</span>
-              <span className="block text-[10px] text-gray-400 font-medium">1800-419-3221</span>
-            </div>
-            <a href="tel:18004193221" className="px-3.5 py-2 bg-gradient-to-br from-[#1E88E5] to-[#1565C0] text-white rounded-xl text-[10px] uppercase tracking-wide">
-              Call
-            </a>
-          </div>
         </div>
       </Dialog>
 

@@ -53,6 +53,10 @@ export const Wishlist: React.FC = () => {
   };
 
   const handleMoveToCart = (product: Product) => {
+    if (product.stock <= 0) {
+      alert(`${product.name} is currently out of stock.`);
+      return;
+    }
     addToCart(product, 1);
     handleRemove(product.id);
     navigate('/cart');
@@ -125,10 +129,11 @@ export const Wishlist: React.FC = () => {
                   
                   <Button
                     onClick={() => handleMoveToCart(product)}
+                    disabled={product.stock <= 0}
                     className="rounded-xl px-2.5 py-1 text-[10px] font-black flex items-center gap-1"
                   >
                     <ShoppingCart className="h-3 w-3" />
-                    MOVE
+                    {product.stock <= 0 ? 'OUT' : 'MOVE'}
                   </Button>
                 </div>
               </div>

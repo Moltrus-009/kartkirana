@@ -134,6 +134,7 @@ export const ProductDetails: React.FC = () => {
   };
 
   const handleIncrement = () => {
+    if (quantity >= product.stock) return;
     updateQuantity(product.id, quantity + 1);
   };
 
@@ -284,7 +285,8 @@ export const ProductDetails: React.FC = () => {
                 </span>
                 <button
                   onClick={handleIncrement}
-                  className="p-1 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900 rounded cursor-pointer"
+                  disabled={quantity >= product.stock}
+                  className="p-1 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900 rounded cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <Plus className="h-4 w-4" />
                 </button>

@@ -7,6 +7,7 @@ import { PreorderSchedule, isValidPreorderSchedule } from '../utils/preorder';
 import { useAuth } from './AuthContext';
 import { usePromotions } from '../hooks/usePromotions';
 import { calculateBestPromotion } from '../utils/promotions';
+import { useProducts } from '../hooks/useData';
 import {
   CUSTOMER_STORAGE_KEYS,
   getCustomerStorageItem,
@@ -55,6 +56,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [allShops, setAllShops] = useState<any[]>([]);
   const [conflictItem, setConflictItem] = useState<{ product: Product; quantity: number } | null>(null);
   const { promotions } = usePromotions(cartItems[0]?.product.shopId, user?.uid);
+  const { products: liveProducts } = useProducts();
 
   // Reload the authenticated customer's own cart whenever the account changes.
   useEffect(() => {
@@ -101,6 +103,32 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     dbService.getShops().then(list => setAllShops(list));
   }, []);
 
+  // Cart records contain a product snapshot for offline continuity. Replace
+  // that snapshot whenever live inventory changes so an old cart cannot keep
+  // selling stock that a shopkeeper has already reduced or sold out.
+  useEffect(() => {
+    if (!user?.uid || liveProducts.length === 0) return;
+
+    setCartItems(current => {
+      let changed = false;
+      const reconciled = current.map(item => {
+        const liveProduct = liveProducts.find(product => product.id === item.product.id);
+        if (!liveProduct) return item;
+
+        const availableStock = Math.max(0, Number(liveProduct.stock || 0));
+        const quantity = availableStock > 0 ? Math.min(item.quantity, availableStock) : item.quantity;
+        if (item.product.stock !== liveProduct.stock || item.product.price !== liveProduct.price || quantity !== item.quantity) changed = true;
+        return { ...item, product: liveProduct, quantity };
+      });
+
+      if (changed) {
+        setCustomerStorageItem(CUSTOMER_STORAGE_KEYS.cart, user.uid, JSON.stringify(reconciled));
+        return reconciled;
+      }
+      return current;
+    });
+  }, [liveProducts, user?.uid]);
+
   // Save to local storage on changes
   const saveCart = (items: CartItem[]) => {
     setCartItems(items);
@@ -126,6 +154,9 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     preorderDate?: string,
     preorderSlot?: string
   ) => {
+    const availableStock = Math.max(0, Number(product.stock || 0));
+    if (availableStock === 0 || quantity <= 0) return;
+
     // Multi-shop check
     if (cartShopId && cartShopId !== product.shopId) {
       const existingShop = allShops.find(s => s.id === cartShopId);
@@ -149,13 +180,17 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     let updatedList = [...cartItems];
 
     if (existsIdx > -1) {
-      updatedList[existsIdx].quantity += quantity;
+      updatedList[existsIdx] = {
+        ...updatedList[existsIdx],
+        product,
+        quantity: Math.min(availableStock, updatedList[existsIdx].quantity + quantity),
+      };
       if (preorderDate) updatedList[existsIdx].preorderDate = preorderDate;
       if (preorderSlot) updatedList[existsIdx].preorderSlot = preorderSlot;
     } else {
       updatedList.push({
         product,
-        quantity,
+        quantity: Math.min(quantity, availableStock),
         isPreorder,
         preorderDate,
         preorderSlot,
@@ -180,8 +215,10 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       removeFromCart(productId);
       return;
     }
-    const updated = cartItems.map(item => 
-      item.product.id === productId ? { ...item, quantity } : item
+    const currentItem = cartItems.find(item => item.product.id === productId);
+    if (!currentItem || currentItem.product.stock <= 0) return;
+    const updated = cartItems.map(item =>
+      item.product.id === productId ? { ...item, quantity: Math.min(quantity, item.product.stock) } : item
     );
     saveCart(updated);
   };
@@ -189,7 +226,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const applyCoupon = async (code: string): Promise<{ success: boolean; message: string }> => {
     try {
       const normalizedCode = code.trim().toUpperCase();
-      const subtotal = cartItems.reduce((acc, item) => acc + (item.product.price * item.quantity), 0);
+      const subtotal = cartItems.filter(item => item.product.stock > 0).reduce((acc, item) => acc + (item.product.price * item.quantity), 0);
       if (!normalizedCode || !cartShopId || subtotal <= 0) {
         return { success: false, message: 'Add items to your cart before applying a coupon.' };
       }
@@ -253,7 +290,8 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Compute price breakdown
   const calculateBreakdown = (): PriceBreakdown => {
-    const subtotal = cartItems.reduce((acc, item) => acc + (item.product.price * item.quantity), 0);
+    const availableItems = cartItems.filter(item => item.product.stock > 0 && item.quantity <= item.product.stock);
+    const subtotal = availableItems.reduce((acc, item) => acc + (item.product.price * item.quantity), 0);
     
     let discount = 0;
     if (coupon) {
@@ -273,10 +311,10 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Free delivery check (above ₹149)
     const qualifiesFreeDelivery = subtotal >= 149;
-    const baseDeliveryCharge = cartItems.length > 0 && !qualifiesFreeDelivery ? 25 : 0;
+    const baseDeliveryCharge = availableItems.length > 0 && !qualifiesFreeDelivery ? 25 : 0;
     let deliveryCharge = coupon?.freeDelivery ? 0 : baseDeliveryCharge;
     let appliedPromotion: AppliedPromotion | null = null;
-    const bestPromotion = calculateBestPromotion(promotions, cartItems, subtotal, baseDeliveryCharge);
+    const bestPromotion = calculateBestPromotion(promotions, availableItems, subtotal, baseDeliveryCharge);
     const couponSaving = discount + (coupon?.freeDelivery ? baseDeliveryCharge : 0);
     if (bestPromotion && bestPromotion.saving > couponSaving) {
       appliedPromotion = bestPromotion;
@@ -285,7 +323,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     
     // Flat handling fee of ₹5 per delivery
-    const platformFee = cartItems.length > 0 ? 5 : 0;
+    const platformFee = availableItems.length > 0 ? 5 : 0;
     const packagingFee = 0;
 
     const taxes = 0; // GST removed - prices are inclusive as shown on platform
@@ -305,10 +343,10 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const confirmReplaceCart = () => {
-    if (conflictItem) {
+    if (conflictItem && conflictItem.product.stock > 0) {
       const newItem: CartItem = { 
         product: conflictItem.product, 
-        quantity: conflictItem.quantity, 
+        quantity: Math.min(conflictItem.quantity, conflictItem.product.stock),
         isPreorder: conflictItem.product.isPreorder 
       };
       saveCart([newItem]);
