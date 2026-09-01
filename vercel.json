@@ -1,11 +1,16 @@
 {
+  "installCommand": "npm --prefix acustoomer install --no-audit --no-fund && npm --prefix \"shopkeeper pov\" install --no-audit --no-fund && npm --prefix \"delivery boy app\" install --no-audit --no-fund",
+  "buildCommand": "npm --prefix acustoomer run build:web",
+  "outputDirectory": "acustoomer/dist",
   "redirects": [
     {
       "source": "/:path*",
       "has": [{ "type": "host", "value": "www.kartkirana.com" }],
       "destination": "https://kartkirana.com/:path*",
       "permanent": true
-    }
+    },
+    { "source": "/shopkeeperpartner", "destination": "/shopkeeperpartner/", "permanent": true },
+    { "source": "/driver", "destination": "/driver/", "permanent": true }
   ],
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }

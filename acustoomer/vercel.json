@@ -1,11 +1,16 @@
 {
+  "installCommand": "npm install --no-audit --no-fund && npm --prefix \"../shopkeeper pov\" install --no-audit --no-fund && npm --prefix \"../delivery boy app\" install --no-audit --no-fund",
+  "buildCommand": "npm run build:web",
+  "outputDirectory": "dist",
   "redirects": [
     {
       "source": "/:path*",
       "has": [{ "type": "host", "value": "www.kartkirana.com" }],
       "destination": "https://kartkirana.com/:path*",
       "permanent": true
-    }
+    },
+    { "source": "/shopkeeperpartner", "destination": "/shopkeeperpartner/", "permanent": true },
+    { "source": "/driver", "destination": "/driver/", "permanent": true }
   ],
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
@@ -24,6 +29,18 @@
     },
     {
       "source": "/assets/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+      ]
+    },
+    {
+      "source": "/shopkeeperpartner/assets/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+      ]
+    },
+    {
+      "source": "/driver/assets/(.*)",
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
       ]

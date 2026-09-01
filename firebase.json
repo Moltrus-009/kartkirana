@@ -34,6 +34,18 @@
         "destination": "/index.html"
       }
     ],
+    "redirects": [
+      {
+        "source": "/shopkeeperpartner",
+        "destination": "/shopkeeperpartner/",
+        "type": 301
+      },
+      {
+        "source": "/driver",
+        "destination": "/driver/",
+        "type": 301
+      }
+    ],
     "headers": [
       {
         "source": "**",
