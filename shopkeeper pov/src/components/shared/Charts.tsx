@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useLanguage } from '../../context/LanguageContext';
 
 interface ChartDataPoint {
   label: string;
@@ -11,9 +12,10 @@ interface LineChartProps {
 }
 
 export function SalesLineChart({ data, height = 200 }: LineChartProps) {
+  const { t } = useLanguage();
   const [hoveredPoint, setHoveredPoint] = useState<{ x: number; y: number; val: number; label: string } | null>(null);
 
-  if (data.length === 0) return <div className="text-center text-slate-400 py-10 font-bold">No data to display.</div>;
+  if (data.length === 0) return <div className="text-center text-slate-400 py-10 font-bold">{t('no_data')}</div>;
 
   const maxVal = Math.max(...data.map(d => d.value), 1000);
   const minVal = 0;
@@ -150,7 +152,8 @@ export function SalesLineChart({ data, height = 200 }: LineChartProps) {
 }
 
 export function CategoryBarChart({ data, height = 200 }: LineChartProps) {
-  if (data.length === 0) return <div className="text-center text-slate-400 py-10 font-bold">No data to display.</div>;
+  const { t } = useLanguage();
+  if (data.length === 0) return <div className="text-center text-slate-400 py-10 font-bold">{t('no_data')}</div>;
 
   const maxVal = Math.max(...data.map(d => d.value), 10);
   const width = 500;
@@ -223,7 +226,8 @@ export function CategoryBarChart({ data, height = 200 }: LineChartProps) {
 }
 
 export function OrdersDonutChart({ data }: { data: ChartDataPoint[] }) {
-  if (data.length === 0) return <div className="text-center text-slate-400 py-10 font-bold">No data to display.</div>;
+  const { t } = useLanguage();
+  if (data.length === 0) return <div className="text-center text-slate-400 py-10 font-bold">{t('no_data')}</div>;
 
   const total = data.reduce((sum, d) => sum + d.value, 0) || 1;
   const radius = 50;
@@ -264,7 +268,7 @@ export function OrdersDonutChart({ data }: { data: ChartDataPoint[] }) {
         {/* Center label */}
         <g className="transform rotate-90 origin-[60px_60px]">
           <text x={center} y={center - 2} textAnchor="middle" className="text-[10px] font-extrabold fill-slate-400 dark:fill-zinc-500">
-            TOTAL
+            {t('total').toUpperCase()}
           </text>
           <text x={center} y={center + 12} textAnchor="middle" className="text-[15px] font-black fill-slate-800 dark:fill-zinc-100">
             {total}

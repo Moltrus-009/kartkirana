@@ -148,8 +148,8 @@ export default function Profile() {
         <div className="bg-white dark:bg-dark-card border border-slate-100 dark:border-dark-border p-5 rounded-3xl space-y-3.5 shadow-xs">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="font-black text-slate-800 dark:text-zinc-200 text-sm">Store Availability</h3>
-              <p className="text-[10px] text-slate-450 font-bold leading-none mt-0.5">Toggle to instantly open or close your store</p>
+              <h3 className="font-black text-slate-800 dark:text-zinc-200 text-sm">{t('store_availability')}</h3>
+              <p className="text-[10px] text-slate-450 font-bold leading-none mt-0.5">{t('store_availability_desc')}</p>
             </div>
             <button
               type="button"
@@ -184,12 +184,12 @@ export default function Profile() {
       {/* STORE BRANDING UPLOADS */}
       {shop && (
         <div className="bg-white dark:bg-dark-card border border-slate-100 dark:border-dark-border p-5 rounded-3xl space-y-4 shadow-xs text-left">
-          <h3 className="text-[9px] font-black uppercase tracking-wider text-slate-400 pb-2 border-b border-slate-50 dark:border-dark-border/40">Store Branding</h3>
+          <h3 className="text-[9px] font-black uppercase tracking-wider text-slate-400 pb-2 border-b border-slate-50 dark:border-dark-border/40">{t('store_branding')}</h3>
           
           <div className="grid grid-cols-1 gap-4">
             {/* Shop Logo */}
             <div className="space-y-2">
-              <span className="text-[10px] font-black text-slate-450 uppercase tracking-wider block">Shop Logo Image</span>
+              <span className="text-[10px] font-black text-slate-450 uppercase tracking-wider block">{t('shop_logo_image')}</span>
               <div className="flex items-center gap-3">
                 <div className="h-16 w-16 bg-slate-50 dark:bg-zinc-900 border border-slate-200/50 dark:border-dark-border rounded-2xl overflow-hidden flex items-center justify-center shrink-0">
                   {shop.logoUrl || shop.logo || shop.image ? (
@@ -219,7 +219,7 @@ export default function Profile() {
 
             {/* Shop Banner */}
             <div className="space-y-2">
-              <span className="text-[10px] font-black text-slate-455 uppercase tracking-wider block">Store Front Cover Banner</span>
+              <span className="text-[10px] font-black text-slate-455 uppercase tracking-wider block">{t('store_cover_banner')}</span>
               <div className="flex items-center gap-3">
                 <div className="h-16 w-24 bg-slate-50 dark:bg-zinc-900 border border-slate-200/50 dark:border-dark-border rounded-2xl overflow-hidden flex items-center justify-center shrink-0">
                   {shop.bannerUrl || shop.coverImage ? (
@@ -254,8 +254,8 @@ export default function Profile() {
       <div className="bg-white dark:bg-dark-card border border-slate-100 dark:border-dark-border p-5 rounded-3xl space-y-3.5 shadow-xs text-left">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="font-black text-slate-800 dark:text-zinc-200 text-sm">App Theme Style</h3>
-            <p className="text-[10px] text-slate-450 font-bold leading-none mt-0.5">Choose between Light (Day) and Dark (Night) mode</p>
+            <h3 className="font-black text-slate-800 dark:text-zinc-200 text-sm">{t('theme_style')}</h3>
+            <p className="text-[10px] text-slate-450 font-bold leading-none mt-0.5">{t('theme_style_desc')}</p>
           </div>
           <button
             type="button"
@@ -275,7 +275,7 @@ export default function Profile() {
 
       {/* PROFILE DETAILS FORM */}
       <form onSubmit={handleSave} className="bg-white dark:bg-dark-card border border-slate-100 dark:border-dark-border p-5 rounded-3xl space-y-4 shadow-xs">
-        <h3 className="text-[9px] font-black uppercase tracking-wider text-slate-400 pb-2 border-b border-slate-50 dark:border-dark-border/40">Shop Parameters</h3>
+        <h3 className="text-[9px] font-black uppercase tracking-wider text-slate-400 pb-2 border-b border-slate-50 dark:border-dark-border/40">{t('shop_parameters')}</h3>
         
         {/* Shop Name */}
         <div className="space-y-1">
@@ -293,7 +293,7 @@ export default function Profile() {
 
         {/* Owner Name (Read Only) */}
         <div className="space-y-1 opacity-70">
-          <label className="text-[10px] font-black text-slate-455 uppercase tracking-wider block">Owner Name</label>
+          <label className="text-[10px] font-black text-slate-455 uppercase tracking-wider block">{t('owner_name')}</label>
           <div className="relative">
             <input
               type="text"
@@ -307,7 +307,7 @@ export default function Profile() {
 
         {/* Owner Phone (Read Only) */}
         <div className="space-y-1 opacity-70">
-          <label className="text-[10px] font-black text-slate-455 uppercase tracking-wider block">Owner Phone Number</label>
+          <label className="text-[10px] font-black text-slate-455 uppercase tracking-wider block">{t('owner_phone')}</label>
           <div className="relative">
             <input
               type="text"
@@ -348,7 +348,7 @@ export default function Profile() {
             </div>
           </div>
           <div className="space-y-1">
-            <label className="text-[10px] font-black text-slate-450 uppercase tracking-wider block">Closing Time</label>
+            <label className="text-[10px] font-black text-slate-450 uppercase tracking-wider block">{t('closing_time')}</label>
             <div className="relative">
               <input
                 type="time"
@@ -363,7 +363,7 @@ export default function Profile() {
 
         {/* Delivery Radius */}
         <div className="space-y-1">
-          <label className="text-[10px] font-black text-slate-450 uppercase tracking-wider block">Delivery Radius (km)</label>
+          <label className="text-[10px] font-black text-slate-450 uppercase tracking-wider block">{t('delivery_radius')}</label>
           <div className="relative">
             <input
               type="number"
@@ -404,7 +404,7 @@ export default function Profile() {
 
       {/* LEGAL & POLICIES BLOCK */}
       <div className="bg-white dark:bg-dark-card border border-slate-100 dark:border-dark-border p-5 rounded-3xl space-y-3 shadow-xs text-left">
-        <h3 className="text-[9px] font-black uppercase tracking-wider text-slate-400 pb-2 border-b border-slate-50 dark:border-dark-border/40">Legal & Policies</h3>
+        <h3 className="text-[9px] font-black uppercase tracking-wider text-slate-400 pb-2 border-b border-slate-50 dark:border-dark-border/40">{t('legal_policies')}</h3>
         <div className="space-y-2">
           <button
             type="button"
@@ -413,7 +413,7 @@ export default function Profile() {
           >
             <div className="flex items-center gap-2.5">
               <FileText className="h-4 w-4 text-primary" />
-              <span>Merchant Terms & Conditions</span>
+              <span>{t('merchant_terms_conditions')}</span>
             </div>
             <ChevronRight className="h-4 w-4 text-slate-400" />
           </button>
@@ -424,7 +424,7 @@ export default function Profile() {
           >
             <div className="flex items-center gap-2.5">
               <Lock className="h-4 w-4 text-emerald-500" />
-              <span>Merchant Privacy Policy</span>
+              <span>{t('merchant_privacy_policy')}</span>
             </div>
             <ChevronRight className="h-4 w-4 text-slate-400" />
           </button>

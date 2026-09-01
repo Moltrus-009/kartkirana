@@ -3,17 +3,19 @@ import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../core/store/useAppStore';
 import { auth } from '../infrastructure/firebase/firebase';
 import { recaptchaManager } from '../lib/recaptchaManager';
+import { useLanguage } from '../context/LanguageContext';
 
 function setupRecaptcha(containerId: string) {
   if (!auth) return null;
   return recaptchaManager.setup(auth, containerId);
 }
 
-import { Smartphone, CheckCircle, ShieldAlert, KeyRound } from 'lucide-react';
+import { Smartphone, CheckCircle, ShieldAlert, KeyRound, Languages } from 'lucide-react';
 import { hasValidConfig } from '../infrastructure/firebase/firebase';
 
 export default function Login() {
   const { triggerOTP, verifyOTP, loading } = useAppStore();
+  const { language, setLanguage, t } = useLanguage();
   const navigate = useNavigate();
   const [phone, setPhone] = useState('');
   const [otpDigits, setOtpDigits] = useState(['', '', '', '', '', '']);
@@ -81,18 +83,18 @@ export default function Login() {
     setSuccess(null);
 
     if (!phone || phone.length < 10) {
-      setError('Please enter a valid 10-digit mobile number.');
+      setError(t('error_invalid_phone'));
       return;
     }
 
     if (!hasValidConfig) {
-      setError('Secure sign-in is not configured. Please contact support.');
+      setError(t('error_signin_not_configured'));
       return;
     }
 
     const verifier = setupRecaptcha('recaptcha-container');
     if (!verifier) {
-      setError('Security verification could not be initialized. Refresh and try again.');
+      setError(t('error_security_init'));
       return;
     }
 
@@ -100,14 +102,14 @@ export default function Login() {
     try {
       const res = await triggerOTP(phone, verifier);
       if (res.success) {
-        setSuccess(`OTP code sent successfully to +91 ${phone}`);
+        setSuccess(t('otp_sent', { phone: `+91 ${phone}` }));
         setStep('verify');
       } else {
-        setError(res.error || 'Failed to send OTP. Please check your credentials.');
+        setError(res.error || t('error_send_otp'));
         recaptchaManager.clear();
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong while sending SMS.');
+      setError(err instanceof Error ? err.message : t('error_sms'));
       recaptchaManager.clear();
     } finally {
       setSubmitting(false);
@@ -122,7 +124,7 @@ export default function Login() {
 
     const mergedOtp = otpDigits.join('');
     if (mergedOtp.length !== 6) {
-      setError('Please enter the full 6-digit OTP verification code.');
+      setError(t('error_full_otp'));
       return;
     }
 
@@ -130,15 +132,15 @@ export default function Login() {
     try {
       const res = await verifyOTP(phone, mergedOtp);
       if (res.success) {
-        setSuccess('Logged in successfully!');
+        setSuccess(t('login_success'));
         setTimeout(() => {
           navigate('/', { replace: true });
         }, 500);
       } else {
-        setError(res.error || 'Invalid OTP code. Please try again.');
+        setError(res.error || t('error_invalid_otp'));
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Verification failed.');
+      setError(err instanceof Error ? err.message : t('error_verification'));
     } finally {
       setSubmitting(false);
     }
@@ -147,6 +149,7 @@ export default function Login() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4 transition-all duration-300">
       <div className="w-full max-w-md bg-white border border-slate-100/80 rounded-3xl p-8 shadow-lg shadow-slate-200/50 relative overflow-hidden transition-all duration-300">
+        <button type="button" onClick={() => setLanguage(language === 'en' ? 'hi' : 'en')} className="absolute right-4 top-4 z-20 flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[10px] font-black text-slate-600 shadow-sm" aria-label={t('change_language')}><Languages className="h-3.5 w-3.5" />{language === 'en' ? 'हिन्दी' : 'English'}</button>
         
         {/* Decorative Ambient Blur Lights */}
         <div className="absolute -top-20 -left-20 w-44 h-44 bg-blue-500/5 rounded-full blur-3xl"></div>
@@ -160,10 +163,10 @@ export default function Login() {
           <img src="/logo.jpeg" alt="Kart Kirana Shopkeeper Partner" className="w-28 h-28 rounded-2xl object-contain mx-auto shadow-lg shadow-blue-500/20 mb-5 animate-float" />
           
           <h1 className="text-2xl font-black text-slate-800 leading-tight">
-            Kirana Partner Portal
+            {t('login_title')}
           </h1>
           <p className="text-xs text-slate-400 font-bold mt-1.5 mb-6">
-            Accept orders, manage inventory, & grow your local sales.
+            {t('login_subtitle')}
           </p>
 
           {/* Authentication service status */}
@@ -172,9 +175,9 @@ export default function Login() {
               <div className="flex items-start gap-2.5">
                 <ShieldAlert className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
                 <div>
-                  <h4 className="text-[10px] font-black uppercase tracking-wider leading-none mb-1">Sign-in unavailable</h4>
+                  <h4 className="text-[10px] font-black uppercase tracking-wider leading-none mb-1">{t('signin_unavailable')}</h4>
                   <p className="text-[10px] leading-normal font-bold opacity-80">
-                    This app is missing its secure Firebase configuration. Please contact your administrator.
+                    {t('signin_unavailable_desc')}
                   </p>
                 </div>
               </div>
@@ -192,9 +195,9 @@ export default function Login() {
             <div className="mb-6 p-3 bg-emerald-50 border border-emerald-100 text-emerald-800 rounded-2xl text-left flex items-start gap-2.5">
               <CheckCircle className="h-5 w-5 text-emerald-600 flex-shrink-0 mt-0.5" />
               <div>
-                <h4 className="text-[10px] font-black uppercase tracking-wider leading-none mb-1">Firebase Online</h4>
+                  <h4 className="text-[10px] font-black uppercase tracking-wider leading-none mb-1">{t('firebase_online')}</h4>
                 <p className="text-[10px] leading-tight font-bold opacity-80">
-                  SMS codes will be sent securely via Google Firebase Authentication.
+                  {t('firebase_online_desc')}
                 </p>
               </div>
             </div>
@@ -216,7 +219,7 @@ export default function Login() {
             <form onSubmit={handleSendOTP} className="space-y-4 text-left page-transition">
               <div className="space-y-1">
                 <label className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider block">
-                  Owner Mobile Number
+                  {t('owner_mobile')}
                 </label>
                 <div className="relative">
                   <input
@@ -239,14 +242,14 @@ export default function Login() {
                 disabled={loading || submitting}
                 className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white text-xs font-black rounded-xl uppercase tracking-wider shadow-lg shadow-blue-500/10 transition-all duration-200 cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
               >
-                {submitting ? 'Requesting Code...' : 'Request OTP Code'}
+                {submitting ? t('requesting_code') : t('request_code')}
               </button>
             </form>
           ) : (
             <form onSubmit={handleVerifyOTP} className="space-y-5 text-left page-transition">
               <div className="space-y-2">
                 <label className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider block text-center">
-                  Enter 6-Digit OTP Code
+                  {t('enter_otp')}
                 </label>
                 
                 {/* Segmented OTP digit inputs */}
@@ -269,7 +272,7 @@ export default function Login() {
                 </div>
                 
                 <p className="text-[10px] text-slate-400 font-bold mt-1 text-center">
-                  Verification SMS sent to <span className="font-mono text-slate-500 font-black">+91 {phone}</span>
+                  {t('sms_sent_to', { phone: `+91 ${phone}` })}
                 </p>
               </div>
  
@@ -279,7 +282,7 @@ export default function Login() {
                   onClick={() => { setStep('details'); setError(null); setSuccess(null); setOtpDigits(['', '', '', '', '', '']); }}
                   className="w-1/3 py-3 border border-slate-200 hover:bg-slate-50 text-[10px] font-black uppercase rounded-xl transition cursor-pointer text-center text-slate-500"
                 >
-                  Back
+                  {t('back')}
                 </button>
                 <button
                   type="submit"
@@ -287,20 +290,20 @@ export default function Login() {
                   className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-black uppercase rounded-xl tracking-wider shadow-md hover:shadow-lg transition cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
                 >
                   <KeyRound className="h-3.5 w-3.5" />
-                  {submitting ? 'Verifying...' : 'Verify & Continue'}
+                  {submitting ? t('verifying') : t('verify_continue')}
                 </button>
               </div>
             </form>
           )}
 
           <div className="text-[10px] text-slate-400 font-semibold text-center mt-6 pt-4 border-t border-slate-100">
-            By logging in, you agree to the{' '}
+            {t('login_agreement')}{' '}
             <button type="button" onClick={() => navigate('/terms')} className="text-primary hover:underline font-bold cursor-pointer">
-              Merchant Terms
+              {t('merchant_terms')}
             </button>{' '}
-            &{' '}
+            {t('and')}{' '}
             <button type="button" onClick={() => navigate('/privacy')} className="text-primary hover:underline font-bold cursor-pointer">
-              Privacy Policy
+              {t('privacy_policy')}
             </button>
           </div>
         </div>

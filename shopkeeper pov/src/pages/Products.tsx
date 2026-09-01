@@ -291,7 +291,7 @@ export default function Products() {
         {filteredProducts.length === 0 ? (
           <EmptyState
             icon={Folder}
-            title="No items found"
+            title={t('no_items_found')}
             description="Add products to your catalog to show them to customers."
           />
         ) : (
@@ -356,7 +356,7 @@ export default function Products() {
                           ? 'bg-slate-100 text-slate-350 cursor-not-allowed dark:bg-zinc-800'
                           : 'bg-white dark:bg-dark-card border border-slate-200 dark:border-dark-border text-slate-700 dark:text-zinc-300 hover:bg-slate-100'
                       }`}
-                      title="Decrease Stock"
+                      title={t('decrease_stock')}
                     >
                       －
                     </button>
@@ -364,7 +364,7 @@ export default function Products() {
                     <button
                       onClick={() => handleQuickStockChange(p.id, 1, p.stock)}
                       className="w-9 h-9 rounded-xl bg-white dark:bg-dark-card border border-slate-200 dark:border-dark-border text-slate-700 dark:text-zinc-300 font-black text-lg flex items-center justify-center hover:bg-slate-100 cursor-pointer select-none"
-                      title="Increase Stock"
+                      title={t('increase_stock')}
                     >
                       ＋
                     </button>
@@ -382,9 +382,9 @@ export default function Products() {
                       <Edit className="h-3.5 w-3.5" /> {t('edit')}
                     </button>
                     <button
-                      onClick={() => { if(confirm('Delete product permanently?')) removeProduct(p.id); }}
+                      onClick={() => { if(confirm(t('delete_product_confirm'))) removeProduct(p.id); }}
                       className="p-1.5 border border-red-100 text-red-500 rounded-xl cursor-pointer hover:bg-red-50 flex items-center justify-center"
-                      title="Delete Product"
+                      title={t('delete_product')}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
@@ -424,7 +424,7 @@ export default function Products() {
                 <label className="text-[10px] font-black text-slate-450 uppercase tracking-wider block">{t('name')} *</label>
                 <input
                   type="text"
-                  placeholder="e.g. Fresh Bread (400g)"
+                  placeholder={t('product_name_placeholder')}
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
                   className="w-full p-2.5 bg-slate-50 dark:bg-zinc-900 border border-slate-100 dark:border-dark-border rounded-xl font-bold outline-none"
@@ -484,7 +484,7 @@ export default function Products() {
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-slate-450 uppercase tracking-wider block">{t('description')}</label>
                 <textarea
-                  placeholder="Details about product size, package, etc..."
+                  placeholder={t('product_desc_placeholder')}
                   value={form.description}
                   onChange={(e) => setForm({ ...form, description: e.target.value })}
                   rows={2}
@@ -494,7 +494,7 @@ export default function Products() {
 
               {/* Product Cover Image Upload */}
               <div className="space-y-1">
-                <label className="text-[10px] font-black text-slate-450 uppercase tracking-wider block">Product Main Image (Cover)</label>
+                <label className="text-[10px] font-black text-slate-450 uppercase tracking-wider block">{t('product_main_image')}</label>
                 <div className="flex items-center gap-3">
                   <div className="h-12 w-12 bg-slate-50 dark:bg-zinc-900 border border-slate-100 dark:border-dark-border rounded-xl overflow-hidden flex items-center justify-center shrink-0">
                     {form.image ? (
@@ -520,7 +520,7 @@ export default function Products() {
 
               {/* Product Gallery Images (Multiple) */}
               <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-slate-450 uppercase tracking-wider block">Product Gallery Carousel Images</label>
+                <label className="text-[10px] font-black text-slate-450 uppercase tracking-wider block">{t('product_gallery')}</label>
                 <div className="flex flex-wrap gap-2 items-center">
                   {/* Gallery List */}
                   {form.images && form.images.map((img, idx) => (
@@ -530,7 +530,7 @@ export default function Products() {
                         type="button"
                         onClick={() => removeGalleryImage(idx)}
                         className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white transition-opacity cursor-pointer"
-                        title="Delete image"
+                        title={t('delete_image')}
                       >
                         <X className="h-4 w-4" />
                       </button>

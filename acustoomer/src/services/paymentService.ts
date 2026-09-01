@@ -64,6 +64,19 @@ const getSecureHeaders = async (forceRefresh = false): Promise<Record<string, st
       'Secure app verification timed out.'
     );
   } catch (error) {
+    if (!forceRefresh) {
+      try {
+        appCheckToken = await withTimeout(
+          getSecureAppCheckToken(true),
+          10000,
+          'Secure app verification timed out.'
+        );
+        return {
+          'Authorization': `Bearer ${idToken}`,
+          'X-Firebase-AppCheck': appCheckToken
+        };
+      } catch { /* Return the safe checkout error below. */ }
+    }
     if (import.meta.env.DEV) {
       console.error('[paymentService] Firebase App Check token request failed:', error);
     }

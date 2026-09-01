@@ -9,9 +9,11 @@ import {
   Percent
 } from 'lucide-react';
 import { CategoryBarChart } from '../components/shared/Charts';
+import { useLanguage } from '../context/LanguageContext';
 
 export default function Analytics() {
   const { products, orders } = useAppStore();
+  const { t, locale } = useLanguage();
 
   // 1. Calculations
   const completedOrders = orders.filter((o: any) => o.status === 'DELIVERED' || o.status === 'COMPLETED' || o.status === 'delivered' as any);
@@ -121,8 +123,8 @@ export default function Analytics() {
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-black text-slate-800 dark:text-zinc-100">Store Performance Analytics</h2>
-          <p className="text-xs text-slate-400 dark:text-zinc-500 font-bold mt-0.5">Explore monthly revenues, customer counts, baskets averages, & download reports</p>
+          <h2 className="text-xl font-black text-slate-800 dark:text-zinc-100">{t('analytics_title')}</h2>
+          <p className="text-xs text-slate-400 dark:text-zinc-500 font-bold mt-0.5">{t('analytics_subtitle')}</p>
         </div>
 
         <button
@@ -130,7 +132,7 @@ export default function Analytics() {
           className="px-4.5 py-2.5 bg-primary text-white text-xs font-black rounded-xl hover:bg-primary-hover shadow-md shadow-primary/10 hover:shadow-lg transition cursor-pointer flex items-center gap-1.5 self-end sm:self-auto"
         >
           <Download className="h-4.5 w-4.5" />
-          Download Reports (CSV)
+          {t('download_report')} (CSV)
         </button>
       </div>
 
@@ -140,10 +142,10 @@ export default function Analytics() {
         {/* Monthly Revenue */}
         <div className="bg-white dark:bg-dark-card border border-slate-100 dark:border-dark-border p-5 rounded-3xl flex items-center justify-between shadow-xs">
           <div className="space-y-1">
-            <span className="text-[10px] font-extrabold text-slate-400 dark:text-zinc-500 uppercase tracking-widest block">Monthly Sales</span>
-            <h3 className="text-xl font-black text-slate-800 dark:text-zinc-100">₹{monthlyRevenue.toLocaleString()}</h3>
+            <span className="text-[10px] font-extrabold text-slate-400 dark:text-zinc-500 uppercase tracking-widest block">{t('monthly_sales')}</span>
+            <h3 className="text-xl font-black text-slate-800 dark:text-zinc-100">₹{monthlyRevenue.toLocaleString(locale)}</h3>
             <span className="text-[10px] text-emerald-500 font-extrabold flex items-center gap-0.5">
-              <TrendingUp className="h-3 w-3" /> +8.2% vs last month
+              <TrendingUp className="h-3 w-3" /> {t('versus_last_month')}
             </span>
           </div>
           <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-950/20 text-primary flex items-center justify-center">
@@ -154,10 +156,10 @@ export default function Analytics() {
         {/* Weekly Revenue */}
         <div className="bg-white dark:bg-dark-card border border-slate-100 dark:border-dark-border p-5 rounded-3xl flex items-center justify-between shadow-xs">
           <div className="space-y-1">
-            <span className="text-[10px] font-extrabold text-slate-400 dark:text-zinc-500 uppercase tracking-widest block">Weekly Sales</span>
-            <h3 className="text-xl font-black text-slate-800 dark:text-zinc-100">₹{weeklyRevenue.toLocaleString()}</h3>
+            <span className="text-[10px] font-extrabold text-slate-400 dark:text-zinc-500 uppercase tracking-widest block">{t('weekly_sales')}</span>
+            <h3 className="text-xl font-black text-slate-800 dark:text-zinc-100">₹{weeklyRevenue.toLocaleString(locale)}</h3>
             <span className="text-[10px] text-slate-400 font-bold block">
-              Estimated weekly receipts
+              {t('estimated_weekly_receipts')}
             </span>
           </div>
           <div className="w-12 h-12 rounded-2xl bg-amber-50 dark:bg-amber-950/20 text-accent flex items-center justify-center">
@@ -168,10 +170,10 @@ export default function Analytics() {
         {/* Average Basket Value */}
         <div className="bg-white dark:bg-dark-card border border-slate-100 dark:border-dark-border p-5 rounded-3xl flex items-center justify-between shadow-xs">
           <div className="space-y-1">
-            <span className="text-[10px] font-extrabold text-slate-400 dark:text-zinc-500 uppercase tracking-widest block">Average Order Value</span>
+            <span className="text-[10px] font-extrabold text-slate-400 dark:text-zinc-500 uppercase tracking-widest block">{t('average_order_value')}</span>
             <h3 className="text-xl font-black text-slate-800 dark:text-zinc-100">₹{averageBasketValue}</h3>
             <span className="text-[10px] text-slate-400 font-bold block">
-              Per checked-out cart
+              {t('per_checkout')}
             </span>
           </div>
           <div className="w-12 h-12 rounded-2xl bg-blue-50 dark:bg-blue-950/20 text-blue-500 flex items-center justify-center">
@@ -182,10 +184,10 @@ export default function Analytics() {
         {/* Customer Retention Rate */}
         <div className="bg-white dark:bg-dark-card border border-slate-100 dark:border-dark-border p-5 rounded-3xl flex items-center justify-between shadow-xs">
           <div className="space-y-1">
-            <span className="text-[10px] font-extrabold text-slate-400 dark:text-zinc-500 uppercase tracking-widest block">Customer Retention</span>
+            <span className="text-[10px] font-extrabold text-slate-400 dark:text-zinc-500 uppercase tracking-widest block">{t('customer_retention')}</span>
             <h3 className="text-xl font-black text-slate-800 dark:text-zinc-100">76.4%</h3>
             <span className="text-[10px] text-emerald-500 font-extrabold flex items-center gap-0.5">
-              <Percent className="h-3 w-3" /> +2.5% this quarter
+              <Percent className="h-3 w-3" /> {t('this_quarter')}
             </span>
           </div>
           <div className="w-12 h-12 rounded-2xl bg-violet-50 dark:bg-violet-950/20 text-violet-500 flex items-center justify-center">
@@ -200,8 +202,8 @@ export default function Analytics() {
         
         {/* Sales by Category Bar chart */}
         <div className="bg-white dark:bg-dark-card border border-slate-100 dark:border-dark-border p-6 rounded-3xl shadow-xs">
-          <h3 className="text-sm font-black mb-1">Sales by Product Categories</h3>
-          <p className="text-[10px] text-slate-400 font-bold mb-6">Revenue breakdown across major departments (₹)</p>
+          <h3 className="text-sm font-black mb-1">{t('sales_by_category')}</h3>
+          <p className="text-[10px] text-slate-400 font-bold mb-6">{t('sales_by_category_desc')}</p>
           <div className="py-2">
             <CategoryBarChart data={finalCategoryData} />
           </div>
@@ -209,8 +211,8 @@ export default function Analytics() {
 
         {/* Peak Sales hours graph */}
         <div className="bg-white dark:bg-dark-card border border-slate-100 dark:border-dark-border p-6 rounded-3xl shadow-xs">
-          <h3 className="text-sm font-black mb-1">Peak Ordering Hours</h3>
-          <p className="text-[10px] text-slate-400 font-bold mb-6">Aggregate customer checkout frequency trends</p>
+          <h3 className="text-sm font-black mb-1">{t('peak_hours')}</h3>
+          <p className="text-[10px] text-slate-400 font-bold mb-6">{t('peak_hours_desc')}</p>
           <div className="py-2">
             <CategoryBarChart data={peakSalesHoursData} />
           </div>
@@ -223,13 +225,13 @@ export default function Analytics() {
         
         {/* Top Selling Products */}
         <div className="bg-white dark:bg-dark-card border border-slate-100 dark:border-dark-border p-6 rounded-3xl shadow-xs text-xs text-left">
-          <h3 className="text-sm font-black mb-1">Top Selling Products</h3>
-          <p className="text-[10px] text-slate-400 font-bold mb-4">Highest volume and velocity items in stock</p>
+          <h3 className="text-sm font-black mb-1">{t('top_products')}</h3>
+          <p className="text-[10px] text-slate-400 font-bold mb-4">{t('top_products_desc')}</p>
           
           <div className="space-y-3.5">
             {topSelling.length === 0 ? (
               <div className="text-center py-6 text-slate-450 font-bold">
-                Fulfill orders to populate top velocity items.
+                {t('complete_orders_for_insights')}
               </div>
             ) : (
               topSelling.map((prod, idx) => (
@@ -238,7 +240,7 @@ export default function Analytics() {
                     <img src={prod.image} alt={prod.name} className="w-10 h-10 rounded-lg object-cover border border-slate-100" />
                     <div className="min-w-0">
                       <span className="font-extrabold text-slate-800 dark:text-zinc-200 block truncate max-w-xs">{prod.name}</span>
-                      <span className="text-[9px] text-slate-450 font-bold">{prod.qty} units checked out</span>
+                      <span className="text-[9px] text-slate-450 font-bold">{t('units_checked_out', { count: prod.qty })}</span>
                     </div>
                   </div>
                   <span className="font-black text-slate-800 dark:text-zinc-100">₹{prod.sales}</span>
@@ -250,13 +252,13 @@ export default function Analytics() {
 
         {/* Worst Selling Products */}
         <div className="bg-white dark:bg-dark-card border border-slate-100 dark:border-dark-border p-6 rounded-3xl shadow-xs text-xs text-left">
-          <h3 className="text-sm font-black mb-1">Low Velocity Products</h3>
-          <p className="text-[10px] text-slate-450 font-bold mb-4">Slowest moving items in the inventory</p>
+          <h3 className="text-sm font-black mb-1">{t('slow_products')}</h3>
+          <p className="text-[10px] text-slate-450 font-bold mb-4">{t('slow_products_desc')}</p>
 
           <div className="space-y-3.5">
             {worstSelling.length === 0 ? (
               <div className="text-center py-6 text-slate-450 font-bold">
-                All catalog items are moving healthy.
+                {t('catalog_moving_well')}
               </div>
             ) : (
               worstSelling.map((prod, idx) => (
@@ -265,7 +267,7 @@ export default function Analytics() {
                     <img src={prod.image} alt={prod.name} className="w-10 h-10 rounded-lg object-cover border border-slate-100" />
                     <div className="min-w-0">
                       <span className="font-extrabold text-slate-800 dark:text-zinc-200 block truncate max-w-xs">{prod.name}</span>
-                      <span className="text-[9px] text-slate-450 font-bold">{prod.qty} units checked out</span>
+                      <span className="text-[9px] text-slate-450 font-bold">{t('units_checked_out', { count: prod.qty })}</span>
                     </div>
                   </div>
                   <span className="font-black text-slate-800 dark:text-zinc-100">₹{prod.sales}</span>

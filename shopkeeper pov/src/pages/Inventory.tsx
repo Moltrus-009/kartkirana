@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useAppStore } from '../core/store/useAppStore';
+import { useLanguage } from '../context/LanguageContext';
 import { 
   Minus, 
   History, 
@@ -12,6 +13,7 @@ import {
 
 export default function Inventory() {
   const { products, logs, adjustStockQuantity } = useAppStore();
+  const { t, locale } = useLanguage();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'healthy' | 'low' | 'out' | 'hidden'>('all');
   
@@ -42,7 +44,7 @@ export default function Inventory() {
       
       // Prevent stock from going below 0
       if (adjustType === 'reduce' && prod.stock < amount) {
-        alert(`Cannot reduce stock by ${amount}. Current stock level is only ${prod.stock}.`);
+        alert(t('cannot_reduce_stock', { amount, stock: prod.stock }));
         setLoading(false);
         return;
       }
@@ -51,7 +53,7 @@ export default function Inventory() {
         selectedProductId, 
         quantityChanged, 
         'manual_adjust', 
-        adjustNote || 'Manual inventory correction adjustment'
+        adjustNote || t('manual_correction_note')
       );
 
       // Reset
@@ -80,8 +82,8 @@ export default function Inventory() {
       
       {/* Action Header */}
       <div>
-        <h2 className="text-xl font-black text-slate-800 dark:text-zinc-100">Inventory Management</h2>
-        <p className="text-xs text-slate-400 dark:text-zinc-500 font-bold mt-0.5">Track real-time stock levels, movement logs, and adjustments</p>
+        <h2 className="text-xl font-black text-slate-800 dark:text-zinc-100">{t('inventory_title')}</h2>
+        <p className="text-xs text-slate-400 dark:text-zinc-500 font-bold mt-0.5">{t('inventory_subtitle')}</p>
       </div>
 
       {/* STOCK AGGREGATION CARDS */}
@@ -99,8 +101,8 @@ export default function Inventory() {
             <CheckCircle className="h-5.5 w-5.5" />
           </div>
           <div>
-            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Healthy Stock</span>
-            <h4 className="text-lg font-black">{inStock.length} items</h4>
+            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">{t('healthy_stock')}</span>
+            <h4 className="text-lg font-black">{t('item_count', { count: inStock.length })}</h4>
           </div>
         </button>
 
@@ -117,8 +119,8 @@ export default function Inventory() {
             <AlertTriangle className="h-5.5 w-5.5" />
           </div>
           <div>
-            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Low Stock Alert</span>
-            <h4 className="text-lg font-black text-amber-600">{lowStock.length} items</h4>
+            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">{t('low_stock_alert')}</span>
+            <h4 className="text-lg font-black text-amber-600">{t('item_count', { count: lowStock.length })}</h4>
           </div>
         </button>
 
@@ -135,8 +137,8 @@ export default function Inventory() {
             <XCircle className="h-5.5 w-5.5" />
           </div>
           <div>
-            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Out of Stock</span>
-            <h4 className="text-lg font-black text-red-500">{outOfStock.length} items</h4>
+            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">{t('out_of_stock')}</span>
+            <h4 className="text-lg font-black text-red-500">{t('item_count', { count: outOfStock.length })}</h4>
           </div>
         </button>
 
@@ -153,8 +155,8 @@ export default function Inventory() {
             <Minus className="h-5.5 w-5.5" />
           </div>
           <div>
-            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Hidden Items</span>
-            <h4 className="text-lg font-black">{hiddenCount} items</h4>
+            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">{t('hidden_items')}</span>
+            <h4 className="text-lg font-black">{t('item_count', { count: hiddenCount })}</h4>
           </div>
         </button>
       </div>
@@ -167,22 +169,22 @@ export default function Inventory() {
           
           {/* Manual Adjust form Card */}
           <div className="bg-white dark:bg-dark-card border border-slate-100 dark:border-dark-border p-5 rounded-3xl shadow-xs">
-            <h3 className="text-sm font-black mb-1">Manual Stock Correction</h3>
-            <p className="text-[10px] text-slate-400 font-bold mb-5">Instantly increment or decrement items stock levels</p>
+            <h3 className="text-sm font-black mb-1">{t('stock_correction')}</h3>
+            <p className="text-[10px] text-slate-400 font-bold mb-5">{t('stock_correction_desc')}</p>
 
             <form onSubmit={handleAdjust} className="space-y-4 text-xs">
               <div>
-                <label className="text-[10px] font-extrabold uppercase text-slate-400 block mb-1">Select Product</label>
+                <label className="text-[10px] font-extrabold uppercase text-slate-400 block mb-1">{t('select_product')}</label>
                 <select
                   required
                   value={selectedProductId}
                   onChange={(e) => setSelectedProductId(e.target.value)}
                   className="w-full p-2.5 bg-slate-50 dark:bg-zinc-800 border border-slate-100 dark:border-dark-border rounded-xl font-bold outline-none"
                 >
-                  <option value="">Choose item...</option>
+                  <option value="">{t('choose_item')}</option>
                   {products.map(p => (
                     <option key={p.id} value={p.id}>
-                      {p.name} ({p.stock} in stock)
+                      {p.name} ({t('units_in_stock', { count: p.stock })})
                     </option>
                   ))}
                 </select>
@@ -190,7 +192,7 @@ export default function Inventory() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-[10px] font-extrabold uppercase text-slate-400 block mb-1">Correction Type</label>
+                  <label className="text-[10px] font-extrabold uppercase text-slate-400 block mb-1">{t('correction_type')}</label>
                   <div className="flex border border-slate-100 dark:border-dark-border rounded-xl overflow-hidden font-bold">
                     <button
                       type="button"
@@ -201,7 +203,7 @@ export default function Inventory() {
                           : 'bg-slate-50 dark:bg-zinc-800 text-slate-500'
                       }`}
                     >
-                      Add (+)
+                      {t('add')} (+)
                     </button>
                     <button
                       type="button"
@@ -212,13 +214,13 @@ export default function Inventory() {
                           : 'bg-slate-50 dark:bg-zinc-800 text-slate-500'
                       }`}
                     >
-                      Reduce (-)
+                      {t('reduce')} (-)
                     </button>
                   </div>
                 </div>
 
                 <div>
-                  <label className="text-[10px] font-extrabold uppercase text-slate-400 block mb-1">Quantity</label>
+                  <label className="text-[10px] font-extrabold uppercase text-slate-400 block mb-1">{t('quantity')}</label>
                   <input
                     type="number"
                     required
@@ -226,19 +228,19 @@ export default function Inventory() {
                     value={adjustAmount}
                     onChange={(e) => setAdjustAmount(e.target.value)}
                     className="w-full p-2.5 bg-slate-50 dark:bg-zinc-900 border border-slate-100 dark:border-dark-border rounded-xl font-bold outline-none"
-                    placeholder="E.g. 10"
+                    placeholder={t('quantity_example')}
                   />
                 </div>
               </div>
 
               <div>
-                <label className="text-[10px] font-extrabold uppercase text-slate-400 block mb-1">Correction Note</label>
+                <label className="text-[10px] font-extrabold uppercase text-slate-400 block mb-1">{t('correction_note')}</label>
                 <input
                   type="text"
                   value={adjustNote}
                   onChange={(e) => setAdjustNote(e.target.value)}
                   className="w-full p-2.5 bg-slate-50 dark:bg-zinc-900 border border-slate-100 dark:border-dark-border rounded-xl font-bold outline-none"
-                  placeholder="E.g., Restocked fresh batch, damaged box"
+                  placeholder={t('correction_note_placeholder')}
                 />
               </div>
 
@@ -247,7 +249,7 @@ export default function Inventory() {
                 disabled={loading}
                 className="w-full py-3 bg-slate-800 dark:bg-zinc-700 hover:bg-slate-900 text-white text-xs font-black rounded-xl uppercase tracking-wider transition cursor-pointer"
               >
-                {loading ? 'Adjusting...' : 'Execute Stock Correction'}
+                {loading ? t('adjusting') : t('execute_correction')}
               </button>
             </form>
           </div>
@@ -255,11 +257,11 @@ export default function Inventory() {
           {/* Quick List Reference Search */}
           <div className="bg-white dark:bg-dark-card border border-slate-100 dark:border-dark-border p-5 rounded-3xl shadow-xs">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-black">Stock Ledger Reference</h3>
+              <h3 className="text-sm font-black">{t('stock_ledger')}</h3>
               <div className="relative w-40">
                 <input
                   type="text"
-                  placeholder="Search item..."
+                  placeholder={t('search_item')}
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="w-full pl-8 pr-3 py-1.5 text-[10px] bg-slate-50 dark:bg-zinc-900 border border-slate-100 dark:border-dark-border rounded-lg outline-none font-bold"
@@ -283,7 +285,7 @@ export default function Inventory() {
                         ? 'bg-amber-50 text-amber-600' 
                         : 'bg-emerald-50 text-emerald-600'
                     }`}>
-                      {p.stock} units
+                      {t('units', { count: p.stock })}
                     </span>
 
                     <div className="flex items-center gap-1">
@@ -291,7 +293,7 @@ export default function Inventory() {
                         type="button"
                         onClick={() => adjustStockQuantity(p.id, 5, 'manual_adjust', 'Quick +5 restock')}
                         className="px-1.5 py-0.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 text-[9px] font-extrabold rounded-md cursor-pointer transition-colors"
-                        title="Add 5 units"
+                        title={t('add_units', { count: 5 })}
                       >
                         +5
                       </button>
@@ -299,7 +301,7 @@ export default function Inventory() {
                         type="button"
                         onClick={() => adjustStockQuantity(p.id, 10, 'manual_adjust', 'Quick +10 restock')}
                         className="px-1.5 py-0.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 text-[9px] font-extrabold rounded-md cursor-pointer transition-colors"
-                        title="Add 10 units"
+                        title={t('add_units', { count: 10 })}
                       >
                         +10
                       </button>
@@ -308,7 +310,7 @@ export default function Inventory() {
                           type="button"
                           onClick={() => adjustStockQuantity(p.id, -1, 'manual_adjust', 'Quick -1 adjustment')}
                           className="px-1.5 py-0.5 bg-red-500/10 hover:bg-red-500/20 text-red-600 text-[9px] font-extrabold rounded-md cursor-pointer transition-colors"
-                          title="Reduce 1 unit"
+                          title={t('reduce_unit')}
                         >
                           -1
                         </button>
@@ -327,15 +329,15 @@ export default function Inventory() {
           <div className="flex items-center gap-2 mb-5 pb-3 border-b border-slate-50 dark:border-dark-border/40">
             <History className="h-5 w-5 text-slate-400" />
             <div>
-              <h3 className="text-sm font-black">Stock Movement & Adjustment Logs</h3>
-              <p className="text-[10px] text-slate-400 font-bold mt-0.5">Real-time audit history of product additions, purchases, & refills</p>
+              <h3 className="text-sm font-black">{t('movement_logs')}</h3>
+              <p className="text-[10px] text-slate-400 font-bold mt-0.5">{t('movement_logs_desc')}</p>
             </div>
           </div>
 
           <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2">
             {logs.length === 0 ? (
               <div className="text-center py-16 text-slate-400 text-xs font-semibold">
-                No logs recorded yet. Restocking products will populate audit logs.
+                {t('no_stock_logs')}
               </div>
             ) : (
               logs.map((log) => {
@@ -372,9 +374,9 @@ export default function Inventory() {
                       )}
                       
                       <div className="flex items-center gap-2 text-[9px] text-slate-400 font-bold">
-                        <span>By: {log.updatedBy}</span>
+                        <span>{t('updated_by')}: {log.updatedBy}</span>
                         <span>•</span>
-                        <span>{new Date(log.timestamp).toLocaleString()}</span>
+                        <span>{new Date(log.timestamp).toLocaleString(locale)}</span>
                       </div>
                     </div>
 
@@ -382,7 +384,7 @@ export default function Inventory() {
                       <span className={`px-2 py-1 rounded-lg text-xs font-black inline-block ${changeBadgeColor}`}>
                         {isAdd ? '+' : ''}{log.quantityChanged}
                       </span>
-                      <p className="text-[9px] text-slate-400 font-bold">Stock: {log.previousStock} → {log.newStock}</p>
+                      <p className="text-[9px] text-slate-400 font-bold">{t('stock')}: {log.previousStock} → {log.newStock}</p>
                     </div>
                   </div>
                 );

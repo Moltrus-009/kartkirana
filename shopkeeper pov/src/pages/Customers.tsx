@@ -125,7 +125,7 @@ export default function Customers() {
       <div className="relative">
         <input
           type="text"
-          placeholder="Search customers by name or phone..."
+          placeholder={t('search_customers')}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="w-full pl-10 pr-4 py-3 bg-white dark:bg-dark-card border border-slate-100 dark:border-dark-border rounded-3xl outline-none font-bold text-xs shadow-xs focus:border-primary text-slate-800 dark:text-zinc-100"
@@ -200,7 +200,7 @@ function CustomerCard({ customer }: { customer: CustomerSummary }) {
           <div>
             <h4 className="font-extrabold text-slate-800 dark:text-zinc-250 flex items-center gap-1">
               {customer.name}
-              {customer.isRegular && <span className="text-[9px] font-black text-amber-600 bg-amber-50 px-1 rounded uppercase leading-none">VIP</span>}
+              {customer.isRegular && <span className="text-[9px] font-black text-amber-600 bg-amber-50 px-1 rounded uppercase leading-none">{t('vip')}</span>}
             </h4>
             <p className="text-[10px] text-slate-400 font-bold">{customer.phone}</p>
           </div>
@@ -227,7 +227,7 @@ function CustomerCard({ customer }: { customer: CustomerSummary }) {
           <span className="text-slate-850 dark:text-zinc-150 font-black text-xs">₹{customer.moneySpent}</span>
         </div>
         <div className="text-center space-y-0.5">
-          <span className="text-slate-400 block font-normal uppercase text-[8px] tracking-wider">Last Purchase</span>
+          <span className="text-slate-400 block font-normal uppercase text-[8px] tracking-wider">{t('last_purchase')}</span>
           <span className="text-slate-850 dark:text-zinc-150 font-black text-xs">{formattedLast}</span>
         </div>
       </div>
@@ -236,7 +236,7 @@ function CustomerCard({ customer }: { customer: CustomerSummary }) {
       <div className="space-y-1.5 text-[10px] font-semibold text-slate-450">
         <p className="flex items-center gap-1 truncate">
           <ShoppingBag className="h-3.5 w-3.5 text-slate-350 shrink-0" />
-          <span>Faves: <strong className="text-slate-700 dark:text-zinc-300 font-extrabold">{customer.favoriteProducts.join(', ')}</strong></span>
+          <span>{t('favourites')}: <strong className="text-slate-700 dark:text-zinc-300 font-extrabold">{customer.favoriteProducts.join(', ')}</strong></span>
         </p>
         <p className="flex items-center gap-1">
           <Clock className="h-3.5 w-3.5 text-slate-350 shrink-0" />

@@ -201,7 +201,7 @@ export default function Dashboard() {
           <div className="w-full bg-white/20 h-1 rounded-full mt-3 overflow-hidden">
             <div className="bg-white h-1 rounded-full" style={{ width: `${Math.min(100, (todaySales / 5000) * 100)}%` }}></div>
           </div>
-          <span className="text-[8px] opacity-75 mt-1 block">Daily target: ₹5,000</span>
+          <span className="text-[8px] opacity-75 mt-1 block">{t('daily_target')}</span>
         </div>
 
         {/* Today's Orders Card */}
@@ -217,7 +217,7 @@ export default function Dashboard() {
           <ClipboardList className="h-5 w-5 text-amber-500 mb-2" />
           <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block font-extrabold">{t('active_orders')}</span>
           <h3 className="text-xl font-black text-slate-800 dark:text-zinc-150 mt-0.5">{pendingOrders} {t('orders')}</h3>
-          <span className="text-[9px] text-amber-500 font-black mt-2.5 block">Requires action</span>
+          <span className="text-[9px] text-amber-500 font-black mt-2.5 block">{t('requires_action')}</span>
         </div>
 
         {/* Products in Stock Card */}
@@ -225,7 +225,7 @@ export default function Dashboard() {
           <Store className="h-5 w-5 text-blue-500 mb-2" />
           <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block font-extrabold">{t('products')}</span>
           <h3 className="text-xl font-black text-slate-800 dark:text-zinc-150 mt-0.5">{totalProducts} {t('items')}</h3>
-          <span className="text-[9px] text-slate-400 font-semibold mt-2.5 block">Manage in Inventory</span>
+          <span className="text-[9px] text-slate-400 font-semibold mt-2.5 block">{t('manage_inventory')}</span>
         </div>
       </div>
 
@@ -234,7 +234,7 @@ export default function Dashboard() {
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-xs font-black text-slate-800 dark:text-zinc-200">{t('sales_trend')}</h3>
-            <p className="text-[9px] text-slate-400 font-bold leading-none mt-0.5">Sales progress tracker over last 7 days</p>
+            <p className="text-[9px] text-slate-400 font-bold leading-none mt-0.5">{t('sales_progress')}</p>
           </div>
           <div className="flex items-center gap-1.5 text-[9px] bg-primary/10 text-primary px-2 py-0.5 rounded-lg">
             <TrendingUp className="h-3 w-3" />
@@ -250,8 +250,8 @@ export default function Dashboard() {
       <div className="bg-white dark:bg-dark-card border border-slate-100 dark:border-dark-border p-5 rounded-3xl shadow-xs space-y-3.5">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-xs font-black text-slate-800 dark:text-zinc-200">Quick Inventory Refill</h3>
-            <p className="text-[9px] text-slate-400 font-bold leading-none mt-0.5">Replenish low-stock items with one-tap actions</p>
+            <h3 className="text-xs font-black text-slate-800 dark:text-zinc-200">{t('quick_refill')}</h3>
+            <p className="text-[9px] text-slate-400 font-bold leading-none mt-0.5">{t('quick_refill_desc')}</p>
           </div>
           <span className="px-2 py-0.5 bg-red-500/10 text-red-500 rounded-lg text-[9px] font-black uppercase tracking-wider">
             {lowStockCount} Alerts
@@ -299,14 +299,14 @@ export default function Dashboard() {
 
       {/* QUICK ROUTE LINKS PANEL */}
       <div className="bg-white dark:bg-dark-card border border-slate-100 dark:border-dark-border p-5 rounded-3xl shadow-xs space-y-3.5">
-        <h3 className="text-[9px] font-black uppercase tracking-wider text-slate-400">Quick Access Utilities</h3>
+        <h3 className="text-[9px] font-black uppercase tracking-wider text-slate-400">{t('quick_utilities')}</h3>
         <div className="grid grid-cols-2 gap-3">
           <button 
             onClick={() => navigate('/products?add=true')}
             className="flex items-center gap-2.5 p-3.5 bg-slate-50 dark:bg-zinc-900 border border-slate-100/50 dark:border-dark-border/40 rounded-2xl font-black text-left cursor-pointer hover:bg-slate-100 text-xs"
           >
             <Plus className="h-4.5 w-4.5 text-primary shrink-0" />
-            <span>Add Product</span>
+            <span>{t('add_product')}</span>
           </button>
 
           <button 
@@ -314,7 +314,7 @@ export default function Dashboard() {
             className="flex items-center gap-2.5 p-3.5 bg-slate-50 dark:bg-zinc-900 border border-slate-100/50 dark:border-dark-border/40 rounded-2xl font-black text-left cursor-pointer hover:bg-slate-100 text-xs"
           >
             <ClipboardList className="h-4.5 w-4.5 text-primary shrink-0" />
-            <span>View Orders</span>
+            <span>{t('view_orders')}</span>
           </button>
 
           <button 
@@ -322,7 +322,7 @@ export default function Dashboard() {
             className="flex items-center gap-2.5 p-3.5 bg-slate-50 dark:bg-zinc-900 border border-slate-100/50 dark:border-dark-border/40 rounded-2xl font-black text-left cursor-pointer hover:bg-slate-100 text-xs"
           >
             <RefreshCw className="h-4.5 w-4.5 text-blue-500 shrink-0" />
-            <span>Manage Catalog</span>
+            <span>{t('manage_catalog')}</span>
           </button>
 
           <button 
@@ -340,8 +340,8 @@ export default function Dashboard() {
         {/* Donut Chart Card */}
         <div className="bg-white dark:bg-dark-card border border-slate-100 dark:border-dark-border p-5 rounded-3xl shadow-xs space-y-4">
           <div>
-            <h3 className="text-xs font-black text-slate-800 dark:text-zinc-200">Orders Status Mix</h3>
-            <p className="text-[9px] text-slate-400 font-bold leading-none mt-0.5">Overview of store order fulfilments</p>
+            <h3 className="text-xs font-black text-slate-800 dark:text-zinc-200">{t('order_status_mix')}</h3>
+            <p className="text-[9px] text-slate-400 font-bold leading-none mt-0.5">{t('order_status_mix_desc')}</p>
           </div>
           <div className="flex justify-center py-2">
             {getOrdersStatusData().length === 0 ? (
@@ -360,7 +360,7 @@ export default function Dashboard() {
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-xs font-black text-slate-800 dark:text-zinc-200">{t('recent_orders')}</h3>
-                <p className="text-[9px] text-slate-400 font-bold leading-none mt-0.5">Top 3 latest customer orders</p>
+                <p className="text-[9px] text-slate-400 font-bold leading-none mt-0.5">{t('latest_orders_desc')}</p>
               </div>
               <button 
                 onClick={() => navigate('/orders')}

@@ -36,7 +36,18 @@ export interface SupportTicket {
 const getHeaders = async () => {
   if (!auth?.currentUser) throw new Error('Please sign in again to contact support.');
   const token = await auth.currentUser.getIdToken();
-  const appCheckToken = await getSecureAppCheckToken(false);
+  let appCheckToken: string;
+  try {
+    appCheckToken = await getSecureAppCheckToken(false);
+  } catch {
+    try {
+      // A failed Play Integrity exchange can leave the SDK without a usable
+      // cached token after the Firebase certificate registration changes.
+      appCheckToken = await getSecureAppCheckToken(true);
+    } catch {
+      throw new Error('Secure app verification could not be completed. Please reopen the app and try again shortly.');
+    }
+  }
   return {
     'Content-Type': 'application/json',
     'Authorization': `Bearer ${token}`,

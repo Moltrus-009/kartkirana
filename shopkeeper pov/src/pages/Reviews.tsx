@@ -2,9 +2,11 @@ import { useState } from 'react';
 import { useAppStore } from '../core/store/useAppStore';
 import { Star, MessageSquare, ShieldAlert, Send, Reply } from 'lucide-react';
 import EmptyState from '../components/shared/EmptyState';
+import { useLanguage } from '../context/LanguageContext';
 
 export default function Reviews() {
   const { reviews, replyToCustomerReview, reportCustomerReview } = useAppStore();
+  const { t } = useLanguage();
   
   // State
   const [replyText, setReplyText] = useState<Record<string, string>>({});
@@ -42,8 +44,8 @@ export default function Reviews() {
       
       {/* Page Title */}
       <div>
-        <h2 className="text-xl font-black text-slate-800 dark:text-zinc-100">Customer Reviews</h2>
-        <p className="text-xs text-slate-400 dark:text-zinc-500 font-bold mt-0.5">Understand client satisfaction, reply to reviews, and manage ratings</p>
+        <h2 className="text-xl font-black text-slate-800 dark:text-zinc-100">{t('customer_reviews')}</h2>
+        <p className="text-xs text-slate-400 dark:text-zinc-500 font-bold mt-0.5">{t('reviews_subtitle')}</p>
       </div>
 
       {/* RATING AGGREGATION & BREAKDOWN */}
@@ -90,7 +92,7 @@ export default function Reviews() {
         {reviews.length === 0 ? (
           <EmptyState
             icon={MessageSquare}
-            title="No Reviews Received"
+            title={t('no_reviews')}
             description="Reviews submitted by customers will show up in this stream feed."
           />
         ) : (
@@ -124,7 +126,7 @@ export default function Reviews() {
                   <button 
                     onClick={() => setShowReportModal(rev.id)}
                     className="p-1 text-slate-400 hover:text-red-500 rounded-lg hover:bg-slate-50 transition cursor-pointer"
-                    title="Report Fake Review"
+                    title={t('report_review')}
                   >
                     <ShieldAlert className="h-4.5 w-4.5" />
                   </button>
@@ -145,7 +147,7 @@ export default function Reviews() {
                 <div className="ml-4 md:ml-6 p-4 bg-slate-50 dark:bg-zinc-900/60 rounded-2xl border border-slate-100 dark:border-dark-border flex items-start gap-3">
                   <Reply className="h-4.5 w-4.5 text-primary rotate-180 flex-shrink-0 mt-0.5" />
                   <div className="space-y-1">
-                    <span className="font-black text-slate-800 dark:text-zinc-200">Merchant Reply</span>
+                    <span className="font-black text-slate-800 dark:text-zinc-200">{t('merchant_reply')}</span>
                     <p className="text-slate-600 dark:text-zinc-400 font-bold leading-relaxed">{rev.reply.comment}</p>
                     <span className="text-[9px] text-slate-400 font-bold block">
                       {new Date(rev.reply.createdAt).toLocaleDateString()}
@@ -156,7 +158,7 @@ export default function Reviews() {
                 <div className="ml-4 md:ml-6 flex items-center gap-2">
                   <input
                     type="text"
-                    placeholder="Write a response to this review..."
+                    placeholder={t('write_reply')}
                     value={replyText[rev.id] || ''}
                     onChange={(e) => setReplyText(prev => ({ ...prev, [rev.id]: e.target.value }))}
                     className="flex-1 p-2 px-3 bg-slate-50 dark:bg-zinc-800 border border-slate-100 dark:border-dark-border rounded-xl font-bold outline-none text-xs"
@@ -189,14 +191,14 @@ export default function Reviews() {
 
             <div className="space-y-4">
               <div>
-                <label className="text-[10px] font-extrabold uppercase text-slate-400 block mb-1">Reason for Reporting</label>
+                <label className="text-[10px] font-extrabold uppercase text-slate-400 block mb-1">{t('reporting_reason')}</label>
                 <textarea
                   rows={3}
                   required
                   value={reportReason}
                   onChange={(e) => setReportReason(e.target.value)}
                   className="w-full p-2.5 bg-slate-50 dark:bg-zinc-800 border border-slate-100 dark:border-dark-border rounded-xl font-bold outline-none text-xs"
-                  placeholder="Fake rating, competitor abuse, profanity..."
+                  placeholder={t('reporting_placeholder')}
                 />
               </div>
 

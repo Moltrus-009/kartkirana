@@ -35,13 +35,14 @@ class GlobalErrorBoundary extends Component<{ children: ReactNode }, { hasError:
 
   render() {
     if (this.state.hasError) {
+      const hindi = localStorage.getItem('shop_app_preferred_language') === 'hi';
       return (
         <main className="min-h-screen bg-slate-50 flex items-center justify-center p-6 text-center">
           <section className="max-w-sm rounded-3xl bg-white border border-slate-100 p-8 shadow-sm">
-            <h1 className="text-lg font-black text-slate-900">We couldn’t open your workspace</h1>
-            <p className="mt-2 text-sm text-slate-500">Your data is safe. Refresh the app and try again.</p>
+            <h1 className="text-lg font-black text-slate-900">{hindi ? 'आपका कार्यक्षेत्र नहीं खुल सका' : 'We couldn’t open your workspace'}</h1>
+            <p className="mt-2 text-sm text-slate-500">{hindi ? 'आपका डेटा सुरक्षित है। ऐप रीफ़्रेश करके दोबारा प्रयास करें।' : 'Your data is safe. Refresh the app and try again.'}</p>
             <button className="mt-6 rounded-xl bg-primary px-5 py-3 text-xs font-black uppercase tracking-wide text-white" onClick={() => window.location.reload()}>
-              Refresh app
+              {hindi ? 'ऐप रीफ़्रेश करें' : 'Refresh app'}
             </button>
           </section>
         </main>
@@ -52,12 +53,13 @@ class GlobalErrorBoundary extends Component<{ children: ReactNode }, { hasError:
 }
 
 function LoadingScreen() {
+  const { t } = useLanguage();
   return (
     <main className="min-h-screen flex items-center justify-center bg-slate-50 px-6">
       <section className="w-full max-w-sm rounded-3xl border border-slate-100 bg-white p-8 text-center shadow-sm">
         <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-        <h1 className="mt-5 text-sm font-black uppercase tracking-wide text-slate-800">Preparing your workspace</h1>
-        <p className="mt-2 text-xs font-medium text-slate-500">Securely syncing your shop data.</p>
+        <h1 className="mt-5 text-sm font-black uppercase tracking-wide text-slate-800">{t('preparing_workspace')}</h1>
+        <p className="mt-2 text-xs font-medium text-slate-500">{t('syncing_shop_data')}</p>
       </section>
     </main>
   );

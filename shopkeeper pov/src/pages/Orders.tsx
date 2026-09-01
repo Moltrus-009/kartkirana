@@ -177,7 +177,7 @@ export default function Orders() {
   };
 
   const handleReject = async (orderId: string) => {
-    if (window.confirm('Are you sure you want to reject this order?')) {
+    if (window.confirm(t('reject_order_confirm'))) {
       try {
         setProcessingOrderId(orderId);
         await changeOrderStatus(orderId, 'SHOP_REJECTED', 'Order rejected by merchant.');
@@ -281,7 +281,7 @@ export default function Orders() {
 
     try {
       await createOrderBatch(newBatch);
-      alert('Delivery Batch successfully created and assigned to ' + selectedRider.fullName + '!');
+      alert(t('batch_created', { name: selectedRider.fullName }));
       setSelectedOrderIds([]);
       setIsBatchModalOpen(false);
     } catch (error: any) {
@@ -431,7 +431,7 @@ export default function Orders() {
                     <a 
                       href={`tel:${order.contact.phone}`}
                       className="w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center cursor-pointer hover:bg-emerald-600 transition"
-                      title="Call customer"
+                      title={t('call_customer')}
                     >
                       <Phone className="h-4 w-4" />
                     </a>
@@ -441,7 +441,7 @@ export default function Orders() {
                       target="_blank"
                       rel="noopener noreferrer"
                       className="w-8 h-8 rounded-full bg-emerald-600 text-white flex items-center justify-center cursor-pointer hover:bg-emerald-700 transition"
-                      title="WhatsApp customer"
+                      title={t('whatsapp_customer')}
                     >
                       <MessageSquare className="h-4 w-4" />
                     </a>
@@ -470,7 +470,7 @@ export default function Orders() {
 
                 {/* Delivery Address */}
                 <div className="space-y-1 text-slate-500 dark:text-zinc-400">
-                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block">Delivery Location</span>
+                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block">{t('delivery_location')}</span>
                   <p className="flex items-start gap-1 font-bold text-[11px] leading-tight">
                     <MapPin className="h-4 w-4 text-slate-350 shrink-0 mt-0.5" />
                     <span>{order.deliveryAddress.address}</span>
@@ -498,7 +498,7 @@ export default function Orders() {
                         onClick={() => handleReject(order.id)}
                         disabled={processingOrderId === order.id}
                         className="bg-red-50 hover:bg-red-100 text-red-500 disabled:opacity-50 font-black py-3 px-4 rounded-2xl cursor-pointer text-center text-xs flex items-center justify-center"
-                        title="Reject Order"
+                        title={t('reject_order')}
                       >
                         <X className="h-4.5 w-4.5" />
                       </button>
@@ -547,7 +547,7 @@ export default function Orders() {
       {selectedOrderIds.length > 0 && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 max-w-sm w-[90%] bg-slate-900 dark:bg-zinc-900 text-white rounded-3xl p-4.5 shadow-2xl flex items-center justify-between border border-slate-800 dark:border-zinc-800 z-50 animate-fade-in">
           <div className="text-left space-y-0.5 pl-1.5">
-            <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Selection</span>
+            <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider">{t('selection')}</span>
             <p className="text-xs font-black">{selectedOrderIds.length} {selectedOrderIds.length === 1 ? 'Order' : 'Orders'} Selected</p>
           </div>
           <button
@@ -615,7 +615,7 @@ export default function Orders() {
 
             {/* Assign Rider list */}
             <div className="space-y-2">
-              <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider block">Select Delivery Partner</label>
+              <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider block">{t('select_rider')}</label>
               {onlineRiders.length === 0 ? (
                 <div className="bg-rose-50 dark:bg-rose-955/15 border border-rose-100 dark:border-transparent p-4 rounded-2xl text-center text-xs text-rose-600 dark:text-rose-455 font-bold">
                   No online delivery executives available. Verify a rider has toggled their workspace online.
@@ -640,14 +640,14 @@ export default function Orders() {
             {/* Route Stats estimation */}
             <div className="grid grid-cols-2 gap-3.5 bg-slate-50 dark:bg-zinc-850 p-4.5 rounded-2xl text-center text-xs font-black">
               <div className="space-y-0.5">
-                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Rider Earnings</span>
+                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">{t('rider_earnings')}</span>
                 <span className="text-slate-800 dark:text-zinc-100 text-sm">₹{selectedOrderIds.length * RIDER_DELIVERY_FEE + BATCH_BONUS}</span>
                 <span className="text-[8px] text-emerald-500 block font-black uppercase tracking-wider">+₹15 Batch Bonus</span>
               </div>
               <div className="space-y-0.5">
-                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Est. Route Travel</span>
+                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">{t('estimated_route')}</span>
                 <span className="text-slate-800 dark:text-zinc-100 text-sm">≤ {(MAX_BATCH_SPREAD_METERS / 1000).toFixed(1)} km area</span>
-                <span className="text-[8px] text-slate-400 block font-bold uppercase tracking-wider">Nearest-stop order</span>
+                <span className="text-[8px] text-slate-400 block font-bold uppercase tracking-wider">{t('nearest_stop_order')}</span>
               </div>
             </div>
 

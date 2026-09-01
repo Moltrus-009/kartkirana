@@ -92,17 +92,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     await updateShop({ status: nextStatus });
   };
 
-  const { language, setLanguage, t } = useLanguage();
+  const { language, setLanguage, locale, t } = useLanguage();
 
   const navLinks = [
     { to: '/', icon: <LayoutDashboard className="h-5 w-5" />, label: t('home') },
     { to: '/orders', icon: <ClipboardList className="h-5 w-5" />, label: t('orders'), badge: newOrdersCount },
     { to: '/products', icon: <ShoppingBag className="h-5 w-5" />, label: t('products') },
-    { to: '/inventory', icon: <PackageSearch className="h-5 w-5" />, label: 'Inventory' },
-    { to: '/offers', icon: <Gift className="h-5 w-5" />, label: 'Shop specials' },
+    { to: '/inventory', icon: <PackageSearch className="h-5 w-5" />, label: t('inventory') },
+    { to: '/offers', icon: <Gift className="h-5 w-5" />, label: t('shop_specials') },
     { to: '/customers', icon: <Users className="h-5 w-5" />, label: t('customers') },
-    { to: '/reviews', icon: <Star className="h-5 w-5" />, label: 'Reviews' },
-    { to: '/analytics', icon: <BarChart3 className="h-5 w-5" />, label: 'Business reports' },
+    { to: '/reviews', icon: <Star className="h-5 w-5" />, label: t('reviews') },
+    { to: '/analytics', icon: <BarChart3 className="h-5 w-5" />, label: t('business_reports') },
     { to: '/profile', icon: <Store className="h-5 w-5" />, label: t('profile') }
   ];
 
@@ -125,7 +125,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <img src="/logo.jpeg" alt="Kart Kirana" className="h-9 w-9 rounded-xl object-contain shadow-sm" />
             <div className="leading-tight">
               <span className="block font-black text-sm tracking-tight text-[#123f9d]">Kart <span className="text-[#f5b900]">Kirana</span></span>
-              <span className="block text-[9px] font-extrabold uppercase tracking-[0.14em] text-slate-400">Shop partner</span>
+              <span className="block text-[9px] font-extrabold uppercase tracking-[0.14em] text-slate-400">{t('shop_partner')}</span>
             </div>
           </div>
         </div>
@@ -170,7 +170,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <img src="/logo.jpeg" alt="Kart Kirana Shopkeeper Partner" className="w-10 h-10 rounded-xl object-contain shadow-md" />
               <div>
                 <h1 className="font-black text-base tracking-tight leading-none text-slate-800 dark:text-zinc-100">Kart Kirana</h1>
-                <span className="text-[10px] text-primary font-extrabold uppercase tracking-widest">Shopkeeper Partner</span>
+                <span className="text-[10px] text-primary font-extrabold uppercase tracking-widest">{t('shopkeeper_partner')}</span>
               </div>
             </div>
             
@@ -237,16 +237,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           
           <div className="flex items-center gap-3 p-2 bg-slate-50 dark:bg-zinc-900/40 rounded-xl">
             <div className="w-9 h-9 rounded-full bg-slate-200 dark:bg-zinc-700 font-black text-sm flex items-center justify-center">
-              {(user?.fullName || (user as any).name || 'Merchant Owner').charAt(0)}
+              {(user?.fullName || (user as any).name || t('merchant_owner')).charAt(0)}
             </div>
             <div className="min-w-0 flex-1">
-              <h4 className="text-xs font-black truncate">{user?.fullName || (user as any).name || 'Merchant Owner'}</h4>
+              <h4 className="text-xs font-black truncate">{user?.fullName || (user as any).name || t('merchant_owner')}</h4>
               <p className="text-[10px] text-slate-400 font-bold truncate">{user?.phone || (user as any).phoneNumber || ''}</p>
             </div>
             <button 
               onClick={logoutOwner}
               className="p-1.5 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/30 rounded-lg transition cursor-pointer"
-              title="Logout"
+              title={t('logout')}
             >
               <LogOut className="h-4 w-4" />
             </button>
@@ -269,7 +269,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <header className="merchant-desktop-header hidden md:flex items-center justify-between h-16 px-8 bg-white dark:bg-dark-card border-b border-slate-100 dark:border-dark-border sticky top-0 z-30">
           <div className="flex items-center gap-6">
             <h2 className="text-sm font-black text-slate-800 dark:text-zinc-200">
-              {shop ? `${shop.name} Partner Portal` : 'Shopkeeper Dashboard'}
+              {shop ? `${shop.name} · ${t('shop_partner')}` : t('shopkeeper_partner')}
             </h2>
             
             {shop && (
@@ -316,13 +316,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   <div onClick={() => setNotifPanelOpen(false)} className="fixed inset-0 z-30" />
                   <div className="absolute right-0 mt-2 w-80 bg-white dark:bg-dark-card border border-slate-100 dark:border-dark-border rounded-2xl shadow-xl z-40 p-4 animate-in fade-in slide-in-from-top-2 duration-150">
                     <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-100 dark:border-dark-border">
-                      <h4 className="font-black text-sm">Store Notifications</h4>
+                      <h4 className="font-black text-sm">{t('notifications')}</h4>
                       {unreadNotifCount > 0 && (
                         <button 
                           onClick={markAllNotificationsRead}
                           className="text-[10px] text-primary font-extrabold uppercase hover:underline cursor-pointer"
                         >
-                          Mark all read
+                          {t('mark_all_read')}
                         </button>
                       )}
                     </div>
@@ -330,7 +330,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     <div className="max-h-72 overflow-y-auto space-y-2.5">
                       {notifications.length === 0 ? (
                         <div className="text-center py-6 text-slate-400 text-xs font-semibold">
-                          No recent alerts or notifications.
+                          {t('no_recent_alerts')}
                         </div>
                       ) : (
                         notifications.map((notif: any) => (
@@ -351,7 +351,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                             <h5 className="font-extrabold text-xs text-slate-800 dark:text-zinc-200 pr-4">{notif.title}</h5>
                             <p className="text-[11px] text-slate-500 dark:text-zinc-400 mt-0.5">{notif.message}</p>
                             <span className="text-[9px] text-slate-400 font-bold block mt-1">
-                              {new Date(notif.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              {new Date(notif.timestamp).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}
                             </span>
                           </div>
                         ))
@@ -369,10 +369,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 className="flex items-center gap-2.5 p-1 px-3 bg-slate-50 dark:bg-zinc-900/60 border border-slate-100 dark:border-dark-border hover:bg-slate-100 rounded-full transition cursor-pointer"
               >
                 <div className="w-7.5 h-7.5 rounded-full bg-primary text-white font-black text-sm flex items-center justify-center">
-                  {(user?.fullName || (user as any).name || 'Merchant Owner').charAt(0)}
+                  {(user?.fullName || (user as any).name || t('merchant_owner')).charAt(0)}
                 </div>
                 <div className="text-left">
-                  <span className="text-xs font-black block leading-none">{user?.fullName || (user as any).name || 'Merchant Owner'}</span>
+                  <span className="text-xs font-black block leading-none">{user?.fullName || (user as any).name || t('merchant_owner')}</span>
                   <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">{user?.role || 'owner'}</span>
                 </div>
               </button>
@@ -385,13 +385,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                       onClick={() => { setProfileDropdownOpen(false); navigate('/profile'); }}
                       className="w-full text-left px-4 py-2 hover:bg-slate-50 dark:hover:bg-zinc-800 text-xs font-bold rounded-lg cursor-pointer"
                     >
-                      Store Settings
+                      {t('store_settings')}
                     </button>
                     <button 
                       onClick={() => { setProfileDropdownOpen(false); navigate('/analytics'); }}
                       className="w-full text-left px-4 py-2 hover:bg-slate-50 dark:hover:bg-zinc-800 text-xs font-bold rounded-lg cursor-pointer"
                     >
-                      Business Reports
+                      {t('business_reports')}
                     </button>
                     <hr className="border-slate-100 dark:border-dark-border my-1" />
                     <button 
@@ -399,7 +399,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                       className="w-full text-left px-4 py-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 text-xs font-black rounded-lg cursor-pointer flex items-center gap-2"
                     >
                       <LogOut className="h-3.5 w-3.5" />
-                      Sign Out
+                      {t('sign_out')}
                     </button>
                   </div>
                 </>
@@ -423,7 +423,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           }`}
         >
           <LayoutDashboard className="h-5 w-5" />
-          <span className="text-[9px] font-black uppercase tracking-wider">Home</span>
+          <span className="text-[9px] font-black uppercase tracking-wider">{t('home')}</span>
         </button>
 
         <button
@@ -438,7 +438,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               {newOrdersCount}
             </span>
           )}
-          <span className="text-[9px] font-black uppercase tracking-wider">Orders</span>
+          <span className="text-[9px] font-black uppercase tracking-wider">{t('orders')}</span>
         </button>
 
         <button
@@ -448,7 +448,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           }`}
         >
           <ShoppingBag className="h-5 w-5" />
-          <span className="text-[9px] font-black uppercase tracking-wider">Products</span>
+          <span className="text-[9px] font-black uppercase tracking-wider">{t('products')}</span>
         </button>
 
         <button
@@ -458,7 +458,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           }`}
         >
           <Users className="h-5 w-5" />
-          <span className="text-[9px] font-black uppercase tracking-wider">Customers</span>
+          <span className="text-[9px] font-black uppercase tracking-wider">{t('customers')}</span>
         </button>
 
         <button
@@ -468,7 +468,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           }`}
         >
           <Store className="h-5 w-5" />
-          <span className="text-[9px] font-black uppercase tracking-wider">Profile</span>
+          <span className="text-[9px] font-black uppercase tracking-wider">{t('profile')}</span>
         </button>
       </nav>
     </div>

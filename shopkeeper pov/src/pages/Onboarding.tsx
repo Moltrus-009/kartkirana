@@ -6,6 +6,7 @@ import { shopRepository } from '../infrastructure/repositories/shopRepository';
 import { userRepository } from '../infrastructure/repositories/userRepository';
 import { productRepository } from '../infrastructure/repositories/productRepository';
 import { uploadFile } from '../infrastructure/storage/localStorage';
+import { useLanguage } from '../context/LanguageContext';
 
 interface TempProduct {
   name: string;
@@ -20,6 +21,7 @@ interface TempProduct {
 export default function Onboarding() {
   const { user, setUser, setShop, logoutOwner } = useAppStore();
   const navigate = useNavigate();
+  const { t } = useLanguage();
 
   const [step, setStep] = useState<1 | 2>(1);
   const [loading, setLoading] = useState(false);
@@ -52,17 +54,17 @@ export default function Onboarding() {
 
   // Category choices with emojis and titles
   const categoryChoices = [
-    { id: 'groceries', name: 'Groceries', emoji: '🍎' },
-    { id: 'fruits-veg', name: 'Fruits & Vegetables', emoji: '🥦' },
-    { id: 'snacks-bev', name: 'Snacks & Beverages', emoji: '🍿' },
-    { id: 'medical', name: 'Medical/Pharmacy', emoji: '💊' },
-    { id: 'electronics', name: 'Electronics', emoji: '🔌' },
-    { id: 'stationery', name: 'Stationery', emoji: '✏️' },
-    { id: 'fashion', name: 'Fashion', emoji: '👕' },
-    { id: 'books', name: 'Books & Novelties', emoji: '📚' },
-    { id: 'home-essentials', name: 'Home Essentials', emoji: '🧼' },
-    { id: 'pet-supplies', name: 'Pet Supplies', emoji: '🐾' },
-    { id: 'beauty', name: 'Beauty & Personal Care', emoji: '💄' }
+    { id: 'groceries', name: t('cat_groceries'), emoji: '🍎' },
+    { id: 'fruits-veg', name: t('cat_fruits_vegetables'), emoji: '🥦' },
+    { id: 'snacks-bev', name: t('cat_snacks_beverages'), emoji: '🍿' },
+    { id: 'medical', name: t('cat_medical'), emoji: '💊' },
+    { id: 'electronics', name: t('cat_electronics'), emoji: '🔌' },
+    { id: 'stationery', name: t('cat_stationery'), emoji: '✏️' },
+    { id: 'fashion', name: t('cat_fashion'), emoji: '👕' },
+    { id: 'books', name: t('cat_books'), emoji: '📚' },
+    { id: 'home-essentials', name: t('cat_home_essentials'), emoji: '🧼' },
+    { id: 'pet-supplies', name: t('cat_pet_supplies'), emoji: '🐾' },
+    { id: 'beauty', name: t('cat_beauty'), emoji: '💄' }
   ];
 
   // Try to detect coordinates automatically on mount
@@ -76,7 +78,7 @@ export default function Onboarding() {
     if (!silent) setDetectingGps(true);
     
     if (!navigator.geolocation) {
-      if (!silent) alert('Geolocation is not supported by your browser.');
+      if (!silent) alert(t('geolocation_unsupported'));
       setDetectingGps(false);
       return;
     }
@@ -92,7 +94,7 @@ export default function Onboarding() {
           setLatitude(0);
           setLongitude(0);
           if (!silent) {
-            alert('Unable to determine your location. A valid GPS location is required to onboard your shop.');
+            alert(t('error_location_required'));
           }
           setDetectingGps(false);
         },
@@ -113,7 +115,7 @@ export default function Onboarding() {
     const mrpNum = prodMrp ? parseFloat(prodMrp) : priceNum;
 
     if (mrpNum > 0 && priceNum > mrpNum) {
-      alert(`Discounted price (₹${priceNum}) cannot exceed Maximum Retail Price (MRP ₹${mrpNum}).`);
+      alert(t('price_above_mrp', { price: priceNum, mrp: mrpNum }));
       return;
     }
 
@@ -145,17 +147,17 @@ export default function Onboarding() {
   const handleCompleteSetup = async () => {
     if (!user) return;
     if (!shopName.trim() || !shopAddress.trim()) {
-      alert('Please fill out all shop details in Step 1.');
+      alert(t('error_shop_details'));
       setStep(1);
       return;
     }
     if (productsList.length === 0) {
-      alert('Please add at least one product with its stock to open your store.');
+      alert(t('error_add_product'));
       return;
     }
 
     if (!latitude || !longitude) {
-      alert('Unable to determine your location. Please capture your shop location using GPS before registering.');
+      alert(t('error_location_required'));
       return;
     }
 
@@ -228,7 +230,7 @@ export default function Onboarding() {
             const path = `products/${generatedShopId}/${productId}/cover.jpg`;
             prodImageUrl = await uploadFile(path, tempProd.imageFile, { compress: true, quality: 0.75 });
           } catch {
-            throw new Error(`Unable to upload the image for ${tempProd.name}. Please try again.`);
+            throw new Error(t('product_upload_failed', { name: tempProd.name }));
           }
         }
 
@@ -262,14 +264,14 @@ export default function Onboarding() {
 
       navigate('/', { replace: true });
     } catch (err: any) {
-      alert(`Registration setup failed: ${err.message || err}`);
+      alert(t('setup_failed', { error: err.message || err }));
     } finally {
       setLoading(false);
     }
   };
 
   const handleLogout = async () => {
-    if (window.confirm('Cancel setup and logout?')) {
+    if (window.confirm(t('cancel_setup_confirm'))) {
       await logoutOwner();
       navigate('/login');
     }
@@ -299,17 +301,17 @@ export default function Onboarding() {
             <Store className="h-6 w-6 text-emerald-500" />
             <div>
               <h2 className="text-base font-black text-slate-800 dark:text-white uppercase tracking-wider">
-                Store Onboarding
+                {t('store_onboarding')}
               </h2>
               <span className="text-[10px] text-slate-400 font-semibold">
-                Setup your store portal profile
+                {t('store_onboarding_desc')}
               </span>
             </div>
           </div>
           <button
             onClick={handleLogout}
             className="p-2.5 rounded-xl hover:bg-red-500/10 text-red-505 transition-colors border border-transparent hover:border-red-500/20 cursor-pointer"
-            title="Log Out"
+            title={t('logout')}
           >
             <LogOut className="h-4.5 w-4.5" />
           </button>
@@ -324,13 +326,13 @@ export default function Onboarding() {
                 ? 'bg-emerald-500/10 border-emerald-500 text-emerald-600 dark:text-emerald-400' 
                 : 'bg-slate-50 dark:bg-zinc-900 border-transparent text-slate-400 hover:bg-slate-100'}`}
           >
-            <span className="text-[9px] uppercase tracking-wider font-extrabold opacity-60">Step 1</span>
-            <span>🏪 Store Details</span>
+            <span className="text-[9px] uppercase tracking-wider font-extrabold opacity-60">{t('step_one')}</span>
+            <span>🏪 {t('store_details')}</span>
           </button>
           <button
             onClick={() => {
               if (!shopName.trim() || !shopAddress.trim()) {
-                alert('Please fill out shop details first.');
+                alert(t('error_shop_first'));
                 return;
               }
               setStep(2);
@@ -340,8 +342,8 @@ export default function Onboarding() {
                 ? 'bg-emerald-500/10 border-emerald-500 text-emerald-600 dark:text-emerald-400' 
                 : 'bg-slate-50 dark:bg-zinc-900 border-transparent text-slate-400 hover:bg-slate-100'}`}
           >
-            <span className="text-[9px] uppercase tracking-wider font-extrabold opacity-60">Step 2</span>
-            <span>📦 Add Inventory</span>
+            <span className="text-[9px] uppercase tracking-wider font-extrabold opacity-60">{t('step_two')}</span>
+            <span>📦 {t('add_inventory')}</span>
           </button>
         </div>
 
@@ -349,13 +351,13 @@ export default function Onboarding() {
         {step === 1 && (
           <div className="space-y-6 animate-fade-in">
             <h3 className="text-sm font-extrabold text-slate-800 dark:text-zinc-200">
-              Provide Store Profile Details
+              {t('provide_store_details')}
             </h3>
 
             {/* Logo image upload */}
             <div className="flex flex-col gap-2">
               <label className="text-[10px] font-extrabold uppercase text-slate-400 dark:text-zinc-500 tracking-wider">
-                Store Logo Thumbnail Banner
+                {t('store_logo_banner')}
               </label>
               {!shopImagePreview ? (
                 <label className="border-2 border-dashed border-slate-150 dark:border-dark-border hover:border-emerald-500 rounded-2xl p-6 flex flex-col items-center justify-center gap-2 cursor-pointer transition bg-slate-50/50 dark:bg-zinc-900/5">
@@ -373,9 +375,9 @@ export default function Onboarding() {
                   />
                   <Camera className="h-6 w-6 text-slate-400" />
                   <span className="text-xs font-bold text-slate-650 dark:text-zinc-300">
-                    Tap to upload store banner logo
+                    {t('tap_upload_store_logo')}
                   </span>
-                  <span className="text-[9px] text-slate-400">JPEG/PNG formats supported</span>
+                  <span className="text-[9px] text-slate-400">{t('supported_images')}</span>
                 </label>
               ) : (
                 <div className="relative rounded-2xl overflow-hidden border border-slate-100 dark:border-dark-border aspect-video flex items-center justify-center bg-slate-50 dark:bg-zinc-900 max-h-52">
@@ -400,11 +402,11 @@ export default function Onboarding() {
             {/* Store Name Input */}
             <div className="flex flex-col gap-1.5">
               <label className="text-[10px] font-extrabold uppercase text-slate-400 dark:text-zinc-500 tracking-wider">
-                Store Display Name
+                {t('shop_name')}
               </label>
               <input
                 type="text"
-                placeholder="e.g., Fresh Choice Kirana"
+                placeholder={t('shop_name_placeholder')}
                 value={shopName}
                 onChange={(e) => setShopName(e.target.value)}
                 className="w-full px-4 py-3 text-sm bg-slate-50 dark:bg-zinc-900 border border-slate-100 dark:border-dark-border focus:border-primary rounded-xl outline-none transition font-semibold"
@@ -414,7 +416,7 @@ export default function Onboarding() {
             {/* Custom Visual Category Selector Grid */}
             <div className="flex flex-col gap-2">
               <label className="text-[10px] font-extrabold uppercase text-slate-400 dark:text-zinc-500 tracking-wider">
-                Store Category Type
+                {t('store_category')}
               </label>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {categoryChoices.map(cat => (
@@ -438,7 +440,7 @@ export default function Onboarding() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="flex flex-col gap-1.5">
                 <label className="text-[10px] font-extrabold uppercase text-slate-400 dark:text-zinc-500 tracking-wider">
-                  Opening Time
+                  {t('opening_time')}
                 </label>
                 <input
                   type="time"
@@ -450,7 +452,7 @@ export default function Onboarding() {
 
               <div className="flex flex-col gap-1.5">
                 <label className="text-[10px] font-extrabold uppercase text-slate-400 dark:text-zinc-500 tracking-wider">
-                  Closing Time
+                  {t('closing_time')}
                 </label>
                 <input
                   type="time"
@@ -462,7 +464,7 @@ export default function Onboarding() {
 
               <div className="flex flex-col gap-1.5">
                 <label className="text-[10px] font-extrabold uppercase text-slate-400 dark:text-zinc-500 tracking-wider">
-                  Delivery Radius (km)
+                  {t('delivery_radius')}
                 </label>
                 <input
                   type="number"
@@ -480,8 +482,8 @@ export default function Onboarding() {
             <div className="bg-slate-50 dark:bg-zinc-900/60 border border-slate-100 dark:border-dark-border/60 p-4 rounded-2xl space-y-3">
               <div className="flex items-center justify-between">
                 <div>
-                  <h4 className="text-xs font-black text-slate-800 dark:text-zinc-200">Shop Physical Coordinates</h4>
-                  <p className="text-[9px] text-slate-400 font-bold leading-none mt-0.5">Required for automatic distance calculations</p>
+                  <h4 className="text-xs font-black text-slate-800 dark:text-zinc-200">{t('shop_coordinates')}</h4>
+                  <p className="text-[9px] text-slate-400 font-bold leading-none mt-0.5">{t('coordinates_desc')}</p>
                 </div>
                 <button
                   type="button"
@@ -490,14 +492,14 @@ export default function Onboarding() {
                   className="px-3.5 py-2 bg-primary hover:bg-primary-hover text-white text-[10px] font-black uppercase rounded-xl tracking-wider shadow-xs transition disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
                 >
                   <Compass className={`h-3.5 w-3.5 ${detectingGps ? 'animate-spin' : ''}`} />
-                  {detectingGps ? 'Locating...' : 'Detect Coordinates'}
+                  {detectingGps ? t('detecting_location') : t('detect_location')}
                 </button>
               </div>
 
               {latitude && longitude ? (
                 <div className="grid grid-cols-2 gap-2 bg-white dark:bg-zinc-950 border border-emerald-500/20 p-3 rounded-xl">
                   <div>
-                    <span className="text-[8px] text-slate-400 font-extrabold uppercase">Latitude</span>
+                    <span className="text-[8px] text-slate-400 font-extrabold uppercase">{t('latitude')}</span>
                     <input
                       type="number"
                       step="any"
@@ -507,7 +509,7 @@ export default function Onboarding() {
                     />
                   </div>
                   <div>
-                    <span className="text-[8px] text-slate-400 font-extrabold uppercase">Longitude</span>
+                    <span className="text-[8px] text-slate-400 font-extrabold uppercase">{t('longitude')}</span>
                     <input
                       type="number"
                       step="any"
@@ -520,7 +522,7 @@ export default function Onboarding() {
               ) : (
                 <div className="text-[10px] text-amber-500 font-black p-2.5 bg-amber-500/5 rounded-xl border border-amber-500/10 flex items-center gap-1.5">
                   <MapPin className="h-4 w-4 shrink-0" />
-                  <span>GPS coordinates not set. Plattform default (Noida) will be written. Click detect above to fetch live position.</span>
+                  <span>{t('gps_not_set')}</span>
                 </div>
               )}
             </div>
@@ -528,10 +530,10 @@ export default function Onboarding() {
             {/* Address */}
             <div className="flex flex-col gap-1.5">
               <label className="text-[10px] font-extrabold uppercase text-slate-400 dark:text-zinc-500 tracking-wider">
-                Full Physical Address
+                {t('full_address')}
               </label>
               <textarea
-                placeholder="e.g., Shop No. 15, Ground Floor, Sector 62 Main Market, Noida"
+                placeholder={t('address_placeholder')}
                 value={shopAddress}
                 onChange={(e) => setShopAddress(e.target.value)}
                 rows={2}
@@ -541,7 +543,7 @@ export default function Onboarding() {
 
             {/* Store card preview */}
             <div className="bg-slate-50 dark:bg-zinc-900/30 border border-slate-100 dark:border-dark-border p-4.5 rounded-2xl space-y-3">
-              <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider block">Live Store Card Customer View</span>
+              <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider block">{t('customer_store_preview')}</span>
               
               <div className="bg-white dark:bg-dark-card border border-slate-150 dark:border-zinc-800 rounded-3xl overflow-hidden shadow-md max-w-xs mx-auto">
                 <div className="h-28 bg-slate-100 dark:bg-zinc-900 relative">
@@ -553,15 +555,15 @@ export default function Onboarding() {
                     </div>
                   )}
                   <span className="absolute top-2.5 right-2.5 bg-emerald-500 text-white text-[8px] font-black uppercase px-2 py-0.5 rounded-full tracking-wider">
-                    Open
+                    {t('open')}
                   </span>
                 </div>
                 <div className="p-3 text-left space-y-1">
                   <h4 className="font-extrabold text-sm text-slate-800 dark:text-zinc-150 truncate">
-                    {shopName.trim() || 'My Kirana Store'}
+                    {shopName.trim() || t('my_kirana_store')}
                   </h4>
                   <p className="text-[10px] text-slate-400 truncate flex items-center gap-0.5">
-                    📍 {shopAddress.trim() || 'Store Location Address'}
+                    📍 {shopAddress.trim() || t('store_location_address')}
                   </p>
                   <div className="flex items-center gap-1.5 text-[9px] text-slate-450 font-black pt-2 border-t border-slate-50 dark:border-zinc-900 uppercase">
                     <span className="text-amber-500 font-bold">★ 5.0</span>
@@ -579,14 +581,14 @@ export default function Onboarding() {
             <button
               onClick={() => {
                 if (!shopName.trim() || !shopAddress.trim()) {
-                  alert('Please fill out all store details fields.');
+                  alert(t('error_store_fields'));
                   return;
                 }
                 setStep(2);
               }}
               className="w-full py-4 bg-emerald-500 hover:bg-emerald-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest transition shadow-lg shadow-emerald-500/10 cursor-pointer text-center flex items-center justify-center gap-1.5"
             >
-              <span>Continue to Inventory Catalog Setup</span>
+              <span>{t('continue_inventory')}</span>
               <ArrowRight className="h-4 w-4" />
             </button>
           </div>
@@ -597,10 +599,10 @@ export default function Onboarding() {
           <div className="space-y-6 animate-fade-in">
             <div className="space-y-1">
               <h3 className="text-sm font-extrabold text-slate-800 dark:text-zinc-200">
-                Add Initial Products to Catalog
+                {t('add_initial_products')}
               </h3>
               <p className="text-[10px] text-slate-400 font-semibold leading-tight">
-                Add at least one product with its stock count. This enables checkouts from your local store.
+                {t('add_initial_products_desc')}
               </p>
             </div>
 
@@ -610,12 +612,12 @@ export default function Onboarding() {
                 {/* Product Name */}
                 <div className="flex flex-col gap-1.5">
                   <label className="text-[9px] font-extrabold uppercase text-slate-400">
-                    Product Item Name
+                    {t('name')}
                   </label>
                   <input
                     type="text"
                     required
-                    placeholder="e.g., Farm Fresh Apples (1kg)"
+                    placeholder={t('initial_product_placeholder')}
                     value={prodName}
                     onChange={(e) => setProdName(e.target.value)}
                     className="w-full px-3.5 py-2.5 text-xs bg-white dark:bg-zinc-800 border border-slate-100 dark:border-dark-border focus:border-primary rounded-xl outline-none transition font-semibold"
@@ -625,7 +627,7 @@ export default function Onboarding() {
                 {/* Product Category */}
                 <div className="flex flex-col gap-1.5">
                   <label className="text-[9px] font-extrabold uppercase text-slate-400">
-                    Product Category
+                    {t('category')}
                   </label>
                   <select
                     value={prodCategory}
@@ -644,13 +646,13 @@ export default function Onboarding() {
                 {/* Price */}
                 <div className="flex flex-col gap-1.5">
                   <label className="text-[9px] font-extrabold uppercase text-slate-400">
-                    Selling Price (₹)
+                    {t('price')}
                   </label>
                   <input
                     type="number"
                     required
                     min="1"
-                    placeholder="e.g., 90"
+                    placeholder={t('price_example')}
                     value={prodPrice}
                     onChange={(e) => setProdPrice(e.target.value)}
                     className="w-full px-3.5 py-2.5 text-xs bg-white dark:bg-zinc-800 border border-slate-100 dark:border-dark-border focus:border-primary rounded-xl outline-none transition font-semibold"
@@ -660,13 +662,13 @@ export default function Onboarding() {
                 {/* MRP */}
                 <div className="flex flex-col gap-1.5">
                   <label className="text-[9px] font-extrabold uppercase text-slate-400">
-                    Max Retail Price (MRP) (₹)
+                    {t('mrp')}
                   </label>
                   <input
                     type="number"
                     required
                     min="1"
-                    placeholder="e.g., 100"
+                    placeholder={t('mrp_example')}
                     value={prodMrp}
                     onChange={(e) => setProdMrp(e.target.value)}
                     className="w-full px-3.5 py-2.5 text-xs bg-white dark:bg-zinc-800 border border-slate-100 dark:border-dark-border focus:border-primary rounded-xl outline-none transition font-semibold"
@@ -676,13 +678,13 @@ export default function Onboarding() {
                 {/* Stock Count */}
                 <div className="flex flex-col gap-1.5">
                   <label className="text-[9px] font-extrabold uppercase text-slate-400">
-                    Initial Stock Count
+                    {t('initial_stock')}
                   </label>
                   <input
                     type="number"
                     required
                     min="1"
-                    placeholder="e.g., 50"
+                    placeholder={t('stock_example')}
                     value={prodStock}
                     onChange={(e) => setProdStock(e.target.value)}
                     className="w-full px-3.5 py-2.5 text-xs bg-white dark:bg-zinc-800 border border-slate-100 dark:border-dark-border focus:border-primary rounded-xl outline-none transition font-semibold"
@@ -694,14 +696,14 @@ export default function Onboarding() {
               {calculatedDiscountPreview() > 0 && (
                 <div className="text-[10px] text-emerald-500 font-black p-2 bg-emerald-500/5 border border-emerald-500/10 rounded-xl flex items-center gap-1.5">
                   <Tag className="h-3.5 w-3.5 shrink-0" />
-                  <span>Calculated discount markdown: {calculatedDiscountPreview()}% off MRP for customer checkout.</span>
+                  <span>{t('calculated_discount', { value: calculatedDiscountPreview() })}</span>
                 </div>
               )}
 
               {/* Product Photo Upload */}
               <div className="flex flex-col gap-1.5">
                 <label className="text-[9px] font-extrabold uppercase text-slate-400">
-                  Product Image Cover (Optional)
+                  {t('product_cover_optional')}
                 </label>
                 {!prodImagePreview ? (
                   <label className="border border-dashed border-slate-200 dark:border-zinc-850 hover:border-emerald-500 rounded-xl p-4 flex flex-col items-center justify-center gap-1 cursor-pointer transition bg-white dark:bg-zinc-850">
@@ -718,7 +720,7 @@ export default function Onboarding() {
                       className="hidden"
                     />
                     <Plus className="h-4 w-4 text-slate-400" />
-                    <span className="text-[10px] font-bold text-slate-500">Tap to upload cover</span>
+                    <span className="text-[10px] font-bold text-slate-500">{t('tap_upload_cover')}</span>
                   </label>
                 ) : (
                   <div className="relative rounded-xl overflow-hidden border border-slate-200 dark:border-zinc-800 w-full h-24 flex items-center justify-center bg-white dark:bg-zinc-850">
@@ -746,19 +748,19 @@ export default function Onboarding() {
                 className="w-full py-2.5 bg-slate-800 hover:bg-slate-900 text-white dark:bg-zinc-850 dark:hover:bg-zinc-800 rounded-xl font-extrabold text-[10px] uppercase tracking-wider transition cursor-pointer flex items-center justify-center gap-1"
               >
                 <Plus className="h-4 w-4" />
-                Add Item to Inventory
+                {t('add_item_inventory')}
               </button>
             </form>
 
             {/* List of currently added products */}
             <div className="space-y-2">
               <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider block">
-                Added Catalog List ({productsList.length})
+                {t('added_catalog', { count: productsList.length })}
               </span>
               
               {productsList.length === 0 ? (
                 <div className="p-8 border border-dashed border-slate-100 dark:border-dark-border rounded-2xl text-center text-slate-400 text-xs font-semibold">
-                  No items added yet. Complete the form above to add products.
+                  {t('no_initial_items')}
                 </div>
               ) : (
                 <div className="border border-slate-100 dark:border-dark-border rounded-2xl overflow-hidden divide-y divide-slate-50 dark:divide-zinc-900 bg-white dark:bg-zinc-900 max-h-56 overflow-y-auto">
@@ -780,7 +782,7 @@ export default function Onboarding() {
                       <div className="flex items-center gap-4">
                         <div className="text-right">
                           <span className="text-slate-850 dark:text-zinc-200">₹{item.price}</span>
-                          <span className="text-[9px] text-emerald-500 font-extrabold block">Stock: {item.stock}</span>
+                          <span className="text-[9px] text-emerald-500 font-extrabold block">{t('stock')}: {item.stock}</span>
                         </div>
                         <button
                           type="button"
@@ -807,7 +809,7 @@ export default function Onboarding() {
               ) : (
                 <CheckCircle className="h-4.5 w-4.5" />
               )}
-              <span>Complete Setup & Open Shop</span>
+              <span>{t('complete_setup')}</span>
             </button>
           </div>
         )}
