@@ -360,11 +360,13 @@ export const ShopkeeperPrivacy: React.FC = () => {
           <p>You can delete your account directly from the app:</p>
           <ul>
             <li>Open the Kart Kirana Shopkeeper App.</li>
-            <li>Go to <strong>Settings → Delete Account</strong>.</li>
+            <li>Go to <strong>Profile → Delete Account</strong> or <a href="/delete-account/shopkeeper">request shopkeeper account deletion online</a>.</li>
             <li>Follow the on-screen instructions to confirm deletion.</li>
           </ul>
           <p>Alternatively, you can request account closure by emailing <a href="mailto:support@kartkirana.com">support@kartkirana.com</a>.</p>
-          <p><strong>Data that may be retained:</strong> Your store profile, product catalog, and images will be removed. Certain records (order history, earnings, settlements) may be retained as required by law.</p>
+          <p>Verify your registered phone with an SMS code and confirm the request. Close your shop and resolve active orders, refunds, disputes and payouts before final deletion. A finance/retention review is required. Check request status on the deletion page.</p>
+          <p><strong>Deleted:</strong> Your personal merchant profile, notification identifiers and exclusively owned personal files after review. Your shop owner/contact association is removed. Shared sign-in/files remain while another KartKirana account uses them.</p>
+          <p><strong>Retained:</strong> The closed shop, products, inventory, business media/documents, orders, earnings, settlements, invoices, dispute/security records and minimal deletion audit remain for business continuity, reconciliation and applicable obligations. The catalog is not cascaded away.</p>
         </PolicySection>
 
         {/* 15. Your Rights */}
@@ -373,7 +375,7 @@ export const ShopkeeperPrivacy: React.FC = () => {
           <ul>
             <li><strong>Access:</strong> View your store information, catalog, orders, and earnings data within the App.</li>
             <li><strong>Correction:</strong> Update your store details, product information, and profile at any time.</li>
-            <li><strong>Deletion:</strong> Delete your account via the app (Settings → Delete Account) or by contacting us.</li>
+            <li><strong>Deletion:</strong> Delete your account via the app (Profile → Delete Account) or by contacting us.</li>
             <li><strong>Withdrawal of Consent:</strong> Revoke device permissions or close your account.</li>
             <li><strong>Permission Management:</strong> Manage camera, location, and storage permissions via device settings.</li>
             <li><strong>Grievance Redressal:</strong> Contact our Grievance Officer (see Section 21).</li>

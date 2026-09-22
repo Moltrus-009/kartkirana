@@ -25,6 +25,7 @@ interface CartContextType {
   removeFromCart: (productId: string) => void;
   updateQuantity: (productId: string, quantity: number) => void;
   clearCart: () => void;
+  importCart: (items: CartItem[]) => void;
   applyCoupon: (code: string) => Promise<{ success: boolean; message: string }>;
   removeCoupon: () => void;
   preorderSchedule: PreorderSchedule | null;
@@ -36,24 +37,13 @@ interface CartContextType {
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
 
-const getDistanceBetweenCoords = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-  const R = 6371; // Radius of the earth in km
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = 
-    Math.sin(dLat/2) * Math.sin(dLat/2) +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
-    Math.sin(dLon/2) * Math.sin(dLon/2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-  return R * c; // Distance in km
-};
 
 export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, loading: authLoading } = useAuth();
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [coupon, setCoupon] = useState<Coupon | null>(null);
   const [preorderSchedule, setPreorderScheduleState] = useState<PreorderSchedule | null>(null);
-  const [allShops, setAllShops] = useState<any[]>([]);
+
   const [conflictItem, setConflictItem] = useState<{ product: Product; quantity: number } | null>(null);
   const { promotions } = usePromotions(cartItems[0]?.product.shopId, user?.uid);
   const { products: liveProducts } = useProducts();
@@ -98,10 +88,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [authLoading, user?.uid]);
 
-  useEffect(() => {
-    // Fetch all shops to resolve coordinates
-    dbService.getShops().then(list => setAllShops(list));
-  }, []);
+
 
   // Cart records contain a product snapshot for offline continuity. Replace
   // that snapshot whenever live inventory changes so an old cart cannot keep
@@ -143,6 +130,15 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     removeCustomerStorageItem(CUSTOMER_STORAGE_KEYS.preorderSchedule, user?.uid);
   };
 
+  const importCart = (items: CartItem[]) => {
+    if (!user || !items.length || new Set(items.map(i => i.product.shopId)).size !== 1 || items.some(i => !Number.isInteger(i.quantity) || i.quantity < 1 || i.quantity > i.product.stock)) {
+      throw new Error('Choose available items from one shop.');
+    }
+    // Caller obtains explicit replacement confirmation before importing.
+    clearCart();
+    saveCart(items);
+  };
+
   // Determine active shop from items
   const cartShopId = cartItems.length > 0 ? cartItems[0].product.shopId : null;
   const cartShopName = cartItems.length > 0 ? cartItems[0].product.shopName : null;
@@ -157,23 +153,10 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const availableStock = Math.max(0, Number(product.stock || 0));
     if (availableStock === 0 || quantity <= 0) return;
 
-    // Multi-shop check
+    // Checkout requires every line to belong to the same shop.
     if (cartShopId && cartShopId !== product.shopId) {
-      const existingShop = allShops.find(s => s.id === cartShopId);
-      const newShop = allShops.find(s => s.id === product.shopId);
-      
-      let isNearby = false;
-      if (existingShop && newShop) {
-        const distance = getDistanceBetweenCoords(existingShop.lat, existingShop.lng, newShop.lat, newShop.lng);
-        if (distance * 1000 <= 500) {
-          isNearby = true;
-        }
-      }
-
-      if (!isNearby) {
-        setConflictItem({ product, quantity });
-        return;
-      }
+      setConflictItem({ product, quantity });
+      return;
     }
 
     const existsIdx = cartItems.findIndex(item => item.product.id === product.id);
@@ -374,6 +357,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       removeFromCart,
       updateQuantity,
       clearCart,
+      importCart,
       applyCoupon,
       removeCoupon,
       preorderSchedule,

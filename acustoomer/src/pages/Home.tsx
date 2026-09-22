@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { APP_CATEGORIES } from '../config/categories';
 import { useAddress } from '../context/AddressContext';
+import { UpcomingRoutine } from '../components/UpcomingRoutine';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
@@ -350,6 +351,7 @@ export const Home: React.FC = () => {
 
   return (
     <div className="w-full max-w-full overflow-x-hidden pb-24 text-left">
+      <UpcomingRoutine />
       
       {/* 1. Premium Sticky Header Section */}
       <div className="home-sticky-header sticky top-0 z-40 px-3 pb-3 sm:px-4">

@@ -1,12 +1,16 @@
 import { 
   signInWithPhoneNumber, 
+  signInWithCredential,
+  PhoneAuthProvider,
   User as FirebaseUser,
   signOut,
   type ApplicationVerifier
 } from 'firebase/auth';
+import { Capacitor } from '@capacitor/core';
 import { auth } from '../infrastructure/firebase/firebase';
 import { UserProfile } from '../types';
 import { dbService } from './dbService';
+import { NativePhoneAuth } from './nativePhoneAuth';
 
 export interface PhoneSignInResult {
   verificationId: string;
@@ -15,13 +19,36 @@ export interface PhoneSignInResult {
 
 export const authService = {
   // Send OTP
-  async sendOTP(phoneWithCountry: string, appVerifier: ApplicationVerifier): Promise<PhoneSignInResult> {
+  async sendOTP(phoneWithCountry: string, appVerifier?: ApplicationVerifier, resend = false): Promise<PhoneSignInResult> {
     if (!auth) {
       throw new Error('Firebase Auth is not initialized. Please configure API keys.');
     }
+    const firebaseAuth = auth;
+
+    if (Capacitor.isNativePlatform()) {
+      const { verificationId } = await NativePhoneAuth.sendVerificationCode({
+        phoneNumber: phoneWithCountry,
+        resend,
+      });
+      if (!verificationId) {
+        throw new Error('Native phone verification did not return a verification session.');
+      }
+      return {
+        verificationId,
+        confirm: async (otp: string) => {
+          const credential = PhoneAuthProvider.credential(verificationId, otp);
+          const result = await signInWithCredential(firebaseAuth, credential);
+          return result.user;
+        }
+      };
+    }
+
+    if (!appVerifier) {
+      throw new Error('Browser phone verification is not initialized.');
+    }
 
     // Real Firebase auth path. No local bypasses, no fallback to mock code.
-    const confirmationResult = await signInWithPhoneNumber(auth, phoneWithCountry, appVerifier);
+    const confirmationResult = await signInWithPhoneNumber(firebaseAuth, phoneWithCountry, appVerifier);
     return {
       verificationId: confirmationResult.verificationId,
       confirm: async (otp: string) => {

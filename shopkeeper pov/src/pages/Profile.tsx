@@ -431,6 +431,8 @@ export default function Profile() {
         </div>
       </div>
 
+      <a href="https://kartkirana.com/delete-account/shopkeeper" className="block rounded-2xl border border-red-200 bg-red-50 p-4 text-center font-bold text-red-700">Delete Account</a>
+      <p className="text-xs text-slate-500 text-center">Review permanent deletion and verify your phone. Orders and unsettled payouts must be resolved first.</p>
       {/* LOGOUT BLOCK */}
       <div className="bg-white dark:bg-dark-card border border-slate-100 dark:border-dark-border p-4 rounded-3xl shadow-xs">
         <button

@@ -5,6 +5,12 @@ import { auth, db } from '../lib/firebase';
 import { adminService } from '../services/adminService';
 import { logger } from '../lib/logger';
 import { mapFirebaseError } from '../lib/errorMapper';
+import { isAllowedAdminPhone } from '../lib/adminAccess';
+import { writeBatch } from 'firebase/firestore';
+
+function normalizeRider(id: string, data: any): RiderDoc {
+  return { ...data, uid: id, name: data.name || data.fullName || 'Rider Partner', vehicle: data.vehicle || [data.vehicleType, data.vehicleNumber].filter(Boolean).join(' · '), photoUrl: data.photoUrl || data.avatarUrl, verificationStatus: data.verificationStatus || (data.documentStatus === 'verified' ? 'approved' : data.documentStatus || 'pending') };
+}
 
 export interface UserDoc {
   uid: string;
@@ -105,6 +111,10 @@ export interface OrderDoc {
 }
 
 export interface RiderDoc {
+  documentStatus?: string;
+  dlUrl?: string;
+  aadhaarUrl?: string;
+  rcUrl?: string;
   uid: string;
   name: string;
   phone: string;
@@ -245,6 +255,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [adminUser, setAdminUser] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [dataLoading, setDataLoading] = useState(false);
+  const [streamErrors, setStreamErrors] = useState<Record<string, string>>({});
   const [dataError, setDataError] = useState<string | null>(null);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
   const [users, setUsers] = useState<UserDoc[]>([]);
@@ -268,11 +279,11 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           await user.getIdToken(true);
           const tokenResult = await user.getIdTokenResult();
           
-          const role = tokenResult.claims.role as string;
+          const role = (tokenResult.claims.adminRole || tokenResult.claims.role) as string;
 
           const adminRoles = ['super_admin', 'admin', 'operations', 'support', 'finance', 'marketing', 'logistics', 'merchant_success', 'analyst'];
           
-          if (role && adminRoles.includes(role)) {
+          if (isAllowedAdminPhone(user.phoneNumber) && role && adminRoles.includes(role)) {
             setAdminUser({ uid: user.uid, phone: user.phoneNumber, role });
           } else {
             console.warn('[AUTH ERROR] User does not possess administrative claims.');
@@ -350,21 +361,25 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     // 1. Orders collection
     const unsubOrders = onSnapshot(collection(db, 'orders'), (snap) => {
+      setStreamErrors(previous => ({ ...previous, orders: '' }));
       const list = snap.docs.map(d => normalizeOrder(d.id, d.data()));
       list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       setOrders(list);
       setLastSyncedAt(new Date());
     }, (err) => {
       logger.error('Firestore', 'Unable to load orders for the admin portal.', err);
+      setStreamErrors(previous => ({ ...previous, orders: 'Live orders unavailable. Reload to reconnect.' }));
     });
 
     // 2. Riders collection
     const unsubRiders = onSnapshot(collection(db, 'riders'), (snap) => {
-      const list = snap.docs.map(d => ({ uid: d.id, ...d.data() } as RiderDoc));
+      setStreamErrors(previous => ({ ...previous, riders: '' }));
+      const list = snap.docs.map(d => normalizeRider(d.id, d.data()));
       setRiders(list.filter(r => !r.isDeleted));
       setLastSyncedAt(new Date());
     }, (err) => {
       logger.error('Firestore', 'Unable to load riders for the admin portal.', err);
+      setStreamErrors(previous => ({ ...previous, riders: 'Live riders unavailable. Reload to reconnect.' }));
     });
 
     // Cleanup unsubscribes on unmount/auth state change
@@ -384,7 +399,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       // Refresh riders & orders via snapshot or manual pull
       if (db) {
         const snapRiders = await getDocs(collection(db, 'riders'));
-        setRiders(snapRiders.docs.map(d => ({ uid: d.id, ...d.data() } as RiderDoc)).filter(r => !r.isDeleted));
+        setRiders(snapRiders.docs.map(d => normalizeRider(d.id, d.data())).filter(r => !r.isDeleted));
       }
 
       const [uList, sList, pList] = await Promise.all([
@@ -417,7 +432,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (!/^\+\d{8,15}$/.test(formatted)) {
       throw new Error('Enter a valid phone number, for example +91 95801 84045.');
     }
-    logger.info('Auth', `Sending admin OTP to: ${formatted}`);
+    if (!isAllowedAdminPhone(formatted)) throw new Error('This number is not authorised for the admin portal.');
 
     if (recaptchaVerifierRef.current) {
       try {
@@ -459,9 +474,9 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       // Browser clients must not create privileged Firestore profiles: the security
       // rules correctly reject that escalation path.
       const tokenResult = await user.getIdTokenResult(true);
-      const role = tokenResult.claims.role as string | undefined;
+      const role = (tokenResult.claims.adminRole || tokenResult.claims.role) as string | undefined;
       const adminRoles = ['super_admin', 'admin', 'operations', 'support', 'finance', 'marketing', 'logistics', 'merchant_success', 'analyst'];
-      if (!role || !adminRoles.includes(role)) {
+      if (!isAllowedAdminPhone(user.phoneNumber) || !role || !adminRoles.includes(role)) {
         if (auth) await signOut(auth);
         throw new Error('This phone number is not authorised for the admin portal.');
       }
@@ -534,8 +549,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         title, 
         desc,
         actor: 'admin',
-        lat: riderCoords?.lat,
-        lng: riderCoords?.lng
+        ...(riderCoords ? { lat: riderCoords.lat, lng: riderCoords.lng } : {})
       });
       
       const updates: any = { status, timeline };
@@ -548,7 +562,8 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const updateShopStatus = async (shopId: string, status: 'open' | 'closed') => {
     if (!db) return;
-    await updateDoc(doc(db, 'shops', shopId), { status });
+    await updateDoc(doc(db, 'shops', shopId), { status, isOpen: status === 'open' });
+    setShops(previous => previous.map(shop => shop.id === shopId ? { ...shop, status } : shop));
   };
 
   const updateShopVerification = async (shopId: string, step: ShopDoc['verificationStep']) => {
@@ -559,10 +574,17 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const approveShopAndMerchant = async (shopId: string, ownerUid?: string) => {
     if (!db) return;
-    await updateDoc(doc(db, 'shops', shopId), { verificationStep: 'approved', status: 'open' });
+    const shopSnapshot = await getDoc(doc(db, 'shops', shopId));
+    if (!shopSnapshot.exists()) throw new Error('Shop no longer exists. Refresh the list.');
+    const actualOwner = shopSnapshot.data().ownerId;
+    if (!actualOwner || (ownerUid && actualOwner !== ownerUid)) throw new Error('Shop owner mismatch. Refresh the list.');
+    ownerUid = actualOwner;
+    const approval = writeBatch(db);
+    approval.update(doc(db, 'shops', shopId), { verificationStep: 'approved', status: 'open', isOpen: true });
+    approval.update(doc(db, 'merchants', actualOwner), { accountStatus: 'active', shopId });
+    await approval.commit();
     setShops(prev => prev.map(s => s.id === shopId ? { ...s, verificationStep: 'approved', status: 'open' } : s));
     if (ownerUid) {
-      await updateDoc(doc(db, 'merchants', ownerUid), { accountStatus: 'active', role: 'owner', shopId });
       setUsers(prev => prev.map(u => u.uid === ownerUid ? { ...u, accountStatus: 'active', role: 'owner', shopId } : u));
     }
   };
@@ -579,8 +601,15 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const updateRiderVerification = async (riderId: string, status: RiderDoc['verificationStatus']) => {
-    if (!db) return;
-    await updateDoc(doc(db, 'riders', riderId), { verificationStatus: status });
+    if (!db) throw new Error('Database unavailable. Please reconnect.');
+    if (!status) throw new Error('Choose a verification status.');
+    await updateDoc(doc(db, 'riders', riderId), {
+      verificationStatus: status,
+      reviewedAt: new Date().toISOString(),
+      reviewedBy: auth?.currentUser?.uid || 'admin',
+      documentStatus: status === 'approved' ? 'verified' : status,
+      ...(status !== 'approved' ? { status: 'offline', online: false } : {}),
+    });
   };
 
   const deleteProduct = async (productId: string) => {
@@ -607,7 +636,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       adminUser,
       loading,
       dataLoading,
-      dataError,
+      dataError: dataError || Object.values(streamErrors).filter(Boolean).join(' ') || null,
       lastSyncedAt,
       users,
       shops,

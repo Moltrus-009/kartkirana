@@ -61,6 +61,7 @@ export const PolicyLayout: React.FC<PolicyLayoutProps> = ({
           <div>
             <h1 className="policy-title">{title}</h1>
             <p className="policy-subtitle">{subtitle}</p>
+            <p><a href={`/delete-account/${iconVariant}`}>Delete {iconVariant === 'customer' ? 'Customer' : iconVariant === 'shopkeeper' ? 'Shopkeeper' : 'Rider'} Account</a></p>
             <div className="policy-meta">
               <span className="policy-meta-item">
                 <Calendar size={14} />

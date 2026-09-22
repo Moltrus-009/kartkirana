@@ -67,10 +67,12 @@ const parseGoogleAddress = (result: any) => {
 };
 
 export const AddressProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, updateUser } = useAuth();
   const [addresses, setAddresses] = useState<UserAddress[]>([]);
   const [selectedAddress, setSelectedAddress] = useState<UserAddress | null>(null);
   const lastGeocodeTimeRef = useRef<number>(0);
+  const profileAddressesRef = useRef<UserAddress[]>([]);
+  profileAddressesRef.current = user?.addresses || [];
 
   // Reload only the authenticated customer's addresses on an account change.
   useEffect(() => {
@@ -87,8 +89,12 @@ export const AddressProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const lastKnown = getCustomerStorageItem(LAST_KNOWN_ADDR_KEY, user.uid);
     
     let parsed: UserAddress[] = [];
-    if (saved) {
-      parsed = JSON.parse(saved) as UserAddress[];
+    if (profileAddressesRef.current.length) {
+      parsed = profileAddressesRef.current;
+      setAddresses(parsed);
+      setCustomerStorageItem(LOCAL_STORAGE_KEY, user.uid, JSON.stringify(parsed));
+    } else if (saved) {
+      try { const value = JSON.parse(saved); parsed = Array.isArray(value) ? value : []; } catch { parsed = []; }
       setAddresses(parsed);
     } else {
       // Start with empty list to avoid Noida fallbacks
@@ -102,7 +108,8 @@ export const AddressProvider: React.FC<{ children: React.ReactNode }> = ({ child
       try {
         const lastKnownAddr = JSON.parse(lastKnown) as UserAddress;
         const def = parsed.find(a => a.isDefault) || parsed[0] || null;
-        setSelectedAddress(isCompleteAddress(lastKnownAddr) ? lastKnownAddr : def);
+        const savedAddress = parsed.find(a=>a.id===lastKnownAddr.id);
+        setSelectedAddress(savedAddress || (lastKnownAddr.id===CURRENT_LOCATION_ID && isCompleteAddress(lastKnownAddr) ? lastKnownAddr : def));
       } catch {
         const def = parsed.find(a => a.isDefault) || parsed[0] || null;
         setSelectedAddress(def);
@@ -134,6 +141,7 @@ export const AddressProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
 
     updatedList.push(newAddr);
+    await updateUser({ addresses: updatedList });
     saveToStorage(updatedList);
     return newAddr;
   };
@@ -152,6 +160,7 @@ export const AddressProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return addrData.isDefault ? { ...a, isDefault: false } : a;
     });
 
+    await updateUser({ addresses: updatedList });
     saveToStorage(updatedList);
     const edited = updatedList.find(a => a.id === id);
     if (!edited) throw new Error('Address not found');
@@ -163,6 +172,7 @@ export const AddressProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (addresses.find(a => a.id === id)?.isDefault && filter.length > 0) {
       filter[0].isDefault = true;
     }
+    await updateUser({ addresses: filter });
     saveToStorage(filter);
   };
 

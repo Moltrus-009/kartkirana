@@ -1,5 +1,6 @@
 import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
 import { storage } from '../firebase/firebase';
+import { withDeadline } from '../../lib/withDeadline';
 
 export interface UploadOptions {
   compress?: boolean;
@@ -69,11 +70,11 @@ export const uploadFile = async (path: string, file: File, options: UploadOption
   let fileToUpload: Blob | File = file;
   if (options.compress && file.type.startsWith('image/')) {
     try {
-      fileToUpload = await compressImage(file, {
+      fileToUpload = await withDeadline(compressImage(file, {
         quality: options.quality,
         maxWidth: options.maxWidth,
         maxHeight: options.maxHeight
-      });
+      }), 'Image processing timed out.', 10000);
     } catch {
       // Upload the original validated image if client-side compression is unavailable.
     }
@@ -83,15 +84,20 @@ export const uploadFile = async (path: string, file: File, options: UploadOption
   const uploadTask = uploadBytesResumable(storageRef, fileToUpload);
 
   return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error('Image upload timed out. Check your connection and retry.'));
+      uploadTask.cancel();
+    }, 45000);
     uploadTask.on(
       'state_changed',
       (snapshot) => {
         const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
         if (options.onProgress) options.onProgress(progress);
       },
-      (error) => reject(error),
+      (error) => { clearTimeout(timer); reject(error); },
       () => {
-        getDownloadURL(uploadTask.snapshot.ref).then(resolve).catch(reject);
+        clearTimeout(timer);
+        withDeadline(getDownloadURL(uploadTask.snapshot.ref), 'Image URL lookup timed out. Please retry.').then(resolve).catch(reject);
       }
     );
   });

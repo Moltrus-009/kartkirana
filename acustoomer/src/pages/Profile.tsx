@@ -213,6 +213,7 @@ export const Profile: React.FC = () => {
         {[
           { id: 'orders' as const, name: 'Order history', icon: ShoppingBag, action: () => navigate('/orders') },
           { id: 'scheduled' as const, name: 'Scheduled orders', icon: CalendarClock, action: () => navigate('/preorders') },
+          { id: 'routines' as const, name: 'My Routines', icon: CalendarClock, action: () => navigate('/routines') },
           { id: 'payments' as const, name: t('saved_payment_methods'), icon: CreditCard },
           { id: 'wishlist' as const, name: t('my_favorite_items'), icon: Heart, action: () => navigate('/wishlist') },
           { id: 'notifications' as const, name: t('app_notifications'), icon: Bell, badge: notifications.filter(n => !n.read).length },
@@ -282,6 +283,8 @@ export const Profile: React.FC = () => {
           </div>
         </div>
 
+        <a href="https://kartkirana.com/delete-account/customer" className="block rounded-2xl border border-red-200 bg-red-50 p-4 text-center font-bold text-red-700">Delete Account</a>
+        <p className="text-xs text-slate-500 text-center">Review permanent deletion and verify your phone on the secure account deletion page.</p>
         {/* Logout */}
         <button
           onClick={handleLogout}

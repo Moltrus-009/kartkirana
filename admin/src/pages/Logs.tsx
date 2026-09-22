@@ -23,6 +23,7 @@ interface AuditLog {
 }
 
 export default function Logs() {
+  const [loadError, setLoadError] = useState('');
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -32,9 +33,11 @@ export default function Logs() {
     async function loadLogs() {
       try {
         const data = await adminService.getAuditLogs();
+      setLoadError('');
         setLogs(data);
       } catch (err) {
         console.error('Failed loading audit registry:', err);
+      setLoadError('Unable to load this section. Reload to retry; displayed data may be outdated.');
       } finally {
         setLoading(false);
       }
@@ -50,6 +53,7 @@ export default function Logs() {
 
   return (
     <div className="space-y-6 text-left select-none">
+      {loadError && <p role="alert" className="rounded-xl p-3 bg-red-500/10 text-red-600">{loadError}</p>}
       
       {/* Header */}
       <div>

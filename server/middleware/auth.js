@@ -1,4 +1,4 @@
-const { auth } = require('../config/firebase');
+const { auth, db } = require('../config/firebase');
 const env = require('../config/env');
 const { AppError } = require('../utils/errors');
 
@@ -29,6 +29,10 @@ module.exports = async (req, res, next) => {
   try {
     // Keep revocation checks enabled for every real payment request.
     req.user = await auth.verifyIdToken(token, true);
+    req.accountDeletion = (await db.collection('accountDeletionState').doc(req.user.uid).get()).data() || {};
+    if (req.accountDeletion.processing || req.accountDeletion.authDeleted) {
+      return next(new AppError('This account is being deleted or has been deleted.', 403, 'ACCOUNT_DELETION_PENDING'));
+    }
     return next();
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown Firebase Auth verification error.';

@@ -56,7 +56,7 @@ export default function Orders() {
     } else {
       setSelectedOrderId(null);
     }
-  }, [activeTab, orders]);
+  }, [activeTab, orders, search]);
 
   // Leaflet Map Initialization & Rendering
   useEffect(() => {

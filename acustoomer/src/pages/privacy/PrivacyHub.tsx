@@ -19,6 +19,7 @@ export const PrivacyHub: React.FC = () => {
           Data Protection & Privacy
         </div>
         <h1 className="hub-title">Privacy Policies</h1>
+        <p><a href="/delete-account">Account Deletion — submit a verified request</a></p>
         <p className="hub-description">
           At Kart Kirana, transparency and trust are at the core of everything we do. Read our privacy policies to understand how we collect, use, and protect your data across our platform.
         </p>

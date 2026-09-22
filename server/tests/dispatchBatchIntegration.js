@@ -1,5 +1,10 @@
 const assert = require('node:assert/strict');
-const { db } = require('../config/firebase');
+// Fail before importing services: never load production config or credentials in this test.
+assert.equal(process.env.FIRESTORE_EMULATOR_HOST, '127.0.0.1:8181');
+const { Firestore } = require('@google-cloud/firestore');
+const db = new Firestore({ projectId: 'demo-kartkirana', host: '127.0.0.1:8181', ssl: false });
+const configPath = require.resolve('../config/firebase');
+require.cache[configPath] = { id: configPath, filename: configPath, loaded: true, exports: { db } };
 const DispatchService = require('../services/dispatchService');
 
 const riderId = 'integration-rider';
@@ -65,7 +70,7 @@ async function main() {
   assert.equal(batch.status, 'assigned');
   assert.deepEqual(new Set(batch.orderIds), new Set(orderIds));
   assert.equal(batch.stops.length, 3, 'The route must contain one pickup and two delivery stops.');
-  assert.equal(batch.totalEarnings, 35, 'Two ₹10 delivery fees plus the ₹15 batch bonus are expected.');
+  assert.equal(batch.totalEarnings, 16, 'Two orders pay ₹10 first plus ₹6 additional.');
   assert.ok(batch.maxDeliverySpreadMeters <= 1500, 'Batch deliveries must remain within the configured spread.');
 
   const [batchSnapshot, riderSnapshot, ...orderSnapshots] = await Promise.all([

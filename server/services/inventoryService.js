@@ -8,7 +8,7 @@ class InventoryService {
    * COD orders are placed immediately, so they do not need a temporary reservation.
    * Read every product before issuing writes to keep the Firestore transaction valid.
    */
-  async commitCodInventory(transaction, items, userId = 'system') {
+  async commitCodInventory(transaction, items, userId = 'system', enforceCurrentPrice = false) {
     const quantities = new Map();
     for (const item of items) {
       const productId = item.productId || item.id;
@@ -26,9 +26,11 @@ class InventoryService {
     for (const [productId, quantity] of quantities) {
       const { productRef, productSnap } = snapshots.get(productId);
       const product = productSnap.data();
+      if (enforceCurrentPrice && ((product.status && product.status !== 'active') || Number(product.price) !== Number(items.find(i => (i.productId || i.id) === productId)?.price))) throw new AppError('Product availability or price changed. Review this occurrence.', 409, 'ROUTINE_PRICE_CHANGED');
       const totalStock = product.totalStock !== undefined ? product.totalStock : (product.stock ?? 0);
       const reservedStock = product.reservedStock ?? 0;
       const availableStock = totalStock - reservedStock;
+      if (enforceCurrentPrice && (!Number.isFinite(availableStock) || product.shopId !== items.find(i => (i.productId || i.id) === productId)?.product?.shopId)) throw new AppError('Product inventory changed. Review this occurrence.', 409);
 
       if (availableStock < quantity) {
         throw new AppError(`Insufficient stock for "${product.name}". Available: ${availableStock}, Requested: ${quantity}`, 409);
@@ -44,7 +46,7 @@ class InventoryService {
     }
   }
 
-  async reserveInventory(transaction, orderId, items, expiresAt, userId = 'system') {
+  async reserveInventory(transaction, orderId, items, expiresAt, userId = 'system', enforceCurrentPrice = false) {
     const quantities = new Map();
     for (const item of items) {
       const productId = item.productId || item.id;
@@ -65,9 +67,11 @@ class InventoryService {
       }
 
       const pData = productSnap.data();
+      if (enforceCurrentPrice && ((pData.status && pData.status !== 'active') || Number(pData.price) !== Number(items.find(i => (i.productId || i.id) === productId)?.price))) throw new AppError('Product availability or price changed. Review this occurrence.', 409, 'ROUTINE_PRICE_CHANGED');
       const totalStock = pData.totalStock !== undefined ? pData.totalStock : (pData.stock ?? 0);
       const reservedStock = pData.reservedStock ?? 0;
       const availableStock = totalStock - reservedStock;
+      if (enforceCurrentPrice && (!Number.isFinite(availableStock) || pData.shopId !== items.find(i => (i.productId || i.id) === productId)?.product?.shopId)) throw new AppError('Product inventory changed. Review this occurrence.', 409);
 
       if (availableStock < quantity) {
         throw new AppError(`Insufficient stock for "${pData.name}". Available: ${availableStock}, Requested: ${quantity}`, 409);

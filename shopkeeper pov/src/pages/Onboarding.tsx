@@ -1,14 +1,20 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { readSetupDraft, saveSetupDraft, clearSetupDraft, pendingSetupKey } from '../lib/setupDraft';
+import { mapFirestoreDocToProduct } from '../infrastructure/repositories/productRepository';
+import { withDeadline } from '../lib/withDeadline';
 import { useAppStore } from '../core/store/useAppStore';
 import { useNavigate } from 'react-router-dom';
 import { Store, Plus, Trash2, Camera, CheckCircle, LogOut, FileText, MapPin, Compass, Tag, ArrowRight } from 'lucide-react';
 import { shopRepository } from '../infrastructure/repositories/shopRepository';
-import { userRepository } from '../infrastructure/repositories/userRepository';
-import { productRepository } from '../infrastructure/repositories/productRepository';
+import { doc, writeBatch } from 'firebase/firestore';
+import { db } from '../infrastructure/firebase/firebase';
 import { uploadFile } from '../infrastructure/storage/localStorage';
+import ProductSuggestions from '../components/ProductSuggestions';
 import { useLanguage } from '../context/LanguageContext';
 
 interface TempProduct {
+  id: string;
+  description: string;
   name: string;
   price: number;
   mrp: number;
@@ -19,16 +25,23 @@ interface TempProduct {
 }
 
 export default function Onboarding() {
-  const { user, setUser, setShop, logoutOwner } = useAppStore();
+  const { user, logoutOwner } = useAppStore();
   const navigate = useNavigate();
   const { t } = useLanguage();
 
   const [step, setStep] = useState<1 | 2>(1);
   const [loading, setLoading] = useState(false);
+  const [setupProgress, setSetupProgress] = useState('');
+  const [setupError, setSetupError] = useState('');
+  const setupId = useRef(`shop_${crypto.randomUUID()}`);
+  const submitting = useRef(false);
+  const completed = useRef(false);
+  const [draftReady, setDraftReady] = useState(false);
 
   // Step 1: Shop Details States
   const [shopName, setShopName] = useState('');
-  const [shopCategory, setShopCategory] = useState('groceries');
+  const [shopCategories, setShopCategories] = useState<string[]>(['groceries']);
+
   const [shopAddress, setShopAddress] = useState('');
   const [openingTime, setOpeningTime] = useState('08:00');
   const [closingTime, setClosingTime] = useState('22:00');
@@ -43,6 +56,7 @@ export default function Onboarding() {
 
   // Step 2: Product Addition States
   const [prodName, setProdName] = useState('');
+  const [prodDescription, setProdDescription] = useState('');
   const [prodPrice, setProdPrice] = useState('');
   const [prodMrp, setProdMrp] = useState('');
   const [prodStock, setProdStock] = useState('');
@@ -51,6 +65,32 @@ export default function Onboarding() {
   const [prodImagePreview, setProdImagePreview] = useState('');
 
   const [productsList, setProductsList] = useState<TempProduct[]>([]);
+
+  const draft = { setupId: setupId.current, step, shopName, shopCategories, shopAddress, openingTime, closingTime, deliveryRadius, shopImageFile, latitude, longitude, prodName, prodDescription, prodPrice, prodMrp, prodStock, prodCategory, prodImageFile, prodImagePreview: prodImageFile ? '' : prodImagePreview, productsList: productsList.map(p => ({ ...p, imagePreview: p.imageFile ? '' : p.imagePreview })) };
+  useEffect(() => {
+    if (!user?.uid) return;
+    let active = true;
+    withDeadline(readSetupDraft<typeof draft>(user.uid), 'Saved setup could not be opened.', 10000).then(saved => {
+      if (!active) return;
+      if (!saved) { setDraftReady(true); return; }
+      setupId.current = saved.setupId;
+      setStep(saved.step); setShopName(saved.shopName); setShopCategories(saved.shopCategories);
+      setShopAddress(saved.shopAddress); setOpeningTime(saved.openingTime); setClosingTime(saved.closingTime); setDeliveryRadius(saved.deliveryRadius);
+      setShopImageFile(saved.shopImageFile); setShopImagePreview(saved.shopImageFile ? URL.createObjectURL(saved.shopImageFile) : '');
+      setLatitude(saved.latitude); setLongitude(saved.longitude);
+      setProdName(saved.prodName); setProdDescription(saved.prodDescription); setProdPrice(saved.prodPrice); setProdMrp(saved.prodMrp); setProdStock(saved.prodStock); setProdCategory(saved.prodCategory);
+      setProdImageFile(saved.prodImageFile); setProdImagePreview(saved.prodImageFile ? URL.createObjectURL(saved.prodImageFile) : saved.prodImagePreview);
+      setProductsList(saved.productsList.map(p => ({ ...p, imagePreview: p.imageFile ? URL.createObjectURL(p.imageFile) : p.imagePreview })));
+      setDraftReady(true);
+    }).catch(() => { if (active) setSetupError('Your saved setup could not be opened. Keep this screen open and retry.'); })
+      ;
+    return () => { active = false; };
+  }, [user?.uid]);
+  useEffect(() => {
+    if (!draftReady || !user || completed.current) return;
+    localStorage.setItem(pendingSetupKey(user.uid), setupId.current);
+    void saveSetupDraft(user.uid, draft).catch(() => setSetupError('This device could not save the setup draft. Keep the app open until setup completes.'));
+  }, [draftReady, user?.uid, step, shopName, shopCategories, shopAddress, openingTime, closingTime, deliveryRadius, shopImageFile, latitude, longitude, prodName, prodDescription, prodPrice, prodMrp, prodStock, prodCategory, prodImageFile, prodImagePreview, productsList]);
 
   // Category choices with emojis and titles
   const categoryChoices = [
@@ -69,10 +109,10 @@ export default function Onboarding() {
 
   // Try to detect coordinates automatically on mount
   useEffect(() => {
-    if (step === 1 && !latitude && !longitude) {
+    if (draftReady && step === 1 && latitude === null && longitude === null) {
       handleDetectGPS(true); // silent initial load attempt
     }
-  }, [step]);
+  }, [step, draftReady]);
 
   const handleDetectGPS = (silent = false) => {
     if (!silent) setDetectingGps(true);
@@ -120,6 +160,8 @@ export default function Onboarding() {
     }
 
     const newProd: TempProduct = {
+      id: `prod_${crypto.randomUUID()}`,
+      description: prodDescription,
       name: prodName,
       price: priceNum,
       mrp: mrpNum,
@@ -133,6 +175,7 @@ export default function Onboarding() {
     
     // Reset product inputs
     setProdName('');
+    setProdDescription('');
     setProdPrice('');
     setProdMrp('');
     setProdStock('');
@@ -145,7 +188,11 @@ export default function Onboarding() {
   };
 
   const handleCompleteSetup = async () => {
-    if (!user) return;
+    if (!user || submitting.current || !draftReady) return;
+    if (prodName.trim()) { setSetupError('Tap Add Product to include the product you are editing before completing setup.'); return; }
+    if (!db) { setSetupError('Shop service is unavailable. Please reopen the app.'); return; }
+    if (productsList.length > 400) { setSetupError('Add up to 400 products during setup. Add more from Products afterwards.'); return; }
+    if (!navigator.onLine) { setSetupError('You are offline. Reconnect and try again.'); return; }
     if (!shopName.trim() || !shopAddress.trim()) {
       alert(t('error_shop_details'));
       setStep(1);
@@ -161,10 +208,16 @@ export default function Onboarding() {
       return;
     }
 
+    submitting.current = true;
     setLoading(true);
+    setSetupError('');
+    const save = <T,>(operation: Promise<T>, stage: string) => {
+      setSetupProgress(stage);
+      return withDeadline(operation, `${stage} timed out. Check your connection and retry. Your entries are still here.`);
+    };
 
     try {
-      const generatedShopId = `shop_${crypto.randomUUID()}`;
+      const generatedShopId = setupId.current;
       const updatedProfile = {
         ...user,
         shopId: generatedShopId,
@@ -197,15 +250,16 @@ export default function Onboarding() {
         address: shopAddress,
         lat: latitude, // resolved GPS coordinate
         lng: longitude, // resolved GPS coordinate
-        categories: [shopCategory],
+        categories: shopCategories,
         ownerName: user.fullName || (user as any).name || 'Merchant Owner',
         ownerPhone: user.phone || (user as any).phoneNumber || '9999999999'
       };
 
-      await shopRepository.createShop(generatedShopId, newShopDoc as any);
+      await save(shopRepository.createShop(generatedShopId, newShopDoc as any), 'Saving shop details');
 
       if (shopImageFile) {
         try {
+          setSetupProgress('Uploading shop image');
           shopImageUrl = await uploadFile(`shops/${generatedShopId}/logo.png`, shopImageFile, { compress: true, quality: 0.8 });
           Object.assign(newShopDoc, {
             image: shopImageUrl,
@@ -214,19 +268,23 @@ export default function Onboarding() {
             coverImage: shopImageUrl,
             bannerUrl: shopImageUrl,
           });
-          await shopRepository.updateShop(generatedShopId, newShopDoc);
+          await save(shopRepository.updateShop(generatedShopId, newShopDoc), 'Saving shop image');
         } catch {
-          // The store remains usable without an optional logo; the merchant can retry from Profile.
+          throw new Error('Your shop photo was not saved. Please retry; all setup entries are retained.');
         }
       }
 
       // Create the initial products only after the shop exists.
+      const batch = writeBatch(db);
+      const savedProducts = [];
       for (const tempProd of productsList) {
-        const productId = `prod_${crypto.randomUUID()}`;
-        let prodImageUrl = '';
+        const productId = tempProd.id;
+        const progress = `${productsList.indexOf(tempProd) + 1}/${productsList.length}: ${tempProd.name}`;
+        let prodImageUrl = tempProd.imageFile ? '' : tempProd.imagePreview;
         
         if (tempProd.imageFile) {
           try {
+            setSetupProgress(`Uploading product image ${progress}`);
             const path = `products/${generatedShopId}/${productId}/cover.jpg`;
             prodImageUrl = await uploadFile(path, tempProd.imageFile, { compress: true, quality: 0.75 });
           } catch {
@@ -236,7 +294,7 @@ export default function Onboarding() {
 
         const calculatedDiscount = Math.max(0, Math.round(((tempProd.mrp - tempProd.price) / tempProd.mrp) * 100));
 
-        await productRepository.addProduct({
+        const productData = {
           id: productId,
           shopId: generatedShopId,
           shopName: shopName,
@@ -248,25 +306,34 @@ export default function Onboarding() {
           discount: calculatedDiscount,
           category: tempProd.category,
           stock: tempProd.stock,
-          description: `Fresh quality ${tempProd.name} now in stock at ${shopName}.`,
+          totalStock: tempProd.stock,
+          reservedStock: 0,
+          description: tempProd.description || `${tempProd.name} available at ${shopName}.`,
           specs: { Source: 'Store Owner Upload' },
           tags: [tempProd.category, 'fresh'],
           featured: true,
           rating: 0,
           reviewsCount: 0,
           status: 'active'
-        } as any);
+        };
+        savedProducts.push(mapFirestoreDocToProduct(productId, productData));
+        batch.set(doc(db, 'products', productId), productData);
       }
 
-      await userRepository.updateProfile(user.uid, { shopId: generatedShopId });
-      setShop(newShopDoc);
-      setUser(updatedProfile);
+      batch.update(doc(db, 'merchants', user.uid), { shopId: generatedShopId });
+      await save(batch.commit(), 'Saving products and linking your shop');
+      completed.current = true;
+      useAppStore.setState({ shop: newShopDoc, user: updatedProfile, products: savedProducts, orders: [], reviews: [], offers: [], logs: [], notifications: [] });
+      try { await clearSetupDraft(user.uid); } catch { localStorage.removeItem(pendingSetupKey(user.uid)); }
+      void useAppStore.getState().syncAppData(updatedProfile);
 
       navigate('/', { replace: true });
     } catch (err: any) {
-      alert(t('setup_failed', { error: err.message || err }));
+      setSetupError(t('setup_failed', { error: err.message || err }));
     } finally {
+      submitting.current = false;
       setLoading(false);
+      setSetupProgress('');
     }
   };
 
@@ -287,9 +354,11 @@ export default function Onboarding() {
     return 0;
   };
 
+  if (!draftReady) return <main className="p-8 text-center"><p>{setupError || 'Restoring your shop setup…'}</p>{setupError && <button onClick={() => window.location.reload()} className="mt-4 rounded-xl bg-primary p-3 text-white">Retry</button>}</main>;
+
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-dark-bg py-10 px-4 text-left transition-colors">
-      <div className="max-w-2xl mx-auto bg-white dark:bg-dark-card border border-slate-100 dark:border-dark-border rounded-3xl p-6 sm:p-8 shadow-xl relative overflow-hidden">
+    <div className="merchant-auth-page min-h-screen bg-slate-50 dark:bg-dark-bg py-10 px-4 text-left transition-colors">
+      <div className="merchant-auth-card max-w-2xl mx-auto bg-white dark:bg-dark-card border border-slate-100 dark:border-dark-border rounded-3xl p-6 sm:p-8 shadow-xl relative overflow-hidden">
         
         {/* Gradients */}
         <div className="absolute -top-20 -left-20 w-40 h-40 bg-emerald-500/10 rounded-full blur-3xl"></div>
@@ -417,15 +486,16 @@ export default function Onboarding() {
             <div className="flex flex-col gap-2">
               <label className="text-[10px] font-extrabold uppercase text-slate-400 dark:text-zinc-500 tracking-wider">
                 {t('store_category')}
+                <span className="block normal-case tracking-normal mt-1">Select all that apply · एक से अधिक चुन सकते हैं</span>
               </label>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {categoryChoices.map(cat => (
                   <button
                     key={cat.id}
                     type="button"
-                    onClick={() => setShopCategory(cat.id)}
+                    aria-pressed={shopCategories.includes(cat.id)} onClick={() => setShopCategories(prev => prev.includes(cat.id) ? (prev.length > 1 ? prev.filter(id => id !== cat.id) : prev) : [...prev, cat.id])}
                     className={`p-3 rounded-2xl border text-xs font-black text-left flex items-center gap-2 transition-all cursor-pointer
-                      ${shopCategory === cat.id 
+                      ${shopCategories.includes(cat.id) 
                         ? 'bg-emerald-500 text-white border-emerald-500 shadow-md shadow-emerald-500/10' 
                         : 'bg-slate-50 dark:bg-zinc-900 border-slate-100 dark:border-dark-border hover:bg-slate-100/60 dark:hover:bg-zinc-800'}`}
                   >
@@ -571,7 +641,7 @@ export default function Onboarding() {
                     <span>15 min</span>
                     <span>•</span>
                     <span className="text-emerald-500 font-black">
-                      {categoryChoices.find(c => c.id === shopCategory)?.name || 'Groceries'}
+                      {categoryChoices.filter(c => shopCategories.includes(c.id)).map(c => c.name).join(', ')}
                     </span>
                   </div>
                 </div>
@@ -607,6 +677,10 @@ export default function Onboarding() {
             </div>
 
             <form onSubmit={handleAddProductToList} className="p-4.5 rounded-2xl bg-slate-50 dark:bg-zinc-900/60 border border-slate-100 dark:border-dark-border/50 space-y-4">
+              <ProductSuggestions onSelect={p => { setProdName(p.name); setProdDescription(p.description); setProdCategory(p.shopCategory); setProdImageFile(null); setProdImagePreview(p.image); }} />
+              <label className="block text-xs font-semibold">{t('description')}
+                <textarea value={prodDescription} onChange={e => setProdDescription(e.target.value)} className="block w-full rounded-xl border border-slate-200 bg-white text-slate-900 p-2 mt-1" />
+              </label>
               
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {/* Product Name */}
@@ -799,9 +873,11 @@ export default function Onboarding() {
             </div>
 
             {/* Setup submission */}
+            {setupError && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{setupError}</p>}
+            {loading && <p role="status" className="text-sm text-slate-600">{setupProgress}</p>}
             <button
               onClick={handleCompleteSetup}
-              disabled={loading || productsList.length === 0}
+              disabled={loading || !draftReady || productsList.length === 0}
               className="w-full py-4 bg-gradient-to-tr from-emerald-400 to-emerald-600 hover:from-emerald-500 hover:to-emerald-700 disabled:opacity-50 text-white rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-lg shadow-emerald-500/20 cursor-pointer flex items-center justify-center gap-1.5"
             >
               {loading ? (
@@ -818,3 +894,4 @@ export default function Onboarding() {
     </div>
   );
 }
+

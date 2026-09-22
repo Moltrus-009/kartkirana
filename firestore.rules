@@ -4,22 +4,57 @@ service cloud.firestore {
 
     // Helper functions
     function isSignedIn() {
-      return request.auth != null;
+      return request.auth != null && (
+        !exists(/databases/$(database)/documents/accountDeletionState/$(request.auth.uid)) ||
+        (!get(/databases/$(database)/documents/accountDeletionState/$(request.auth.uid)).data.get('processing', false) &&
+         !get(/databases/$(database)/documents/accountDeletionState/$(request.auth.uid)).data.get('authDeleted', false))
+      );
     }
+
+    function accountRoleAvailable(role) {
+      return isSignedIn() && (!exists(/databases/$(database)/documents/accountDeletionState/$(request.auth.uid)) ||
+        get(/databases/$(database)/documents/accountDeletionState/$(request.auth.uid)).data.get(role, '') != 'COMPLETED');
+    }
+
+    function targetAccountAvailable(uid, role) {
+      return uid == null || uid == '' || (!exists(/databases/$(database)/documents/accountDeletionState/$(uid)) ||
+        (!get(/databases/$(database)/documents/accountDeletionState/$(uid)).data.get('processing', false) &&
+         !get(/databases/$(database)/documents/accountDeletionState/$(uid)).data.get('authDeleted', false) &&
+         get(/databases/$(database)/documents/accountDeletionState/$(uid)).data.get(role, '') != 'COMPLETED'));
+    }
+
+    // Server-only request, rate-limit, audit and cleanup state. No client can
+    // approve a request, change its UID, clear a lock or forge completion.
+    match /accountDeletionRequests/{path=**} { allow read, write: if false; }
+    match /accountDeletionState/{uid} { allow read: if request.auth != null && request.auth.uid == uid; allow write: if false; }
+    // Share tokens and routine mutations are only served by the verified API.
+    match /sharedCarts/{id} { allow read, write: if false; }
+    match /routines/{id} { allow read, write: if false; }
+    match /routineExecutions/{id} { allow read, write: if false; }
+    match /planningRateLimits/{id} { allow read, write: if false; }
+    function dispatchWindowOpen(order) {
+      return !order.keys().hasAny(['dispatchNotBefore']) ||
+        (order.dispatchNotBefore is timestamp && order.dispatchNotBefore <= request.time);
+    }
+    function batchOrderReady(id, shopId) {
+      let order = get(/databases/$(database)/documents/orders/$(id)).data;
+      return order.shopId == shopId && dispatchWindowOpen(order);
+    }
+    match /accountDeletionRateLimits/{id} { allow read, write: if false; }
 
     function isOwner(userId) {
       return isSignedIn() && request.auth.uid == userId;
     }
 
     function isAdmin() {
-      return isSignedIn() && (
+      return isSignedIn() && request.auth.token.get('phone_number', '') in ['+919580184045', '+918604519629'] && (
         request.auth.token.get('admin', false) == true ||
         request.auth.token.get('role', '') in ['super_admin', 'admin']
       );
     }
 
     function isRider() {
-      return isSignedIn() && (
+      return accountRoleAvailable('rider') && (
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'rider' &&
          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.documentStatus == 'verified') ||
@@ -36,7 +71,7 @@ service cloud.firestore {
     }
 
     function isValidCustomerProfile(userId, data) {
-      return data.keys().hasAll([
+      return accountRoleAvailable('customer') && data.keys().hasAll([
         'uid', 'role', 'name', 'phone', 'email', 'profileImage', 'addresses',
         'createdAt', 'updatedAt', 'lastLogin'
       ]) && data.keys().hasOnly([
@@ -105,7 +140,7 @@ service cloud.firestore {
     }
 
     function isMerchant() {
-      return isSignedIn() && (
+      return accountRoleAvailable('shopkeeper') && (
         request.auth.token.get('role', '') == 'owner' ||
         (exists(/databases/$(database)/documents/merchants/$(request.auth.uid)) &&
          get(/databases/$(database)/documents/merchants/$(request.auth.uid)).data.role in ['owner', 'employee'] &&
@@ -119,7 +154,7 @@ service cloud.firestore {
     }
 
     function isShopOwner(shopId) {
-      return isSignedIn() && (
+      return accountRoleAvailable('shopkeeper') && (
         request.auth.token.get('shopId', '') == shopId ||
         (exists(/databases/$(database)/documents/merchants/$(request.auth.uid)) &&
          get(/databases/$(database)/documents/merchants/$(request.auth.uid)).data.shopId == shopId) ||
@@ -180,12 +215,12 @@ service cloud.firestore {
 
       // The users collection is customer-only. Shopkeeper and Rider profiles
       // live in merchants/{uid} and riders/{uid}, respectively.
-      allow create: if isOwner(userId) && isValidCustomerProfile(userId, request.resource.data);
+      allow create: if isOwner(userId) && accountRoleAvailable('customer') && isValidCustomerProfile(userId, request.resource.data);
 
       allow update: if isAdmin() ||
         canMigrateLegacyRoleToCustomer(userId, resource.data, request.resource.data) ||
         (
-          isOwner(userId) &&
+          isOwner(userId) && accountRoleAvailable('customer') &&
           isCustomerRecord(resource.data) &&
           request.resource.data.uid == resource.data.uid &&
           request.resource.data.phone == resource.data.phone &&
@@ -210,7 +245,7 @@ service cloud.firestore {
     // single authenticated phone/UID may therefore own one document in each.
     match /merchants/{merchantId} {
       allow read: if isOwner(merchantId) || isAdmin();
-      allow create: if isOwner(merchantId) &&
+      allow create: if isOwner(merchantId) && accountRoleAvailable('shopkeeper') &&
         request.resource.data.uid == merchantId &&
         request.resource.data.phone == request.auth.token.phone_number &&
         request.resource.data.role in ['owner', 'employee'] &&
@@ -224,7 +259,7 @@ service cloud.firestore {
         ) &&
         !request.resource.data.keys().hasAny(['admin', 'riderId', 'walletBalance', 'earnings', 'commission']);
       allow update: if isAdmin() || (
-        isOwner(merchantId) &&
+        isOwner(merchantId) && accountRoleAvailable('shopkeeper') &&
         request.resource.data.uid == resource.data.uid &&
         request.resource.data.phone == resource.data.phone &&
         request.resource.data.role == resource.data.role &&
@@ -248,7 +283,7 @@ service cloud.firestore {
     // --- Shops Collection ---
     match /shops/{shopId} {
       allow read: if true; // Public directories
-      allow create: if isSignedIn() && (request.resource.data.ownerId == request.auth.uid || isAdmin());
+      allow create: if accountRoleAvailable('shopkeeper') && (request.resource.data.ownerId == request.auth.uid || isAdmin());
       allow update: if isShopOwner(shopId) || isAdmin();
       allow delete: if isAdmin();
     }
@@ -265,9 +300,9 @@ service cloud.firestore {
     // --- Orders Collection ---
     match /orders/{orderId} {
       allow read: if isSignedIn() && (
-        resource.data.userId == request.auth.uid || 
+        (resource.data.userId == request.auth.uid && accountRoleAvailable('customer')) || 
         isShopOwner(resource.data.shopId) || 
-        resource.data.riderId == request.auth.uid ||
+        (resource.data.riderId == request.auth.uid && accountRoleAvailable('rider')) ||
         (isRider() && resource.data.currentRiderId == request.auth.uid) ||
         isAdmin()
       );
@@ -275,14 +310,14 @@ service cloud.firestore {
       // Production orders are created by the Admin SDK payment backend.
       allow create: if isAdmin();
       
-      allow update: if isSignedIn() && (
+      allow update: if isSignedIn() && targetAccountAvailable(request.resource.data.get('riderId', null), 'rider') && targetAccountAvailable(request.resource.data.get('currentRiderId', null), 'rider') && (
         isAdmin() || 
         (isShopOwner(resource.data.shopId) &&
          isValidMerchantOrderTransition(resource.data.status, request.resource.data.status) &&
          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'timeline', 'notes', 'updatedAt'])) ||
         (isRider() && (
           // Atomic acceptance for an unassigned single order or targeted batch order.
-          (resource.data.riderId == null &&
+          (resource.data.riderId == null && dispatchWindowOpen(resource.data) &&
            (resource.data.currentRiderId == null || resource.data.currentRiderId == request.auth.uid) &&
            request.resource.data.riderId == request.auth.uid &&
            request.resource.data.currentRiderId == request.auth.uid &&
@@ -317,9 +352,9 @@ service cloud.firestore {
       match /messages/{messageId} {
         allow read, write: if isSignedIn() && (
           exists(/databases/$(database)/documents/orders/$(orderId)) && (
-            get(/databases/$(database)/documents/orders/$(orderId)).data.userId == request.auth.uid ||
+            (accountRoleAvailable('customer') && get(/databases/$(database)/documents/orders/$(orderId)).data.userId == request.auth.uid) ||
             isShopOwner(get(/databases/$(database)/documents/orders/$(orderId)).data.shopId) ||
-            get(/databases/$(database)/documents/orders/$(orderId)).data.riderId == request.auth.uid ||
+            (accountRoleAvailable('rider') && get(/databases/$(database)/documents/orders/$(orderId)).data.riderId == request.auth.uid) ||
             isAdmin()
           )
         );
@@ -376,9 +411,9 @@ service cloud.firestore {
     match /calls/{orderId} {
       allow read, write: if isSignedIn() && (
         exists(/databases/$(database)/documents/orders/$(orderId)) && (
-          get(/databases/$(database)/documents/orders/$(orderId)).data.userId == request.auth.uid ||
+          (accountRoleAvailable('customer') && get(/databases/$(database)/documents/orders/$(orderId)).data.userId == request.auth.uid) ||
           isShopOwner(get(/databases/$(database)/documents/orders/$(orderId)).data.shopId) ||
-          get(/databases/$(database)/documents/orders/$(orderId)).data.riderId == request.auth.uid ||
+          (accountRoleAvailable('rider') && get(/databases/$(database)/documents/orders/$(orderId)).data.riderId == request.auth.uid) ||
           isAdmin()
         )
       );
@@ -386,9 +421,9 @@ service cloud.firestore {
       match /callerCandidates/{candidateId} {
         allow read, write: if isSignedIn() && (
           exists(/databases/$(database)/documents/orders/$(orderId)) && (
-            get(/databases/$(database)/documents/orders/$(orderId)).data.userId == request.auth.uid ||
+            (accountRoleAvailable('customer') && get(/databases/$(database)/documents/orders/$(orderId)).data.userId == request.auth.uid) ||
             isShopOwner(get(/databases/$(database)/documents/orders/$(orderId)).data.shopId) ||
-            get(/databases/$(database)/documents/orders/$(orderId)).data.riderId == request.auth.uid ||
+            (accountRoleAvailable('rider') && get(/databases/$(database)/documents/orders/$(orderId)).data.riderId == request.auth.uid) ||
             isAdmin()
           )
         );
@@ -397,9 +432,9 @@ service cloud.firestore {
       match /calleeCandidates/{candidateId} {
         allow read, write: if isSignedIn() && (
           exists(/databases/$(database)/documents/orders/$(orderId)) && (
-            get(/databases/$(database)/documents/orders/$(orderId)).data.userId == request.auth.uid ||
+            (accountRoleAvailable('customer') && get(/databases/$(database)/documents/orders/$(orderId)).data.userId == request.auth.uid) ||
             isShopOwner(get(/databases/$(database)/documents/orders/$(orderId)).data.shopId) ||
-            get(/databases/$(database)/documents/orders/$(orderId)).data.riderId == request.auth.uid ||
+            (accountRoleAvailable('rider') && get(/databases/$(database)/documents/orders/$(orderId)).data.riderId == request.auth.uid) ||
             isAdmin()
           )
         );
@@ -409,10 +444,10 @@ service cloud.firestore {
     // --- Riders Collection ---
     match /riders/{riderId} {
       allow read: if isOwner(riderId) || isMerchant() || isAdmin();
-      allow create: if isOwner(riderId) &&
+      allow create: if isOwner(riderId) && accountRoleAvailable('rider') &&
         isValidRiderOnboardingProfile(riderId, request.resource.data);
       allow update: if isAdmin() || (
-        isOwner(riderId) &&
+        isOwner(riderId) && accountRoleAvailable('rider') &&
         (
           (!resource.data.keys().hasAny(['role']) &&
            isValidRiderOnboardingProfile(riderId, request.resource.data)) ||
@@ -448,6 +483,10 @@ service cloud.firestore {
          request.resource.data.orderIds is list &&
          request.resource.data.orderIds.size() >= 2 &&
          request.resource.data.orderIds.size() <= 3 &&
+         batchOrderReady(request.resource.data.orderIds[0], request.resource.data.shopId) &&
+         batchOrderReady(request.resource.data.orderIds[1], request.resource.data.shopId) &&
+         (request.resource.data.orderIds.size() == 2 || batchOrderReady(request.resource.data.orderIds[2], request.resource.data.shopId)) &&
+         targetAccountAvailable(request.resource.data.riderId, 'rider') &&
          exists(/databases/$(database)/documents/riders/$(request.resource.data.riderId)))
       );
       allow delete: if isAdmin();

@@ -9,6 +9,7 @@ import { networkManager } from '../services/networkManager';
 import { recaptchaManager } from '../services/recaptchaManager';
 import { clearLegacySharedCustomerStorage } from '../utils/customerStorage';
 import { auth, IS_MOCK_MODE } from '../infrastructure/firebase/firebase';
+import { Capacitor } from '@capacitor/core';
 
 interface AuthContextType {
   user: UserProfile | null;
@@ -91,6 +92,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const sendOTPCode = async (phoneNumber: string, containerId?: string): Promise<boolean> => {
     setLoading(true);
     setError(null);
+    const isResend = Boolean(confirmResult && verificationId);
     const maskedPhone = phoneNumber.replace(/.(?=.{4})/g, '•');
     logger.info('Auth', `Sending OTP code request for ${maskedPhone}`);
 
@@ -146,12 +148,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!auth) {
         throw Object.assign(new Error('Firebase Auth is not initialized.'), { code: 'auth/app-not-authorized' });
       }
-      const verifier = recaptchaManager.setup(auth, containerId || 'recaptcha-container');
-      if (!verifier) {
+      const isNativePlatform = Capacitor.isNativePlatform();
+      const verifier = isNativePlatform
+        ? undefined
+        : recaptchaManager.setup(auth, containerId || 'recaptcha-container');
+      if (!isNativePlatform && !verifier) {
         throw Object.assign(new Error('reCAPTCHA could not be initialized.'), { code: 'auth/captcha-check-failed' });
       }
-      
-      const sendPromise = authService.sendOTP(phoneNumber, verifier);
+
+      const sendPromise = authService.sendOTP(phoneNumber, verifier || undefined, isResend);
       const result = await Promise.race([sendPromise, timeoutPromise]);
       
       setVerificationId(result.verificationId);
@@ -163,7 +168,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setError(mapFirebaseError(err));
       // Reset the existing widget instead of destroying/recreating it. This is
       // Firebase's recommended retry path and avoids duplicate image prompts.
-      await recaptchaManager.reset();
+      if (!Capacitor.isNativePlatform()) {
+        await recaptchaManager.reset();
+      }
       return false;
     } finally {
       window.clearTimeout(timeoutId);

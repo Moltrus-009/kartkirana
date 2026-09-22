@@ -27,7 +27,12 @@ class NotificationService {
     };
 
     try {
-      await db.collection('notificationQueue').doc(queueId).set(queueDoc);
+      await db.runTransaction(async tx => {
+        const s = (await tx.get(db.collection('accountDeletionState').doc(userId))).data() || {};
+        const role = userType === 'owner' ? 'shopkeeper' : userType;
+        if (s.processing || s.authDeleted || s[role] === 'COMPLETED') return;
+        tx.set(db.collection('notificationQueue').doc(queueId), queueDoc);
+      });
     } catch (e) {
       console.error('[NOTIFICATION QUEUE ERROR] Failed to enqueue notification:', e);
     }

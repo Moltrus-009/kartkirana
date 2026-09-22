@@ -5,7 +5,7 @@ import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebas
 import { doc, setDoc, updateDoc, writeBatch } from 'firebase/firestore';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const rules = await readFile(resolve(here, '../../firestore.rules'), 'utf8');
+const rules = await readFile(process.env.RULES_UNDER_TEST || resolve(here, '../../firestore.rules'), 'utf8');
 const environment = await initializeTestEnvironment({
   projectId: 'kartkirana-order-lifecycle-test',
   firestore: { rules }
@@ -18,6 +18,7 @@ const otherCustomerId = 'customer_other_rules_test';
 const shopId = 'shop_rules_test';
 
 try {
+  await environment.clearFirestore();
   await environment.withSecurityRulesDisabled(async context => {
     const database = context.firestore();
     await Promise.all([

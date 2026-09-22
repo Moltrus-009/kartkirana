@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import { useMemo, useState } from 'react';
 import { useAppStore } from '../core/store/useAppStore';
 import type { OfferDocument } from '../core/store/useAppStore';
@@ -193,7 +194,7 @@ export default function Offers() {
       )}
 
       {isFormOpen && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/55 p-0 backdrop-blur-sm sm:items-center sm:p-4">
+        createPortal(<div role="dialog" aria-modal="true" className="merchant-modal-overlay fixed inset-0 z-50 flex items-end justify-center bg-slate-950/55 p-0 backdrop-blur-sm sm:items-center sm:p-4">
           <div className="max-h-[92vh] w-full overflow-y-auto rounded-t-3xl border border-slate-100 bg-white p-5 text-left shadow-2xl sm:max-w-2xl sm:rounded-3xl sm:p-7 dark:border-dark-border dark:bg-dark-card">
             <div className="mb-5 flex items-start justify-between border-b border-slate-100 pb-4 dark:border-dark-border">
               <div><h2 className="text-base font-black text-slate-800 dark:text-zinc-100">{t('create_shop_special')}</h2><p className="mt-0.5 text-[10px] font-semibold text-slate-400">{t('offer_auto_apply')}</p></div>
@@ -231,7 +232,7 @@ export default function Offers() {
               <div className="flex justify-end gap-3 border-t border-slate-100 pt-4 dark:border-dark-border"><button type="button" disabled={saving} onClick={() => setIsFormOpen(false)} className="min-h-10 rounded-xl border border-slate-200 px-4 text-xs font-black text-slate-600">{t('cancel')}</button><button type="submit" disabled={saving} className="min-h-10 rounded-xl bg-primary px-5 text-xs font-black text-white disabled:opacity-50">{saving ? t('saving') : t('publish_special')}</button></div>
             </form>
           </div>
-        </div>
+        </div>, document.body)
       )}
     </div>
   );

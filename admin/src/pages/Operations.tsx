@@ -35,17 +35,17 @@ export default function Operations() {
     { title: 'Pending', statuses: ['confirmed', 'PLACED', 'upcoming'] },
     { title: 'Accepted', statuses: ['accepted'] },
     { title: 'Preparing', statuses: ['preparing', 'SHOP_ACCEPTED'] },
-    { title: 'Ready', statuses: ['ready_for_pickup', 'packed'] },
+    { title: 'Ready', statuses: ['READY', 'ready_for_pickup', 'packed'] },
     { title: 'Assigned', statuses: ['rider_assigned', 'SEARCHING_RIDER', 'RIDER_ASSIGNED'] },
     { title: 'Picked Up', statuses: ['rider_picked_up', 'ARRIVED_AT_SHOP', 'PICKED_UP'] },
     { title: 'On Route', statuses: ['out_for_delivery', 'OUT_FOR_DELIVERY'] },
     { title: 'Delivered', statuses: ['delivered', 'COMPLETED'] },
-    { title: 'Cancelled', statuses: ['cancelled', 'SHOP_REJECTED', 'returned'] }
+    { title: 'Cancelled', statuses: ['cancelled', 'AUTO_CANCELLED', 'SHOP_REJECTED', 'returned'] }
   ];
 
   // Group orders into columns
   const getOrdersInColumn = (statuses: string[]) => {
-    return orders.filter(o => statuses.includes(o.status));
+    return orders.filter(o => statuses.map(status => status.toUpperCase()).includes(o.status.toUpperCase()));
   };
 
   // Dispatch Actions

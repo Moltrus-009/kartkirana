@@ -1,3 +1,4 @@
+import { riderPayout, completionTime } from '../constants/earnings';
 import React from 'react';
 import { useApp } from '../context/AppContext';
 import { IndianRupee, TrendingUp, Clock } from 'lucide-react';
@@ -14,28 +15,28 @@ export const Earnings: React.FC = () => {
   const totalWeeklyEarnings = completedHistory
     .filter(o => {
       try {
-        const date = new Date(o.createdAt);
-        const diffTime = Math.abs(new Date().getTime() - date.getTime());
+        const date = new Date(completionTime(o));
+        const diffTime = new Date().getTime() - date.getTime();
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        return diffDays <= 7;
+        return diffTime >= 0 && diffDays <= 7;
       } catch (e) {
         return false;
       }
     })
-    .reduce((sum, o) => sum + (o.deliveryFee || 10), 0);
+    .reduce((sum, o) => sum + riderPayout(o, completedHistory), 0);
 
   const totalMonthlyEarnings = completedHistory
     .filter(o => {
       try {
-        const date = new Date(o.createdAt);
-        const diffTime = Math.abs(new Date().getTime() - date.getTime());
+        const date = new Date(completionTime(o));
+        const diffTime = new Date().getTime() - date.getTime();
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        return diffDays <= 30;
+        return diffTime >= 0 && diffDays <= 30;
       } catch (e) {
         return false;
       }
     })
-    .reduce((sum, o) => sum + (o.deliveryFee || 10), 0);
+    .reduce((sum, o) => sum + riderPayout(o, completedHistory), 0);
 
   const formatTime = (isoString: string) => {
     try {
@@ -50,12 +51,12 @@ export const Earnings: React.FC = () => {
   return (
     <div className="space-y-5 animate-fade-in text-left">
       
-      <div className="flex justify-between items-center pb-1">
+      <div className="flex flex-wrap gap-2 justify-between items-center pb-1">
         <h2 className="text-base font-black uppercase text-slate-800 dark:text-zinc-200 tracking-wider">
           Earnings Summary
         </h2>
         <span className="text-[10px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-2.5 py-0.5 rounded font-extrabold uppercase">
-          Payout: ₹10 / Order
+          ₹10 first order · ₹6 each additional
         </span>
       </div>
 
@@ -88,7 +89,7 @@ export const Earnings: React.FC = () => {
               <span>{todayEarnings}</span>
             </h3>
             <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">
-              {todayDeliveries} Orders completed today (₹10 / order)
+              {todayDeliveries} Orders completed today (batch bonuses included)
             </p>
           </div>
         </div>
@@ -119,7 +120,7 @@ export const Earnings: React.FC = () => {
           <div className="bg-white dark:bg-zinc-900 border border-slate-200/60 dark:border-zinc-800 p-4.5 rounded-2xl shadow-xs space-y-1 transition-all duration-300">
             <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Rate per order</p>
             <p className="text-lg font-black text-slate-900 dark:text-white">₹10</p>
-            <p className="text-[8px] text-slate-400 font-semibold uppercase">Flat rate delivery payout</p>
+            <p className="text-[8px] text-slate-400 font-semibold uppercase">₹6 for each additional batch order</p>
           </div>
         </div>
 
@@ -159,7 +160,7 @@ export const Earnings: React.FC = () => {
                 <div className="text-right flex-shrink-0">
                   <span className="text-success font-black text-sm flex items-center justify-end">
                     <span>+₹</span>
-                    <span>{o.deliveryFee || 10}</span>
+                    <span>{riderPayout(o, completedHistory)}</span>
                   </span>
                   <span className="text-[8px] text-slate-400 font-normal uppercase">
                     Weekly Payout

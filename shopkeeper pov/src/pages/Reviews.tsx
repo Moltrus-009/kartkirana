@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import { useState } from 'react';
 import { useAppStore } from '../core/store/useAppStore';
 import { Star, MessageSquare, ShieldAlert, Send, Reply } from 'lucide-react';
@@ -179,7 +180,7 @@ export default function Reviews() {
 
       {/* REPORT REASON MODAL DIALOG */}
       {showReportModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 dark:bg-black/60 backdrop-blur-xs p-4">
+        createPortal(<div role="dialog" aria-modal="true" className="merchant-modal-overlay fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 dark:bg-black/60 backdrop-blur-xs p-4">
           <div className="bg-white dark:bg-dark-card border border-slate-100 dark:border-dark-border rounded-2xl w-full max-w-sm shadow-2xl p-6 text-left">
             <h3 className="font-black text-sm mb-2 flex items-center gap-2 text-red-500">
               <ShieldAlert className="h-5 w-5" />
@@ -218,7 +219,7 @@ export default function Reviews() {
               </div>
             </div>
           </div>
-        </div>
+        </div>, document.body)
       )}
 
     </div>

@@ -1,3 +1,4 @@
+import { loginDestination } from '../utils/planningReturn';
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -78,7 +79,7 @@ export const Login: React.FC = () => {
         setStep('notifications');
       } else {
         // Returning customers always start on Home, even when a cart is saved.
-        navigate('/', { replace: true });
+        navigate(loginDestination(), { replace: true });
       }
     }
   }, [user, navigate]);
@@ -203,7 +204,7 @@ export const Login: React.FC = () => {
       } else if (!notificationPrompted) {
         setStep('notifications');
       } else {
-        navigate('/', { replace: true });
+        navigate(loginDestination(), { replace: true });
       }
     } catch (err: any) {
       setIsLoading(false);
@@ -291,7 +292,7 @@ export const Login: React.FC = () => {
         if (import.meta.env.DEV) console.warn('Notification permission error:', err);
       }
     }
-    navigate('/', { replace: true });
+    navigate(loginDestination(), { replace: true });
   };
 
   return (
@@ -764,7 +765,7 @@ export const Login: React.FC = () => {
                 } else if (!notificationPrompted) {
                   setStep('notifications');
                 } else {
-                  navigate('/', { replace: true });
+                  navigate(loginDestination(), { replace: true });
                 }
               }, 300);
             }}
@@ -916,7 +917,7 @@ export const Login: React.FC = () => {
                 type="button"
                 onClick={() => {
                   localStorage.setItem('notification_permission_prompted', 'true');
-                  navigate('/', { replace: true });
+                  navigate(loginDestination(), { replace: true });
                 }}
                 className="py-3.5 text-center text-xs font-black text-gray-400 hover:text-blue-500 uppercase tracking-widest cursor-pointer transition-colors"
               >

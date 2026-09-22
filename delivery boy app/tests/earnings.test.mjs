@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import {riderPayout,batchPayout,completionTime} from '../src/constants/earnings.ts';
+assert.deepEqual([0,1,2,3,4].map(batchPayout),[0,10,16,22,28]);
+const make=(id,batchId,date='2026-09-10T10:00:00Z')=>({id,batchId,status:'COMPLETED',createdAt:date,deliveryFee:99});
+const history=[make('b','batch'),make('a','batch','2026-09-09T10:00:00Z'),make('single',null),make('c','batch')];
+assert.deepEqual(history.map(o=>riderPayout(o,history)),[6,10,10,6]);
+const reloaded=JSON.parse(JSON.stringify(history)).reverse();
+assert.equal(reloaded.reduce((s,o)=>s+riderPayout(o,reloaded),0),32);
+const today=history.filter(o=>completionTime(o)>=Date.parse('2026-09-10'));
+assert.equal(today.reduce((s,o)=>s+riderPayout(o,history),0),22);
+assert.equal(riderPayout({...make('x','batch'),status:'CANCELLED'},history),0);
+assert.equal(riderPayout(make('a','batch'),[make('a','batch')]),10);
+console.log('PASS: 10/16/22/28 totals, partial batches, cancellations, shuffled reload, and batches spanning days');

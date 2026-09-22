@@ -349,11 +349,12 @@ export const CustomerPrivacy: React.FC = () => {
           <p>You can delete your account directly from the app:</p>
           <ul>
             <li>Open the Kart Kirana Customer App.</li>
-            <li>Go to <strong>Settings → Delete Account</strong>.</li>
+            <li>Go to <strong>Profile → Delete Account</strong> or <a href="/delete-account/customer">request customer account deletion online</a>.</li>
             <li>Follow the on-screen instructions to confirm deletion.</li>
           </ul>
           <p>Alternatively, you can request deletion by emailing <a href="mailto:support@kartkirana.com">support@kartkirana.com</a> from your registered phone number or email.</p>
-          <p><strong>Data that may be retained after deletion:</strong> Certain information such as transaction records and order history may be retained as required by applicable tax, accounting, or legal obligations, even after account deletion.</p>
+          <p>Verify your registered phone with an SMS code and confirm the request. Final deletion follows a review of active orders, payments and disputes. You can check request status on the deletion page. Shared authentication/files remain if you keep another KartKirana account.</p>
+          <p><strong>Data retained after deletion:</strong> Order, invoice, payment, payout, tax, dispute and security records may remain for reconciliation and applicable obligations. Unnecessary delivery addresses, contact details and operational chats are removed. Profile data and exclusively owned personal files are deleted. Device-only data on other devices must be cleared there.</p>
         </PolicySection>
 
         {/* 14. Your Rights */}
@@ -362,7 +363,7 @@ export const CustomerPrivacy: React.FC = () => {
           <ul>
             <li><strong>Access:</strong> Request a copy of the personal information we hold about you.</li>
             <li><strong>Correction:</strong> Request correction of inaccurate or incomplete information.</li>
-            <li><strong>Deletion:</strong> Delete your account via the app (Settings → Delete Account) or by contacting us.</li>
+            <li><strong>Deletion:</strong> Delete your account via the app (Profile → Delete Account) or by contacting us.</li>
             <li><strong>Withdrawal of Consent:</strong> Withdraw consent for data processing at any time by deleting your account or revoking device permissions.</li>
             <li><strong>Permission Management:</strong> Manage location, camera, storage, and notification permissions through your device settings.</li>
             <li><strong>Grievance Redressal:</strong> Contact our Grievance Officer for any data handling concerns (see Section 20).</li>

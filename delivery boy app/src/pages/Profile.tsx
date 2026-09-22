@@ -386,6 +386,8 @@ export const Profile: React.FC<ProfileProps> = ({ onOpenTerms, onOpenPrivacy }) 
         </div>
       </section>
 
+      <a href="https://kartkirana.com/delete-account/rider" className="block rounded-2xl border border-red-200 bg-red-50 p-4 text-center font-bold text-red-700">Delete Account</a>
+      <p className="text-xs text-slate-500 text-center">Review permanent deletion and verify your phone. Active deliveries and settlements must be resolved first.</p>
       {/* Logout button */}
       <button
         onClick={handleLogout}

@@ -1,4 +1,5 @@
 import { useDiagnostics } from '../diagnostics/diagnostics';
+import { pendingSetupKey } from '../../lib/setupDraft';
 import { create } from 'zustand';
 import type { Merchant } from '../../domain/entities/Merchant';
 import type { Shop } from '../../domain/entities/Shop';
@@ -118,7 +119,7 @@ interface AppStoreState {
   setLoading: (loading: boolean) => void;
   
   // Auth
-  triggerOTP: (phone: string, verifier: ApplicationVerifier) => Promise<{ success: boolean; error?: string }>;
+  triggerOTP: (phone: string, verifier?: ApplicationVerifier) => Promise<{ success: boolean; error?: string }>;
   verifyOTP: (phone: string, code: string, name?: string) => Promise<{ success: boolean; error?: string }>;
   logoutOwner: () => Promise<void>;
   
@@ -430,6 +431,9 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     useDiagnostics.getState().updateProvider('Database Sync', 'Waiting', 'Fetching collections...');
     try {
       let shopDoc: Shop | null = null;
+      // An uploaded shop shell is not completed onboarding. Resume its saved
+      // form instead of linking the merchant before products/photos commit.
+      if (!activeUser.shopId && localStorage.getItem(pendingSetupKey(activeUser.uid))) return;
       if (activeUser.shopId && db) {
         try {
           const docRef = doc(db, 'shops', activeUser.shopId);
@@ -450,7 +454,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       // the profile while its catalogue remained on the original shop record.
       // Prefer the merchant-owned shop that actually has the catalogue and
       // repair the saved profile link so all three apps use the same shopId.
-      const ownedShops = await withTimeout(
+      const ownedShops = shopDoc && activeUser.shopId === shopDoc.id ? [] : await withTimeout(
         shopRepository.fetchShopsByOwner(activeUser.uid),
         5000,
         'Shop search by owner timed out',
@@ -490,8 +494,10 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
         useDiagnostics.getState().updateProvider('Shop Profile', 'Loaded', shopDoc.name);
         
         const database = requireDb();
-        const [prods, ords, reviewSnapshot, offerSnapshot, offerTargetSnapshot, logSnapshot] = await Promise.all([
-          withTimeout(productRepository.fetchProductsByShop(shopDoc.id), 5000, 'Fetch products timed out'),
+        const prods = await withTimeout(productRepository.fetchProductsByShop(shopDoc.id), 15000, 'Fetch products timed out');
+        // Reviews/offers can fail independently; never hide an already loaded catalogue.
+        set({ products: prods });
+        const [ords, reviewSnapshot, offerSnapshot, offerTargetSnapshot, logSnapshot] = await Promise.all([
           withTimeout(orderRepository.fetchOrdersByShop(shopDoc.id), 5000, 'Fetch orders timed out'),
           withTimeout(getDocs(query(collection(database, 'reviews'), where('shopId', '==', shopDoc.id))), 5000, 'Fetch reviews timed out'),
           withTimeout(getDocs(query(collection(database, 'offers'), where('shopId', '==', shopDoc.id))), 5000, 'Fetch offers timed out'),

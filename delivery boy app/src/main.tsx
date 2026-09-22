@@ -1,3 +1,6 @@
+import { installRiderViewport } from './lib/viewport';
+const disposeViewport = installRiderViewport();
+if (import.meta.hot) import.meta.hot.dispose(disposeViewport);
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'

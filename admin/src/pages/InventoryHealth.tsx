@@ -1,5 +1,5 @@
 import { useAdmin } from '../context/AdminContext';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
 import { doc, writeBatch } from 'firebase/firestore';
 import { 
@@ -25,7 +25,7 @@ export default function InventoryHealth() {
       case 'out':
         return products.filter(p => p.stock === 0);
       case 'fast':
-        return products.filter(p => p.isFastMoving || p.stock < 10); // fallback criteria
+        return products.filter(p => p.isFastMoving); // fallback criteria
       case 'slow':
         return products.filter(p => p.isSlowMoving);
       case 'hidden':
@@ -43,6 +43,8 @@ export default function InventoryHealth() {
   };
 
   const filteredProducts = getFilteredProducts();
+
+  useEffect(() => setSelectedIds([]), [activeTab]);
 
   const handleSelectToggle = (id: string) => {
     setSelectedIds(prev => 
@@ -63,7 +65,8 @@ export default function InventoryHealth() {
     if (selectedIds.length === 0 || !bulkStockVal) return;
     try {
       const batch = writeBatch(db!);
-      const val = parseInt(bulkStockVal);
+      const val = Number(bulkStockVal);
+      if (!Number.isSafeInteger(val) || val < 0) throw new Error('Stock must be a whole number of zero or more.');
       selectedIds.forEach(id => {
         const docRef = doc(db!, 'products', id);
         batch.update(docRef, { stock: val });
@@ -81,7 +84,8 @@ export default function InventoryHealth() {
     if (selectedIds.length === 0 || !bulkPriceVal) return;
     try {
       const batch = writeBatch(db!);
-      const price = parseFloat(bulkPriceVal);
+      const price = Number(bulkPriceVal);
+      if (!Number.isFinite(price) || price < 0) throw new Error('Price must be a valid non-negative amount.');
       selectedIds.forEach(id => {
         const docRef = doc(db!, 'products', id);
         batch.update(docRef, { price });

@@ -20,6 +20,7 @@ router.post('/dispatch/accept', authMiddleware, appCheckMiddleware, async (req, 
     const reqRef = db.collection('dispatchRequests').doc(requestId);
 
     const result = await db.runTransaction(async (transaction) => {
+      await require('../services/accountDeletionGuard').assertAccountAvailable(db, transaction, riderId, 'rider');
       const [orderSnap, riderSnap, reqSnap] = await Promise.all([
         transaction.get(orderRef),
         transaction.get(riderProfileRef),
@@ -28,6 +29,7 @@ router.post('/dispatch/accept', authMiddleware, appCheckMiddleware, async (req, 
 
       if (!orderSnap.exists) throw new Error('Order not found.');
       const orderData = orderSnap.data();
+      if (!require('../services/planningCalendar').dispatchDue(orderData)) return {success:false,status:409,message:'This scheduled delivery is not ready for dispatch yet.'};
       const riderData = riderSnap.exists ? riderSnap.data() : {};
       const requestData = reqSnap.exists ? reqSnap.data() : null;
 

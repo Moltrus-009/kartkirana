@@ -1,3 +1,5 @@
+import { createPortal } from 'react-dom';
+import ProductSuggestions from '../components/ProductSuggestions';
 import { useState, useEffect, useRef } from 'react';
 import { useAppStore } from '../core/store/useAppStore';
 import { useLanguage } from '../context/LanguageContext';
@@ -24,7 +26,7 @@ const CATEGORIES_LIST = [
   'snacks-munchies', 
   'staples-atta', 
   'household-items', 
-  'personal-care'
+  'personal-care', 'stationery'
 ];
 
 export default function Products() {
@@ -179,7 +181,7 @@ export default function Products() {
     }
 
     try {
-      const productImages = form.images.length > 0 ? form.images : [form.image];
+      const productImages = [...new Set([form.image, ...form.images].filter(Boolean))];
       if (editingProduct) {
         // Edit mode
         await editProductDetails(editingProduct.id, {
@@ -398,7 +400,7 @@ export default function Products() {
 
       {/* SIMPLE ADD / EDIT MODAL */}
       {isFormOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs">
+        createPortal(<div role="dialog" aria-modal="true" className="merchant-modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs">
           <div className="bg-white dark:bg-dark-card border border-slate-100 dark:border-dark-border rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl p-5 space-y-4 animate-in zoom-in-95 duration-200">
             <div className="flex items-center justify-between border-b border-slate-50 dark:border-dark-border/40 pb-3">
               <h3 className="text-sm font-black text-slate-800 dark:text-zinc-200">
@@ -419,6 +421,7 @@ export default function Products() {
             )}
 
             <form onSubmit={handleSubmit} className="space-y-3.5 text-xs text-left">
+              <ProductSuggestions onSelect={p => setForm(prev => ({ ...prev, name: p.name, category: p.category, description: p.description, image: p.image }))} />
               {/* Product Name */}
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-slate-450 uppercase tracking-wider block">{t('name')} *</label>
@@ -565,8 +568,9 @@ export default function Products() {
               </div>
             </form>
           </div>
-        </div>
+        </div>, document.body)
       )}
     </div>
   );
 }
+

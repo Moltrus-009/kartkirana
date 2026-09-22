@@ -6,17 +6,19 @@ import {
   isFirebaseActive
 } from '../lib/firebase';
 import { 
-  signInWithPhoneNumber, 
+  signInWithPhoneNumber, signInWithCredential, PhoneAuthProvider, 
   signOut, 
   onAuthStateChanged 
 } from 'firebase/auth';
 import { onSnapshot, collection, doc, getDoc, query, where } from 'firebase/firestore';
+import { Capacitor } from '@capacitor/core';
+import { NativePhoneAuth } from '../lib/nativePhoneAuth';
 import { API_BASE_URL } from '../lib/apiConfig';
 import { collectCodPayment } from '../services/paymentService';
 import { getSecureAppCheckToken } from '../services/appCheckService';
 import { registerForPushNotifications, onForegroundMessage } from '../lib/messaging';
 import { isOrderStatus } from '../types/orderStatus';
-import { PER_DELIVERY_FEE, BATCH_BONUS, MAX_BATCH_SIZE, MAX_BATCH_SPREAD_METERS } from '../constants/earnings';
+import { batchPayout, riderPayout, completionTime, MAX_BATCH_SIZE, MAX_BATCH_SPREAD_METERS } from '../constants/earnings';
 
 import { 
   getUserProfile, 
@@ -89,7 +91,7 @@ interface AppContextType {
   historyOrders: OrderDocument[];
   isAccepting: boolean;
   setOnlineStatus: (status: boolean) => void;
-  sendOTP: (phoneNumber: string, recaptchaVerifier: any) => Promise<{ success: boolean; message: string; confirmationResult?: any }>;
+  sendOTP: (phoneNumber: string, recaptchaVerifier: any, resend?: boolean) => Promise<{ success: boolean; message: string; confirmationResult?: any }>;
   verifyOTP: (confirmationResult: any, code: string, name?: string) => Promise<{ success: boolean; message: string }>;
   logout: () => Promise<void>;
   acceptSingleOrder: (orderId: string) => Promise<void>;
@@ -102,7 +104,7 @@ interface AppContextType {
   updateProfile: (fields: Partial<UserProfileDoc>) => Promise<void>;
 }
 
-const AppContext = createContext<AppContextType | undefined>(undefined);
+export const AppContext = createContext<AppContextType | undefined>(undefined);
 
 const MOCK_GPS_START = { lat: 28.5802, lng: 77.3105 }; // Noida Sector 15
 
@@ -252,6 +254,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (hasValidConfig && auth) {
       const firebaseAuth = auth;
       unsubscribe = onAuthStateChanged(firebaseAuth, async (fUser) => {
+        try {
         if (fUser) {
           const profile = await getUserProfile(fUser.uid);
           if (profile?.role === 'rider') {
@@ -274,7 +277,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setUser(null);
           setIsOnline(false);
         }
-        setLoading(false);
+        } catch (error) {
+          logger.warn('Auth', 'Could not restore rider profile; login can be retried.', error);
+          setUser(null);
+          setIsOnline(false);
+        } finally {
+          setLoading(false);
+        }
       });
     } else {
       // Offline mode startup
@@ -284,6 +293,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     return () => unsubscribe();
   }, []);
+
+  // Admin approval/rejection must reach an already signed-in rider immediately.
+  useEffect(() => {
+    if (!user?.uid || !isFirebaseActive() || !db) return;
+    const uid = user.uid;
+    return onSnapshot(doc(db, 'riders', uid), snapshot => {
+      if (!snapshot.exists()) { setUser(null); setIsOnline(false); return; }
+      const profile = snapshot.data() as UserProfileDoc;
+      setUser(previous => previous?.uid === uid ? { ...previous, ...profile, uid } : previous);
+      setIsOnline(profile.documentStatus === 'verified' && ['online', 'busy'].includes(profile.status || ''));
+    }, error => logger.warn('Auth', 'Rider approval sync failed; reconnect to retry.', error));
+  }, [user?.uid]);
 
   // Force clean startup session to show Login screen
   useEffect(() => {
@@ -342,9 +363,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setHistoryOrders(history);
       
       // Calculate earnings from history
-      const totalDeliv = history.filter(h => h.status === 'DELIVERED' || h.status === 'COMPLETED').length;
-      setTodayDeliveries(totalDeliv);
-      setTodayEarnings(totalDeliv * PER_DELIVERY_FEE);
+      const now = new Date();
+      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+      const completedToday = history.filter(h => isOrderStatus(h.status, 'DELIVERED', 'COMPLETED') && completionTime(h) >= start && completionTime(h) <= now.getTime());
+      setTodayDeliveries(completedToday.length);
+      setTodayEarnings(completedToday.reduce((sum, order) => sum + riderPayout(order, history), 0));
 
       // Check if there is an active batch linked
       const activeBatchId = active.find(a => a.batchId)?.batchId;
@@ -561,11 +584,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     }
 
-    setIsOnline(status);
     if (user) {
       const nextStatus = (status ? 'online' : 'offline') as 'online' | 'offline';
-      await updateUserProfile(user.uid, { status: nextStatus });
-      await updateRiderOnlineStatus(user.uid, status, currentCoords || undefined);
+      try {
+        await updateRiderOnlineStatus(user.uid, status, currentCoords || undefined);
+      } catch {
+        alert('Could not update your availability. Please check your connection and try again.');
+        return;
+      }
+      setIsOnline(status);
       
       // Update local storage representation
       const updatedUser = { ...user, status: nextStatus, coords: currentCoords || user.coords };
@@ -705,7 +732,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         riderId: user?.uid || 'rider-amit-101',
         status: 'assigned',
         orderIds: batchOrders.map(b => b.id),
-        totalEarnings: batchOrders.length * PER_DELIVERY_FEE + BATCH_BONUS,
+        totalEarnings: batchPayout(batchOrders.length),
         totalDistance: Number(Math.max(1, neighborhoodDistanceMeters / 1000).toFixed(1)),
         estimatedTime: 12 + batchOrders.length * 4,
         stops,
@@ -889,9 +916,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     if (activeBatch) {
       // Smart Batch workflow updates stop by stop
-      const stops = [...activeBatch.stops];
+      const stops = activeBatch.stops.map(stop => ({ ...stop }));
       const currIdx = activeBatch.currentStopIndex;
       const currentStop = stops[currIdx];
+      if (!currentStop) throw new Error('Route is unavailable. Refresh the delivery before continuing.');
 
       if (currentStop.type === 'pickup') {
         const stopOrderIds = currentStop.orderIds || [currentStop.orderId];
@@ -965,8 +993,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
           if (isFinished) {
             // Credit earnings
-            setTodayDeliveries(prev => prev + activeBatch.orderIds.length);
-            setTodayEarnings(prev => prev + activeBatch.totalEarnings);
+            // Subscription credits persisted completed deliveries exactly once.
             
             // Clean active states
             setActiveBatch(null);
@@ -1002,8 +1029,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           spread: 80,
           origin: { y: 0.85 }
         });
-        setTodayDeliveries(prev => prev + 1);
-        setTodayEarnings(prev => prev + PER_DELIVERY_FEE);
+        // Subscription credits persisted completed deliveries exactly once.
         setActiveOrders([]);
       }
     }
@@ -1073,8 +1099,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       console.log(`[Rider GPS Live] Syncing location:`, updateData);
       // ETA is calculated in the customer app from the actual rider-to-stop
       // distance. Do not fabricate a percentage from a fixed mock origin.
-      await updateRiderLocation(currentUser.uid, updateData, activeIds);
       setUser(prev => prev ? { ...prev, coords: { lat: latitude, lng: longitude } } : null);
+      await updateRiderLocation(currentUser.uid, updateData, activeIds);
     };
 
     // 1. Continuous watchPosition tracking (Significant movements)
@@ -1170,9 +1196,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [isOnline]);
 
   // Auth helper: send OTP SMS
-  const sendOTP = async (phoneNumber: string, recaptchaVerifier: any) => {
+  const sendOTP = async (phoneNumber: string, recaptchaVerifier: any, resend = false) => {
+    if (!import.meta.env.DEV && !(hasValidConfig && auth && isFirebaseActive())) {
+      return { success: false, message: 'Sign-in could not connect. Please check your connection and try again.' };
+    }
     if (hasValidConfig && auth && isFirebaseActive()) {
       try {
+        if (Capacitor.getPlatform() === 'android') {
+          const activeAuth = auth;
+          const { verificationId } = await NativePhoneAuth.sendVerificationCode({ phoneNumber, resend });
+          if (!verificationId) throw new Error('Phone verification did not return a session. Please retry.');
+          return { success: true, message: 'SMS verification code sent successfully!', confirmationResult: {
+            confirm: (code: string) => signInWithCredential(activeAuth, PhoneAuthProvider.credential(verificationId, code))
+          } };
+        }
         if (!recaptchaVerifier) {
           throw Object.assign(new Error('App verification is not ready. Please refresh and try again.'), {
             code: 'auth/missing-app-credential'

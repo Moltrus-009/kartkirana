@@ -19,6 +19,7 @@ interface Banner {
 }
 
 export default function Banners() {
+  const [loadError, setLoadError] = useState('');
   const [banners, setBanners] = useState<Banner[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -39,7 +40,8 @@ export default function Banners() {
       const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as Banner));
       setBanners(list);
       setLoading(false);
-    });
+      setLoadError('');
+    }, () => { setLoading(false); setLoadError('Unable to load this section. Reload to retry.'); });
     return () => unsub();
   }, []);
 
@@ -96,6 +98,7 @@ export default function Banners() {
 
   return (
     <div className="space-y-6 text-left select-none">
+      {loadError && <p role="alert" className="rounded-xl p-3 bg-red-500/10 text-red-600">{loadError}</p>}
       
       {/* Header */}
       <div className="flex justify-between items-center text-left">

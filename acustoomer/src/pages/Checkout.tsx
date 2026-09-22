@@ -70,6 +70,7 @@ const isUnpaidTerminalStatus = (orderStatus: string, paymentStatus: string): boo
 };
 
 export const Checkout: React.FC = () => {
+  const routineExecutionId = new URLSearchParams(window.location.search).get('routineExecutionId') || undefined;
   const navigate = useNavigate();
   const { user } = useAuth();
   const { cartItems, cartShopId, cartShopName, coupon, priceBreakdown, clearCart, preorderSchedule, setPreorderSchedule } = useCart();
@@ -354,6 +355,7 @@ export const Checkout: React.FC = () => {
     // Reuse one server order when Checkout is dismissed or the network retries.
     // Confirmed purchases clear this record, so buying the same cart later is new.
     const checkoutFingerprint = JSON.stringify({
+      routineExecutionId,
       amount: priceBreakdown.grandTotal,
       userId: user.uid,
       shopId: cartShopId || '',
@@ -433,7 +435,8 @@ export const Checkout: React.FC = () => {
           preorderSchedule,
           orderNotes,
           checkoutIdempotencyKey,
-          'cod'
+          'cod',
+          routineExecutionId
         );
 
         if (result.cod) {
@@ -464,7 +467,8 @@ export const Checkout: React.FC = () => {
             preorderSchedule,
             orderNotes,
             checkoutIdempotencyKey,
-            paymentMethod
+            paymentMethod,
+            routineExecutionId
           );
 
           const selectedShop = useAppStore.getState().shops?.find(s => s.id === (cartShopId || ''));
@@ -549,7 +553,8 @@ export const Checkout: React.FC = () => {
           preorderSchedule,
           orderNotes,
           checkoutIdempotencyKey,
-          paymentMethod
+          paymentMethod,
+          routineExecutionId
         );
 
         const currentSession = readStoredCheckoutSession(user.uid);
@@ -849,16 +854,17 @@ export const Checkout: React.FC = () => {
             <Clock className="h-5 w-5 text-[#0B74E8] flex-shrink-0 mt-0.5" />
             <div className="text-xs font-bold text-gray-700 dark:text-[#94A3B8] text-left">
               <span className="block font-black mb-0.5 text-[#0B74E8] dark:text-[#60A5FA]">
-                {preorderSchedule ? '📅 Pre-Order Scheduled Delivery' : '⚡ Instant Deliver Now'}
+                {routineExecutionId ? '📅 Routine scheduled delivery' : preorderSchedule ? '📅 Pre-Order Scheduled Delivery' : '⚡ Instant Deliver Now'}
               </span>
               <span className="text-[11px] font-semibold text-gray-600 dark:text-gray-300">
-                {preorderSchedule
+                {routineExecutionId ? 'Uses the delivery window reviewed in My Routines (India Standard Time).' : preorderSchedule
                   ? `Delivering on ${preorderSchedule.date} during ${preorderSchedule.slot}${preorderSchedule.time ? ` (preferred ${preorderSchedule.time})` : ''}`
                   : 'Order will be prepared & dispatched immediately upon shop approval.'}
               </span>
             </div>
           </div>
           <button
+            disabled={Boolean(routineExecutionId)}
             onClick={() => {
               setIsPreorderModalOpen(true);
             }}

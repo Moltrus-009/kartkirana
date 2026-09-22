@@ -276,7 +276,8 @@ export const paymentService = {
     preorderSchedule: any = null,
     orderNotes: string = '',
     idempotencyKey?: string,
-    paymentMethod: string = 'razorpay'
+    paymentMethod: string = 'razorpay',
+    routineExecutionId?: string
   ): Promise<RazorpayOrder> {
     if (IS_MOCK_MODE) {
       if (import.meta.env.DEV) console.log('[paymentService Mock] Simulating Razorpay order creation locally');
@@ -312,7 +313,8 @@ export const paymentService = {
         referralCode,
         preorderSchedule,
         orderNotes,
-        paymentMethod
+        paymentMethod,
+        ...(routineExecutionId ? {routineExecutionId} : {})
       }),
     }, 20000,
     'Payment setup timed out. Your payment status is unknown; do not pay again until the order status is checked.',

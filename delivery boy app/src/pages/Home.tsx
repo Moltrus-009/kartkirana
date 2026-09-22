@@ -37,7 +37,6 @@ export const Home: React.FC<HomeProps> = ({ setActiveTab, setViewActiveMap }) =>
   const firstName = user?.fullName?.trim().split(/\s+/)[0] || 'Partner';
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning!' : hour < 17 ? 'Good afternoon!' : 'Good evening!';
-  const todayDistance = (todayDeliveries * 3.4).toFixed(1);
 
   const activeStop = (() => {
     if (activeBatch?.stops?.length) {
@@ -98,8 +97,8 @@ export const Home: React.FC<HomeProps> = ({ setActiveTab, setViewActiveMap }) =>
             <span>Earnings</span>
           </div>
           <div>
-            <strong>{todayDistance}<small> km</small></strong>
-            <span>Distance</span>
+            <strong>₹6</strong>
+            <span>Per additional order</span>
           </div>
         </div>
       </section>
@@ -168,20 +167,7 @@ export const Home: React.FC<HomeProps> = ({ setActiveTab, setViewActiveMap }) =>
         </section>
       )}
 
-      <section className="rider-card">
-        <div className="rider-card-heading">
-          <div>
-            <p className="rider-section-kicker">Daily target</p>
-            <h2>Complete 5 deliveries</h2>
-          </div>
-          <span className="rider-bonus">₹120 bonus</span>
-        </div>
-        <div className="rider-progress"><span style={{ width: `${Math.min(100, (todayDeliveries / 5) * 100)}%` }} /></div>
-        <div className="rider-progress-copy">
-          <span>{todayDeliveries} of 5 completed</span>
-          <strong>{todayDeliveries >= 5 ? 'Target achieved' : `${5 - todayDeliveries} remaining`}</strong>
-        </div>
-      </section>
+      <section className="rider-card"><p className="rider-section-kicker">Delivery earnings</p><h2>₹10 for the first order</h2><p>₹6 for each additional order in the same batch. Two orders: ₹16. Three: ₹22.</p></section>
 
       <section className="rider-quick-grid">
         <button type="button" onClick={() => setActiveTab('earnings')} className="rider-card">

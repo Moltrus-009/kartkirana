@@ -199,10 +199,8 @@ export const dbService = {
 
   /** Updates only schedule metadata on an existing order. The backend remains the source of truth. */
   async updateScheduledOrder(orderId: string, schedule: { preorderDate: string; preorderSlot: string; preorderTime?: string }): Promise<void> {
-    await useAppStore.getState().updateOrder(orderId, {
-      ...schedule,
-      updatedAt: new Date().toISOString(),
-    });
+    const {planningRequest}=await import('./planningService');
+    await planningRequest(`/scheduled-orders/${encodeURIComponent(orderId)}/reschedule`,schedule);
   },
 
   async getOrders(userId: string): Promise<Order[]> {

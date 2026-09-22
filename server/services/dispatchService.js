@@ -1,11 +1,12 @@
 const { db } = require('../config/firebase');
 const NotificationService = require('./notificationService');
+const { dispatchDue } = require('./planningCalendar');
 
 const MIN_BATCH_SIZE = 2;
 const MAX_BATCH_SIZE = 3;
 const MAX_BATCH_SPREAD_KM = 1.5;
 const PER_DELIVERY_FEE = 10;
-const BATCH_BONUS = 15;
+const BATCH_BONUS = 6;
 
 const validCoordinates = (coords) => {
   const lat = Number(coords?.lat);
@@ -217,7 +218,7 @@ class DispatchService {
       riderCoords: rider.coords,
       status: 'assigned',
       orderIds: routeOrders.map(order => order.id),
-      totalEarnings: routeOrders.length * PER_DELIVERY_FEE + BATCH_BONUS,
+      totalEarnings: PER_DELIVERY_FEE + (routeOrders.length - 1) * BATCH_BONUS,
       totalDistance: Number(routeDistance.toFixed(1)),
       estimatedTime: Math.max(12, Math.ceil((routeDistance / 18) * 60 + routeOrders.length * 4)),
       maxDeliverySpreadMeters: Math.round(maxSpreadKm * 1000),
@@ -233,6 +234,7 @@ class DispatchService {
     const orderRefs = routeOrders.map(order => db.collection('orders').doc(order.id));
     const riderRef = db.collection('riders').doc(rider.uid);
     const created = await db.runTransaction(async transaction => {
+      await require('./accountDeletionGuard').assertAccountAvailable(db, transaction, rider.uid, 'rider');
       const [riderSnapshot, orderSnapshots] = await Promise.all([
         transaction.get(riderRef),
         Promise.all(orderRefs.map(orderRef => transaction.get(orderRef)))
@@ -241,7 +243,7 @@ class DispatchService {
       const activeLockExpiry = new Date(riderSnapshot.data().dispatchLockExpiresAt || 0).getTime();
       if (activeLockExpiry > Date.now()) return false;
       const currentOrders = orderSnapshots.map(snapshot => snapshot.exists ? snapshot.data() : null);
-      const stillAvailable = currentOrders.every(order => order &&
+      const stillAvailable = currentOrders.every(order => order && dispatchDue(order) &&
         ['ACCEPTED', 'SHOP_ACCEPTED', 'SEARCHING_RIDER', 'READY', 'READY_FOR_PICKUP'].includes(String(order.status || '').toUpperCase()) &&
         !order.riderId && !order.currentRiderId && !order.batchId);
       if (!stillAvailable) return false;
@@ -446,7 +448,7 @@ class DispatchService {
           const order = { id: doc.id, ...doc.data() };
           const alreadyIncluded = ordersToDispatch.some(candidate => candidate.id === order.id);
           const dispatchLocked = ['PENDING', 'BATCH_PENDING', 'ASSIGNED'].includes(order.dispatchStatus);
-          if (!alreadyIncluded && !dispatchLocked && !order.riderId && !order.currentRiderId && !order.batchId && order.status !== 'RIDER_ASSIGNED') {
+          if (dispatchDue(order) && !alreadyIncluded && !dispatchLocked && !order.riderId && !order.currentRiderId && !order.batchId && order.status !== 'RIDER_ASSIGNED') {
             ordersToDispatch.push(order);
           }
         });
@@ -593,6 +595,7 @@ class DispatchService {
         const expiresAt = new Date(Date.now() + 30 * 1000).toISOString(); // 30s countdown
 
         const dispatched = await db.runTransaction(async (transaction) => {
+          await require('./accountDeletionGuard').assertAccountAvailable(db, transaction, targetRider.uid, 'rider');
           const orderRef = db.collection('orders').doc(order.id);
           const reqRef = db.collection('dispatchRequests').doc(requestId);
           const riderRef = db.collection('riders').doc(targetRider.uid);
@@ -603,6 +606,7 @@ class DispatchService {
           if (!freshOrderSnapshot.exists) return false;
           if (!riderSnapshot.exists || riderSnapshot.data().online !== true || new Date(riderSnapshot.data().dispatchLockExpiresAt || 0).getTime() > Date.now()) return false;
           const freshOrder = freshOrderSnapshot.data();
+          if (!dispatchDue(freshOrder)) return false;
           const availableStatuses = ['ACCEPTED', 'SHOP_ACCEPTED', 'SEARCHING_RIDER', 'READY', 'READY_FOR_PICKUP'];
           if (!availableStatuses.includes(String(freshOrder.status || '').toUpperCase()) || freshOrder.riderId || freshOrder.currentRiderId || freshOrder.batchId || ['PENDING', 'BATCH_PENDING', 'ASSIGNED'].includes(freshOrder.dispatchStatus)) {
             return false;

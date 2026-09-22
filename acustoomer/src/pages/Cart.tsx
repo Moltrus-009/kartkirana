@@ -11,6 +11,7 @@ import { PreorderModal } from '../components/PreorderModal';
 import { isValidPreorderSchedule } from '../utils/preorder';
 import { CUSTOMER_STORAGE_KEYS, setCustomerStorageItem } from '../utils/customerStorage';
 import { SafeImage } from '../components/ui/SafeImage';
+import { ShareCart } from '../components/ShareCart';
 
 export const Cart: React.FC = () => {
   const navigate = useNavigate();
@@ -123,6 +124,8 @@ export const Cart: React.FC = () => {
       </div>
 
       {/* Cart Items List */}
+      <ShareCart />
+      <button type="button" onClick={()=>navigate('/routines?create=1')} className="w-full rounded-2xl border border-blue-200 p-4 text-left font-bold text-blue-700 dark:text-blue-300">Schedule / repeat this cart</button>
       <div className="flex flex-col gap-4">
         {cartItems.map(item => (
           <div

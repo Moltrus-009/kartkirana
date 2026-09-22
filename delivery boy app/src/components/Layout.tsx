@@ -1,3 +1,4 @@
+import { PER_DELIVERY_FEE, batchPayout } from '../constants/earnings';
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { 
@@ -252,7 +253,7 @@ export const Layout: React.FC<LayoutProps> = ({
 
       {/* FULL SCREEN NEW ORDER REQUEST POPUP / OVERLAY */}
       {newRequest && (
-        <div className="fixed inset-0 z-50 flex flex-col justify-between bg-slate-950 text-white p-6 animate-in slide-in-from-bottom duration-300">
+        <div role="dialog" aria-modal="true" className="rider-request-overlay fixed inset-0 z-50 flex flex-col justify-between bg-slate-950 text-white p-6 animate-in slide-in-from-bottom duration-300">
           
           {/* Header Progress and Countdown */}
           <div className="flex justify-between items-center border-b border-white/10 pb-4">
@@ -274,7 +275,7 @@ export const Layout: React.FC<LayoutProps> = ({
           </div>
 
           {/* Details Panel */}
-          <div className="flex-grow py-6 overflow-y-auto space-y-6">
+          <div className="flex-grow min-h-0 py-6 overflow-y-auto space-y-6">
             {newRequest.type === 'batch' ? (
               // Batch Layout details
               <div className="space-y-6">
@@ -285,7 +286,7 @@ export const Layout: React.FC<LayoutProps> = ({
                     <span>📍 Customers {(newRequest.batchData as any)?.neighborhoodDistanceMeters || 420}m apart</span>
                   </div>
                   <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Estimated Total Earnings</p>
-                  <p className="text-4xl font-black text-secondary">₹{newRequest.batchData?.totalEarnings}</p>
+                  <p className="text-4xl font-black text-secondary">₹{batchPayout(newRequest.batchData?.orderIds.length || 0)}</p>
                   <div className="flex justify-center space-x-4 pt-2 text-[10px] text-slate-300 font-semibold">
                     <span>Distance: {newRequest.batchData?.totalDistance} km</span>
                     <span>•</span>
@@ -327,7 +328,7 @@ export const Layout: React.FC<LayoutProps> = ({
                 {/* Visual Earnings Card */}
                 <div className="bg-primary/25 border-2 border-secondary/20 p-5 rounded-2xl text-center space-y-1.5 shadow-md">
                   <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Guaranteed Trip Payout</p>
-                  <p className="text-4xl font-black text-secondary">₹{newRequest.earnings || newRequest.orderData?.deliveryFee || 10}</p>
+                  <p className="text-4xl font-black text-secondary">₹{PER_DELIVERY_FEE}</p>
                   <div className="flex justify-center space-x-4 pt-2 text-[10px] text-slate-350 font-semibold">
                     <span>Est Distance: {newRequest.distance ? `${newRequest.distance} km` : '2.1 km'}</span>
                     <span>•</span>

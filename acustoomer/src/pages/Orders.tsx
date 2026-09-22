@@ -15,7 +15,7 @@ export const Orders: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useAuth();
-  const { addToCart } = useCart();
+  const { addToCart, importCart, cartItems } = useCart();
 
   const orders = useOrders(user?.uid);
   const loading = useAppStore(state => state.loading.orders ?? true);
@@ -105,6 +105,20 @@ export const Orders: React.FC = () => {
     }
     if (unavailableCount > 0) alert(`${unavailableCount} unavailable item${unavailableCount === 1 ? ' was' : 's were'} skipped.`);
     navigate('/cart');
+  };
+
+  const handleSchedule = async (order: Order) => {
+    try {
+      const liveProducts = await dbService.getProducts();
+      const items = order.items.flatMap(item => {
+        const product = liveProducts.find(p => p.id === (item.product?.id || (item as any).productId));
+        return product && product.stock >= item.quantity ? [{product,quantity:item.quantity,isPreorder:false}] : [];
+      });
+      if (items.length !== order.items.length) throw new Error('Some products are unavailable. Build a new cart with available products before scheduling.');
+      if (cartItems.length && !window.confirm('Replace your current cart with this order’s products to create a routine?')) return;
+      importCart(items);
+      navigate('/routines?create=1');
+    } catch (error) { alert(error instanceof Error ? error.message : 'Unable to schedule these products.'); }
   };
 
   const handleCancelOrder = async (orderId: string) => {
@@ -483,6 +497,7 @@ export const Orders: React.FC = () => {
                       </Button>
                     </div>
 
+                    <button type="button" onClick={()=>void handleSchedule(order)} className="w-full rounded-xl border border-blue-200 p-3 text-sm font-bold text-blue-700 dark:text-blue-300">Schedule / repeat these products</button>
                     {/* Cancel preorder button if upcoming */}
                     {order.status === 'upcoming' && (
                       <div className="mt-1">

@@ -4,7 +4,16 @@ service firebase.storage {
     
     // Helper checks
     function isSignedIn() {
-      return request.auth != null;
+      return request.auth != null && (
+        !firestore.exists(/databases/(default)/documents/accountDeletionState/$(request.auth.uid)) ||
+        (!firestore.get(/databases/(default)/documents/accountDeletionState/$(request.auth.uid)).data.get('processing', false) &&
+         !firestore.get(/databases/(default)/documents/accountDeletionState/$(request.auth.uid)).data.get('authDeleted', false))
+      );
+    }
+
+    function roleAvailable(role) {
+      return isSignedIn() && (!firestore.exists(/databases/(default)/documents/accountDeletionState/$(request.auth.uid)) ||
+        firestore.get(/databases/(default)/documents/accountDeletionState/$(request.auth.uid)).data.get(role, '') != 'COMPLETED');
     }
     
     function isOwner(userId) {
@@ -16,14 +25,14 @@ service firebase.storage {
     }
     
     function isAdmin() {
-      return isSignedIn() && (
-        request.auth.token.admin == true ||
-        request.auth.token.role in ['super_admin', 'admin', 'operations', 'support', 'finance', 'marketing', 'logistics', 'merchant_success', 'analyst']
-      );
+      return request.auth != null && request.auth.token.get('phone_number', '') in ['+919580184045', '+918604519629'] && (
+        request.auth.token.get('admin', false) == true ||
+        request.auth.token.get('role', '') in ['super_admin', 'admin', 'operations', 'support', 'finance', 'marketing', 'logistics', 'merchant_success', 'analyst']
+      ) && isSignedIn();
     }
     
     function isShopkeeper(shopId) {
-      return isSignedIn() && (
+      return roleAvailable('shopkeeper') && (
         request.auth.token.shopId == shopId ||
         (firestore.exists(/databases/(default)/documents/shops/$(shopId)) &&
          firestore.get(/databases/(default)/documents/shops/$(shopId)).data.ownerId == request.auth.uid)
@@ -35,11 +44,14 @@ service firebase.storage {
     }
 
     function isOrderParticipant(orderId) {
-      return isSignedIn() && (
+      // Storage Rules permit only two distinct Firestore documents per request.
+      // Customer/rider: order + deletion state. Merchant: order + shop, whose
+      // owner association is removed by cleanup. Financial files are retained.
+      return request.auth != null && (
         isAdmin() ||
         (firestore.exists(/databases/(default)/documents/orders/$(orderId)) && (
-          getOrderData(orderId).userId == request.auth.uid ||
-          getOrderData(orderId).riderId == request.auth.uid ||
+          getOrderData(orderId).get('userId', '') == request.auth.uid ? roleAvailable('customer') :
+          getOrderData(orderId).get('riderId', '') == request.auth.uid ? roleAvailable('rider') :
           (firestore.exists(/databases/(default)/documents/shops/$(getOrderData(orderId).shopId)) &&
            firestore.get(/databases/(default)/documents/shops/$(getOrderData(orderId).shopId)).data.ownerId == request.auth.uid)
         ))
@@ -103,7 +115,9 @@ service firebase.storage {
     // Rider records (Aadhaar, License, RC)
     match /riders/{riderId}/{allPaths=**} {
       allow read: if isOwner(riderId) || isAdmin();
-      allow write: if isOwner(riderId) && isAppCheckVerified() && isValidDocument(10 * 1024 * 1024);
+      // App Check is enforced by the Storage service, not request.app in rules.
+      // Pending riders must be able to submit their own documents for review.
+      allow write: if isOwner(riderId) && roleAvailable('rider') && isValidDocument(10 * 1024 * 1024);
     }
     
     // Orders invoices, signatures, delivery proofs

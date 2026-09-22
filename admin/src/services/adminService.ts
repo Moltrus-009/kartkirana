@@ -36,6 +36,18 @@ const getAuthHeaders = async (): Promise<Record<string, string>> => {
 };
 
 export const adminService = {
+  async routineReport() {
+    const res=await fetch('/v1/admin/routines',{headers:await getAuthHeaders()});
+    const data=await res.json();if(!res.ok)throw new Error(data.message||'Unable to load routines.');return data;
+  },
+  async deletionRequests(id?: string) {
+    const res = await fetch(`/v1/admin/account-deletion${id ? `/${encodeURIComponent(id)}` : ''}`, { headers: await getAuthHeaders() });
+    const data = await res.json(); if (!res.ok) throw new Error(data.message || 'Unable to load deletion requests.'); return data;
+  },
+  async approveDeletion(id: string, evidenceReference: string) {
+    const res = await fetch(`/v1/admin/account-deletion/${encodeURIComponent(id)}/approve`, { method: 'POST', headers: await getAuthHeaders(), body: JSON.stringify({ evidenceReference, obligationsCleared: true, retentionReviewed: true }) });
+    const data = await res.json(); if (!res.ok) throw new Error(data.message || 'Unable to approve request.'); return data;
+  },
   // Collection Retrievals
   async getUsers() {
     const headers = await getAuthHeaders();

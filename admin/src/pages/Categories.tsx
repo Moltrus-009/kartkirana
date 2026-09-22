@@ -21,6 +21,7 @@ interface Category {
 }
 
 export default function Categories() {
+  const [loadError, setLoadError] = useState('');
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   
@@ -41,7 +42,8 @@ export default function Categories() {
       list.sort((a, b) => (a.order || 0) - (b.order || 0));
       setCategories(list);
       setLoading(false);
-    });
+      setLoadError('');
+    }, () => { setLoading(false); setLoadError('Unable to load this section. Reload to retry.'); });
     return () => unsub();
   }, []);
 
@@ -118,6 +120,7 @@ export default function Categories() {
 
   return (
     <div className="space-y-6 text-left select-none">
+      {loadError && <p role="alert" className="rounded-xl p-3 bg-red-500/10 text-red-600">{loadError}</p>}
       
       {/* Header */}
       <div className="flex justify-between items-center text-left">

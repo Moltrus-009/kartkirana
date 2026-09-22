@@ -4,6 +4,7 @@ import { useAppStore } from '../core/store/useAppStore';
 import { auth } from '../infrastructure/firebase/firebase';
 import { recaptchaManager } from '../lib/recaptchaManager';
 import { useLanguage } from '../context/LanguageContext';
+import { Capacitor } from '@capacitor/core';
 
 function setupRecaptcha(containerId: string) {
   if (!auth) return null;
@@ -92,25 +93,26 @@ export default function Login() {
       return;
     }
 
-    const verifier = setupRecaptcha('recaptcha-container');
-    if (!verifier) {
+    const isAndroid = Capacitor.getPlatform() === 'android';
+    const verifier = isAndroid ? undefined : setupRecaptcha('recaptcha-container');
+    if (!isAndroid && !verifier) {
       setError(t('error_security_init'));
       return;
     }
 
     setSubmitting(true);
     try {
-      const res = await triggerOTP(phone, verifier);
+      const res = await triggerOTP(phone, verifier || undefined);
       if (res.success) {
         setSuccess(t('otp_sent', { phone: `+91 ${phone}` }));
         setStep('verify');
       } else {
         setError(res.error || t('error_send_otp'));
-        await recaptchaManager.reset();
+        if (!isAndroid) await recaptchaManager.reset();
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : t('error_sms'));
-      await recaptchaManager.reset();
+      if (!isAndroid) await recaptchaManager.reset();
     } finally {
       setSubmitting(false);
     }
@@ -147,8 +149,8 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4 transition-all duration-300">
-      <div className="w-full max-w-md bg-white border border-slate-100/80 rounded-3xl p-8 shadow-lg shadow-slate-200/50 relative overflow-hidden transition-all duration-300">
+    <div className="merchant-auth-page min-h-screen flex items-center justify-center bg-slate-50 p-4 transition-all duration-300">
+      <div className="merchant-auth-card w-full max-w-md bg-white border border-slate-100/80 rounded-3xl p-8 shadow-lg shadow-slate-200/50 relative overflow-hidden transition-all duration-300">
         <button type="button" onClick={() => setLanguage(language === 'en' ? 'hi' : 'en')} className="absolute right-4 top-4 z-20 flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[10px] font-black text-slate-600 shadow-sm" aria-label={t('change_language')}><Languages className="h-3.5 w-3.5" />{language === 'en' ? 'हिन्दी' : 'English'}</button>
         
         {/* Decorative Ambient Blur Lights */}

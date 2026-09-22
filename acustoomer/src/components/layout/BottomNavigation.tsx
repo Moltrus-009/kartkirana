@@ -35,7 +35,7 @@ export const BottomNavigation: React.FC = () => {
   if (hideTabs) return null;
 
   // Show floating cart badge if we have items, and we are not on cart/checkout/splash/login/onboarding
-  const showFloatingCart = cartCount > 0 && !['/cart', '/checkout', '/splash', '/onboarding', '/login'].includes(location.pathname);
+  const showFloatingCart = cartCount > 0 && !['/cart', '/checkout', '/splash', '/onboarding', '/login', '/routines'].includes(location.pathname) && !location.pathname.startsWith('/shared-cart/');
 
   return (
     <>

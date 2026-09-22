@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useLanguage } from '../../context/LanguageContext';
@@ -74,6 +75,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [notifPanelOpen, setNotifPanelOpen] = useState(false);
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
 
+  useEffect(() => {
+    const nav = document.querySelector('.merchant-bottom-nav');
+    if (!nav) return;
+    const observer = new ResizeObserver(() => {
+      document.documentElement.style.setProperty('--merchant-nav-height', `${nav.getBoundingClientRect().height}px`);
+    });
+    observer.observe(nav);
+    return () => observer.disconnect();
+  }, []);
+
   const activePath = location.pathname;
 
   // New/Confirmed orders count
@@ -116,7 +127,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <header className="merchant-mobile-header md:hidden flex items-center justify-between px-4 py-3 bg-white dark:bg-dark-card border-b border-slate-100 dark:border-dark-border sticky top-0 z-40">
         <div className="flex items-center gap-2">
           <button 
-            onClick={() => setSidebarOpen(true)}
+            aria-label="Open menu" onClick={() => setSidebarOpen(true)}
             className="p-1.5 hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg cursor-pointer"
           >
             <Menu className="h-6 w-6 text-slate-600 dark:text-zinc-300" />
@@ -148,7 +159,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
 
           <button 
-            onClick={() => setNotifPanelOpen(!notifPanelOpen)} 
+            aria-label="Notifications" onClick={() => setNotifPanelOpen(!notifPanelOpen)} 
             className="relative p-1.5 hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg cursor-pointer"
           >
             <Bell className="h-5 w-5 text-slate-600 dark:text-zinc-300" />
@@ -175,7 +186,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </div>
             
             <button 
-              onClick={() => setSidebarOpen(false)}
+              aria-label="Close menu" onClick={() => setSidebarOpen(false)}
               className="md:hidden p-1 hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg cursor-pointer"
             >
               <X className="h-5 w-5" />
@@ -299,7 +310,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             {/* Notifications Bell */}
             <div className="relative">
               <button 
-                onClick={() => setNotifPanelOpen(!notifPanelOpen)}
+                aria-label="Notifications" onClick={() => setNotifPanelOpen(!notifPanelOpen)}
                 className="p-2 hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-xl transition relative cursor-pointer"
               >
                 <Bell className="h-5 w-5 text-slate-600 dark:text-zinc-300" />
@@ -312,11 +323,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
               {/* Notification Dropdown Drawer */}
               {notifPanelOpen && (
-                <>
-                  <div onClick={() => setNotifPanelOpen(false)} className="fixed inset-0 z-30" />
-                  <div className="absolute right-0 mt-2 w-80 bg-white dark:bg-dark-card border border-slate-100 dark:border-dark-border rounded-2xl shadow-xl z-40 p-4 animate-in fade-in slide-in-from-top-2 duration-150">
+                createPortal(<div role="dialog" aria-modal="true" aria-label={t('notifications')} className="merchant-modal-overlay fixed inset-0 bg-slate-900/40 flex justify-center items-center p-4">
+                  
+                  <div className="relative w-full max-w-sm bg-white dark:bg-dark-card border border-slate-100 dark:border-dark-border rounded-2xl shadow-xl z-40 p-4 animate-in fade-in slide-in-from-top-2 duration-150">
                     <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-100 dark:border-dark-border">
-                      <h4 className="font-black text-sm">{t('notifications')}</h4>
+                      <button aria-label="Close notifications" onClick={() => setNotifPanelOpen(false)} className="p-2"><X className="h-5 w-5" /></button><h4 className="font-black text-sm">{t('notifications')}</h4>
                       {unreadNotifCount > 0 && (
                         <button 
                           onClick={markAllNotificationsRead}
@@ -358,7 +369,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                       )}
                     </div>
                   </div>
-                </>
+                </div>, document.body)
               )}
             </div>
 

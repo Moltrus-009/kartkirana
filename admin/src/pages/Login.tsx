@@ -53,7 +53,7 @@ export default function Login() {
       <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-teal-500/10 rounded-full blur-3xl" />
 
       {/* Recaptcha hidden widget anchor */}
-      <div id="recaptcha-container" className="hidden">
+      <div id="recaptcha-container">
         <div id="recaptcha-widget"></div>
       </div>
 
