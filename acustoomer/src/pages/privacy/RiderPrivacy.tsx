@@ -400,11 +400,13 @@ export const RiderPrivacy: React.FC = () => {
           <p>You can delete your account directly from the app:</p>
           <ul>
             <li>Open the Kart Kirana Delivery Rider App.</li>
-            <li>Go to <strong>Settings → Delete Account</strong>.</li>
+            <li>Go to <strong>Profile → Delete Account</strong> or <a href="/delete-account/rider">request rider account deletion online</a>.</li>
             <li>Follow the on-screen instructions to confirm deletion.</li>
           </ul>
           <p>Alternatively, you can request account closure by emailing <a href="mailto:support@kartkirana.com">support@kartkirana.com</a>.</p>
-          <p><strong>Data that may be retained:</strong> Profile data, photos, and vehicle information will be removed. Delivery records, earnings, and identity documents may be retained as required by law.</p>
+          <p>Verify your registered phone with an SMS code and confirm the request. Active deliveries, dispatch offers, refunds, disputes and settlements must be resolved before final deletion. A finance/retention review is required. Check request status on the deletion page.</p>
+          <p><strong>Deleted after review:</strong> Rider profile/contact data, current location, photos, rider document uploads, device tokens and unnecessary contact/location details in delivery records. If document retention is required, review must resolve that requirement before this cleanup proceeds. Shared sign-in/files remain while another KartKirana account uses them.</p>
+          <p><strong>Retained:</strong> Historical delivery, payment/payout, invoice, accounting, tax, dispute/security records and a minimal deletion audit as needed for reconciliation and applicable obligations.</p>
         </PolicySection>
 
         {/* 18. Your Rights */}
@@ -413,7 +415,7 @@ export const RiderPrivacy: React.FC = () => {
           <ul>
             <li><strong>Access:</strong> View your profile, delivery history, earnings, and performance data in the App.</li>
             <li><strong>Correction:</strong> Update your profile and vehicle information through the App.</li>
-            <li><strong>Deletion:</strong> Delete your account via the app (Settings → Delete Account) or by contacting us.</li>
+            <li><strong>Deletion:</strong> Delete your account via the app (Profile → Delete Account) or by contacting us.</li>
             <li><strong>Withdrawal of Consent:</strong> Deactivate your account or revoke permissions. Note: revoking location will prevent deliveries.</li>
             <li><strong>Permission Management:</strong> Manage all permissions through device settings.</li>
             <li><strong>Grievance Redressal:</strong> Contact our Grievance Officer (see Section 25).</li>

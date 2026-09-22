@@ -58,3 +58,6 @@ temp/
 *.njsproj
 *.sln
 *.swp
+
+.vercel
+.env*

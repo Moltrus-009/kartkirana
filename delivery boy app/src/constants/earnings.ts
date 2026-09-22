@@ -18,8 +18,29 @@
 /** Base payout per single delivery, in ₹. */
 export const PER_DELIVERY_FEE = 10;
 
-/** Extra bonus paid per batch for accepting a multi-order route, in ₹. */
-export const BATCH_BONUS = 15;
+/** Payout for each additional delivered order after the first in a batch. */
+export const BATCH_BONUS = 6;
+
+export const batchPayout = (count: number) => count > 0 ? PER_DELIVERY_FEE + (count - 1) * BATCH_BONUS : 0;
+
+type PayoutOrder = { id: string; batchId?: string | null; status?: string; createdAt: string; timeline?: { status: string; timestamp: string }[] };
+// Credit ₹10 to the first completed delivery; later deliveries in the same batch earn ₹6.
+// Use all history before filtering by day/week so a batch crossing midnight is not paid twice.
+export function riderPayout(order: PayoutOrder, history: PayoutOrder[] = []) {
+  if (['CANCELLED', 'SHOP_REJECTED'].includes(String(order.status).toUpperCase())) return 0;
+  if (!order.batchId) return PER_DELIVERY_FEE;
+  const completed = history.filter(item => item.batchId === order.batchId &&
+    ['DELIVERED', 'COMPLETED'].includes(String(item.status).toUpperCase()));
+  if (!completed.some(item => item.id === order.id)) completed.push(order);
+  completed.sort((a, b) => (completionTime(a) - completionTime(b)) || a.id.localeCompare(b.id));
+  return completed[0].id === order.id ? PER_DELIVERY_FEE : BATCH_BONUS;
+}
+
+export function completionTime(order: { createdAt: string; timeline?: { status: string; timestamp: string }[] }) {
+  const event = [...(order.timeline || [])].reverse().find(entry =>
+    ['DELIVERED', 'COMPLETED'].includes(entry.status.toUpperCase()));
+  return new Date(event?.timestamp || order.createdAt).getTime();
+}
 
 /** Maximum number of orders that can be combined into one Smart Batch. */
 export const MIN_BATCH_SIZE = 2;

@@ -1,4 +1,5 @@
 const { AppError } = require('../utils/errors');
+const { isAllowedAdminPhone } = require('../config/adminAccess');
 
 // Role hierarchy / permissions mappings
 const ROLE_PERMISSIONS = {
@@ -39,7 +40,10 @@ const checkPermission = (requiredPermission) => {
       return next(new AppError('Please sign in to continue.', 401, 'AUTH_REQUIRED'));
     }
 
-    const role = req.user.role;
+    const role = req.user.adminRole || req.user.role;
+    if (!isAllowedAdminPhone(req.user.phone_number)) {
+      return next(new AppError('This account is not authorised for administration.', 403, 'ADMIN_REQUIRED'));
+    }
 
     if (!role) {
       return next(new AppError('Administrative privileges required.', 403, 'ADMIN_REQUIRED'));

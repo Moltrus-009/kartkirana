@@ -12,6 +12,7 @@ const crypto = require('crypto');
 
 class PaymentController {
   async createOrder(req, res, next) {
+    if (req.accountDeletion?.customer === 'COMPLETED') return next(new AppError('This customer account has been deleted.', 403));
     const idempotencyKey = req.header('Idempotency-Key');
     if (!idempotencyKey || !/^[A-Za-z0-9_-]{16,128}$/.test(idempotencyKey)) {
       return next(new AppError('A valid Idempotency-Key (16-128 letters, numbers, hyphens, or underscores) is required.', 400));
@@ -46,17 +47,23 @@ class PaymentController {
           return next(new AppError('Another checkout session is currently processing. Please wait.', 409));
         }
 
+        const routinePlan = req.body.routineExecutionId ? await require('../services/routineRuntime').checkoutContext(userId,req.body.routineExecutionId,req.body) : null;
+        if (routinePlan?.replay) {
+          await IdempotencyRepository.saveKey(idempotencyKey, routinePlan.replay, userId, requestHash);
+          return res.status(200).json(routinePlan.replay);
+        }
         const result = await PaymentService.initPayment(
           userId,
           shopId,
           items,
-          deliveryAddress,
+          routinePlan ? routinePlan.address : deliveryAddress,
           couponCode,
           walletCreditsUsed,
           referralCode,
-          preorderSchedule,
+          routinePlan ? routinePlan.schedule : preorderSchedule,
           orderNotes,
-          paymentMethod
+          paymentMethod,
+          routinePlan ? routinePlan.context : null
         );
 
       await IdempotencyRepository.saveKey(idempotencyKey, result, userId, requestHash);
@@ -94,7 +101,7 @@ class PaymentController {
       if (!payment) return next(new AppError(`Payment ${paymentId} not found`, 404));
       
       const role = req.user.role;
-      const isAuthorized = req.user.admin === true || role === 'admin' || role === 'super_admin' || role === 'operations' || role === 'finance' || payment.userId === req.user.uid;
+      const isAuthorized = req.user.admin === true || role === 'admin' || role === 'super_admin' || role === 'operations' || role === 'finance' || (payment.userId === req.user.uid && req.accountDeletion?.customer !== 'COMPLETED');
       
       if (!isAuthorized) {
         const { db } = require('../config/firebase');
@@ -123,7 +130,7 @@ class PaymentController {
       if (!order) return next(new AppError(`Order ${orderId} not found`, 404));
       
       const role = req.user.role;
-      const isAuthorized = req.user.admin === true || role === 'admin' || role === 'super_admin' || role === 'operations' || role === 'finance' || order.userId === req.user.uid || order.riderId === req.user.uid;
+      const isAuthorized = req.user.admin === true || role === 'admin' || role === 'super_admin' || role === 'operations' || role === 'finance' || (order.userId === req.user.uid && req.accountDeletion?.customer !== 'COMPLETED') || (order.riderId === req.user.uid && req.accountDeletion?.rider !== 'COMPLETED');
       
       if (!isAuthorized) {
         const { db } = require('../config/firebase');

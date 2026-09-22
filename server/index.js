@@ -70,7 +70,8 @@ app.use('/v1/', rateLimiterGateway);
 
 app.use((req, res, next) => {
   const timestamp = new Date().toISOString();
-  console.log(`[REQUEST] [${timestamp}] RequestID: ${req.id} | Method: ${req.method} | URL: ${req.url} | IP: ${req.clientIp}`);
+  const loggedUrl = req.url.replace(/(\/shared-carts\/)[^/?]+/g, '$1[redacted]');
+  console.log(`[REQUEST] [${timestamp}] RequestID: ${req.id} | Method: ${req.method} | URL: ${loggedUrl} | IP: ${req.clientIp}`);
   next();
 });
 
@@ -186,7 +187,10 @@ const dispatchRoutes = require('./routes/dispatchRoutes');
 const videoRoutes = require('./routes/videoRoutes');
 const cancelRoutes = require('./routes/cancelRoutes');
 const couponRoutes = require('./routes/couponRoutes');
+const accountDeletionRoutes = require('./routes/accountDeletionRoutes');
 
+app.use('/v1', accountDeletionRoutes);
+app.use('/v1', require('./routes/planningRoutes'));
 app.use('/v1', paymentRoutes);
 app.use('/v1', adminRoutes);
 app.use('/v1', dispatchRoutes);
@@ -209,6 +213,7 @@ if (require.main === module || env.NODE_ENV === 'test') {
     startCleanupJob();
     startJobsWorker();
     startDispatchWorker();
+    require('./workers/routineWorker').startRoutineWorker();
   }
 
   exportedServer = app.listen(port, '0.0.0.0', () => {

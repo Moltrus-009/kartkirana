@@ -41,16 +41,24 @@ const processNotificationQueue = async () => {
           const fcmToken = (userSnapshot.exists ? userSnapshot.data().fcmToken : null) ||
             (riderSnapshot.exists ? riderSnapshot.data().fcmToken : null);
 
-          await userRef.collection('notifications').doc(notifId).set({
+          const stored = await db.runTransaction(async tx => {
+            const s = (await tx.get(db.collection('accountDeletionState').doc(task.userId))).data() || {};
+            const role = task.userType === 'owner' ? 'shopkeeper' : task.userType || 'customer';
+            if (s.processing || s.authDeleted || s[role] === 'COMPLETED') return false;
+            tx.set(userRef.collection('notifications').doc(notifId), {
             id: notifId,
             title: task.title,
             body: task.body,
             createdAt: new Date().toISOString(),
             read: false,
-            type: 'order',
+            type: task.link === '/routines' ? 'system' : 'order',
+            ...(task.link === '/routines' ? {link:'/routines'} : {}),
             referenceId: task.referenceId || '',
-            orderId: task.referenceId || ''
+            orderId: task.link === '/routines' ? '' : task.referenceId || ''
+            });
+            return true;
           });
+          if (!stored) { await taskRef.delete(); continue; }
 
           // Firestore notifications keep the in-app inbox reliable. FCM is
           // additionally required to wake Android/web riders while the app is
@@ -65,7 +73,8 @@ const processNotificationQueue = async () => {
                 },
                 data: {
                   type: String(task.userType || 'order'),
-                  referenceId: String(task.referenceId || '')
+                  referenceId: String(task.referenceId || ''),
+                  ...(task.link === '/routines' ? {link:'/routines'} : {})
                 },
                 android: {
                   priority: 'high',

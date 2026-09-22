@@ -13,14 +13,14 @@ const ROLE_PATHS: Record<Exclude<AdminRole, 'super_admin'>, string[]> = {
   admin: [
     '/', '/operations', '/orders', '/shops', '/riders', '/users', '/products',
     '/inventory-health', '/categories', '/banners', '/coupons', '/map', '/zones',
-    '/complaints', '/chats', '/notifications', '/payments', '/analytics', '/settings'
+    '/complaints', '/chats', '/notifications', '/payments', '/analytics', '/settings', '/account-deletion', '/routines'
   ],
   operations: [
     '/', '/operations', '/orders', '/shops', '/riders', '/users', '/products',
     '/inventory-health', '/map', '/zones', '/notifications', '/chats'
   ],
   support: ['/', '/orders', '/users', '/shops', '/riders', '/products', '/complaints', '/chats', '/map'],
-  finance: ['/', '/orders', '/shops', '/products', '/payments', '/analytics'],
+  finance: ['/', '/orders', '/shops', '/products', '/payments', '/analytics', '/account-deletion', '/routines'],
   marketing: ['/', '/products', '/categories', '/banners', '/coupons', '/notifications', '/analytics'],
   logistics: ['/', '/operations', '/orders', '/riders', '/map', '/shops'],
   merchant_success: ['/', '/shops', '/products', '/inventory-health', '/categories'],

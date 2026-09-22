@@ -826,7 +826,8 @@ export async function updateRiderOnlineStatus(
       const riderRef = doc(db!, 'riders', riderId);
       const now = new Date().toISOString();
       const updateData: any = { 
-        online, 
+        online,
+        status: online ? 'online' : 'offline',
         updatedAt: now 
       };
       if (coords) {
@@ -859,6 +860,7 @@ export async function updateRiderOnlineStatus(
       }
     } catch (e) {
       console.error("Error updating riders collection online status:", e);
+      throw e;
     }
   }
 }

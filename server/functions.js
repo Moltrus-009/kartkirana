@@ -17,6 +17,20 @@ const paymentSecretNames = [
   'RAZORPAY_WEBHOOK_SECRET_LIVE'
 ];
 const activeSecrets = paymentSecretNames.map((name) => defineSecret(name));
+exports.routineSweep = onSchedule({
+  region:'asia-south1',schedule:`every ${require('./config/planning').workerMinutes} minutes`,timeZone:require('./config/planning').timezone,
+  memory:'512MiB',timeoutSeconds:300,maxInstances:1,retryCount:0,secrets:activeSecrets
+}, async()=>require('./workers/routineWorker').runRoutineWorkerOnce());
+
+// Durable, reviewed deletion jobs; never execute a destructive cleanup in the
+// request/OTP HTTP handler. Retries resume partial work using the identity lock.
+exports.accountDeletionSweep = onSchedule({
+  region: 'asia-south1', schedule: 'every 15 minutes', timeZone: 'Asia/Kolkata',
+  memory: '512MiB', timeoutSeconds: 540, maxInstances: 1, retryCount: 0
+}, async () => {
+  if (process.env.ACCOUNT_DELETION_ENABLED !== 'true') return;
+  await require('./services/accountDeletionRuntime').sweep();
+});
 
 exports.api = onRequest({
   region: 'asia-south1',

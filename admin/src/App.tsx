@@ -20,6 +20,8 @@ const Payments = lazy(() => import('./pages/Payments'));
 const Analytics = lazy(() => import('./pages/Analytics'));
 const Notifications = lazy(() => import('./pages/Notifications'));
 const Complaints = lazy(() => import('./pages/Complaints'));
+const AccountDeletion = lazy(() => import('./pages/AccountDeletion'));
+const Routines = lazy(() => import('./pages/Routines'));
 const Banners = lazy(() => import('./pages/Banners'));
 const Coupons = lazy(() => import('./pages/Coupons'));
 const Zones = lazy(() => import('./pages/Zones'));
@@ -115,7 +117,7 @@ class PortalErrorBoundary extends Component<{ children: React.ReactNode }, { err
             <p className="text-sm text-slate-500">Your session is still safe. Return to the command center and try again.</p>
             <button
               type="button"
-              onClick={() => window.location.assign('/')}
+              onClick={() => window.location.assign('/private/admin/')}
               className="px-5 py-3 bg-emerald-500 text-slate-950 font-black rounded-xl text-sm"
             >
               Return to command center
@@ -140,12 +142,11 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [openSupportCount, setOpenSupportCount] = useState(0);
 
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    const saved = localStorage.getItem('kk_admin_theme');
-    return (saved as 'light' | 'dark') || 'light';
+    return document.documentElement.classList.contains('dark') ? 'dark' : 'light';
   });
 
   useEffect(() => {
-    localStorage.setItem('kk_admin_theme', theme);
+    try { localStorage.setItem('kk_admin_theme', theme); } catch { /* Theme still works when storage is unavailable. */ }
     document.documentElement.classList.toggle('dark', theme === 'dark');
   }, [theme]);
 
@@ -161,6 +162,14 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   }, []);
 
   useEffect(() => setMobileMenuOpen(false), [location.pathname]);
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const close = (event: KeyboardEvent) => { if (event.key === 'Escape') setMobileMenuOpen(false); };
+    window.addEventListener('keydown', close);
+    return () => { document.body.style.overflow = previous; window.removeEventListener('keydown', close); };
+  }, [mobileMenuOpen]);
 
   useEffect(() => {
     if (!adminUser || !canManageSupport(adminUser.role)) return;
@@ -223,6 +232,8 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       group: 'Step 4: Care & Escalations',
       items: [
         { name: 'Support Tickets', path: '/complaints', icon: MessageSquare },
+        { name: 'Account Deletion', path: '/account-deletion', icon: Shield },
+        { name: 'Routine Orders', path: '/routines', icon: ClipboardList },
         { name: 'Internal Chats', path: '/chats', icon: HelpCircle },
         { name: 'Broadcast Sender', path: '/notifications', icon: Rss }
       ]
@@ -252,7 +263,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     .filter(section => section.items.length > 0);
   const searchableNavigation = accessibleSections.flatMap(section => section.items.map(item => ({ name: item.name, path: item.path, group: section.group })));
   const operationalAlerts =
-    orders.filter(order => !['delivered', 'DELIVERED', 'COMPLETED', 'cancelled', 'returned'].includes(order.status) && Date.now() - new Date(order.createdAt).getTime() > 20 * 60 * 1000).length +
+    orders.filter(order => !['DELIVERED', 'COMPLETED', 'CANCELLED', 'AUTO_CANCELLED', 'RETURNED', 'SHOP_REJECTED'].includes(order.status.toUpperCase()) && Date.now() - new Date(order.createdAt).getTime() > 20 * 60 * 1000).length +
     products.filter(product => product.stock <= 5).length + openSupportCount;
 
   return (
@@ -347,7 +358,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             </div>
             <div className="flex items-center gap-2">
               <button
-                onClick={toggleTheme}
+                aria-label={theme === 'light' ? 'Switch to dark theme' : 'Switch to light theme'} aria-pressed={theme === 'dark'} onClick={toggleTheme}
                 className="p-2 rounded-xl bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 hover:text-emerald-500 cursor-pointer transition text-slate-500"
                 title="Toggle Theme Mode"
               >
@@ -384,13 +395,13 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             </div>
             <button type="button" onClick={() => void refreshAllData().catch(() => undefined)} disabled={dataLoading} className="rounded-xl bg-slate-100 p-2.5 text-slate-500 hover:text-emerald-500 disabled:opacity-50 dark:bg-slate-800" title="Refresh all admin data"><RefreshCw className={`h-4 w-4 ${dataLoading ? 'animate-spin' : ''}`} /></button>
             <Link to={canAccessAdminPath(adminUser.role, '/complaints') ? '/complaints' : '/'} className="relative rounded-xl bg-slate-100 p-2.5 text-slate-500 hover:text-emerald-500 dark:bg-slate-800" title="Operational alerts"><Bell className="h-4 w-4" />{operationalAlerts > 0 && <span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-rose-500 px-1 text-center text-[8px] font-black leading-4 text-white">{Math.min(operationalAlerts, 99)}</span>}</Link>
-            <button onClick={toggleTheme} className="rounded-xl bg-slate-100 p-2.5 text-slate-500 hover:text-emerald-500 dark:bg-slate-800" title="Toggle theme">{theme === 'light' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}</button>
-            <button onClick={logout} className="hidden rounded-xl bg-slate-100 p-2.5 text-slate-500 hover:text-red-500 dark:bg-slate-800 sm:block" title="Log out"><LogOut className="h-4 w-4" /></button>
+            <button aria-label={theme === 'light' ? 'Switch to dark theme' : 'Switch to light theme'} aria-pressed={theme === 'dark'} onClick={toggleTheme} className="rounded-xl bg-slate-100 p-2.5 text-slate-500 hover:text-emerald-500 dark:bg-slate-800" title="Toggle theme">{theme === 'light' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}</button>
+            <button onClick={logout} className="rounded-xl bg-slate-100 p-2.5 text-slate-500 hover:text-red-500 dark:bg-slate-800" title="Log out"><LogOut className="h-4 w-4" /></button>
           </div>
         </header>
 
         {/* Mobile Bottom Navigation bar (Only visible on small devices) */}
-        <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-850 flex md:hidden justify-around p-2.5 overflow-x-auto">
+        <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-850 flex md:hidden justify-around p-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))] overflow-x-auto">
           {[
             { name: 'Home', path: '/', icon: ShieldAlert },
             { name: 'Shops', path: '/shops', icon: Store },
@@ -437,7 +448,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 export default function App() {
   return (
     <AdminProvider>
-      <Router>
+      <Router basename="/private/admin">
         <PortalErrorBoundary>
           <Layout>
             <Suspense fallback={<div className="flex min-h-[55vh] items-center justify-center"><div className="text-center"><RefreshCw className="mx-auto h-7 w-7 animate-spin text-emerald-500" /><span className="mt-3 block text-[10px] font-black uppercase tracking-widest text-slate-400">Loading admin module</span></div></div>}>
@@ -457,6 +468,8 @@ export default function App() {
             <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
             <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
             <Route path="/complaints" element={<ProtectedRoute><Complaints /></ProtectedRoute>} />
+            <Route path="/account-deletion" element={<ProtectedRoute><AccountDeletion /></ProtectedRoute>} />
+            <Route path="/routines" element={<ProtectedRoute><Routines /></ProtectedRoute>} />
             <Route path="/banners" element={<ProtectedRoute><Banners /></ProtectedRoute>} />
             <Route path="/coupons" element={<ProtectedRoute><Coupons /></ProtectedRoute>} />
             <Route path="/zones" element={<ProtectedRoute><Zones /></ProtectedRoute>} />
@@ -478,3 +491,4 @@ export default function App() {
     </AdminProvider>
   );
 }
+

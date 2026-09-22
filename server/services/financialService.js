@@ -58,6 +58,8 @@ class FinancialService {
     let revenueThisWeek = 0;
     let revenueThisMonth = 0;
 
+    const creditedBatches = new Set();
+    completedOrders.sort((a, b) => (completedAt(a) - completedAt(b)) || String(a.id).localeCompare(String(b.id)));
     completedOrders.forEach(o => {
       // Subtotal of the order or total
       const subtotal = this._num(o.subtotal !== undefined ? o.subtotal : o.total);
@@ -124,7 +126,7 @@ class FinancialService {
 
   // Calculate rider earnings and deliveries counts
   calculateRiderMetrics(riderId, orders) {
-    const riderOrders = orders.filter(o => o.rider && o.rider.uid === riderId);
+    const riderOrders = orders.filter(o => o.riderId === riderId || o.rider?.uid === riderId);
     const completedOrders = riderOrders.filter(o => this.isCompleted(o.status));
 
     const totalOrders = riderOrders.length;
@@ -136,13 +138,20 @@ class FinancialService {
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
 
+    const completedAt = order => {
+      const event = [...(order.timeline || [])].reverse().find(entry =>
+        ['DELIVERED', 'COMPLETED'].includes(String(entry.status).toUpperCase()));
+      return new Date(event?.timestamp || order.createdAt || order.timestamp).getTime();
+    };
+    const creditedBatches = new Set();
+    completedOrders.sort((a, b) => (completedAt(a) - completedAt(b)) || String(a.id).localeCompare(String(b.id)));
     completedOrders.forEach(o => {
-      // Rider gets the delivery fee
-      const fee = this._num(o.deliveryFee);
+      // Rider payout is separate from the customer's delivery charge.
+      const fee = o.batchId && creditedBatches.has(o.batchId) ? 6 : 10;
+      if (o.batchId) creditedBatches.add(o.batchId);
       totalEarnings += fee;
 
-      const orderDate = new Date(o.createdAt || o.timestamp);
-      if (orderDate.getTime() >= startOfToday) {
+      if (completedAt(o) >= startOfToday && completedAt(o) <= now.getTime()) {
         earningsToday += fee;
       }
     });
@@ -150,7 +159,7 @@ class FinancialService {
     return {
       riderId,
       totalDeliveries: completedCount,
-      todayDeliveries: completedOrders.filter(o => new Date(o.createdAt || o.timestamp).getTime() >= startOfToday).length,
+      todayDeliveries: completedOrders.filter(o => completedAt(o) >= startOfToday && completedAt(o) <= now.getTime()).length,
       earningsToday: Math.round(earningsToday * 100) / 100,
       totalEarnings: Math.round(totalEarnings * 100) / 100
     };
@@ -191,6 +200,8 @@ class FinancialService {
     let totalCommissions = 0;
     let refunds = 0;
 
+    const creditedBatches = new Set();
+    completedOrders.sort((a, b) => (completedAt(a) - completedAt(b)) || String(a.id).localeCompare(String(b.id)));
     completedOrders.forEach(o => {
       const subtotal = this._num(o.subtotal !== undefined ? o.subtotal : o.total);
       grossSales += subtotal;

@@ -21,25 +21,16 @@ export const PREORDER_SLOTS: PreorderSlot[] = [
 ];
 
 export const toLocalDateInput = (date = new Date()): string => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  return new Date(date.getTime()+19800000).toISOString().slice(0,10);
 };
 
 export const addLocalDays = (days: number): string => {
-  const date = new Date();
-  date.setHours(12, 0, 0, 0);
-  date.setDate(date.getDate() + days);
-  return toLocalDateInput(date);
+  return toLocalDateInput(new Date(Date.now()+days*86400000));
 };
 
 export const getAvailablePreorderSlots = (date: string, now = new Date()): PreorderSlot[] => {
-  if (date !== toLocalDateInput(now)) return PREORDER_SLOTS;
-
-  // Keep a 45-minute preparation buffer for same-day bookings.
-  const cutoff = now.getHours() + (now.getMinutes() + 45) / 60;
-  return PREORDER_SLOTS.filter(slot => slot.startHour >= cutoff);
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(Date.parse(date))||new Date(date).toISOString().slice(0,10)!==date)return [];
+  return PREORDER_SLOTS.filter(slot=>Date.parse(`${date}T${String(slot.startHour).padStart(2,'0')}:00:00+05:30`)>=now.getTime()+45*60000);
 };
 
 export const getDefaultPreorderSchedule = (initial?: Partial<PreorderSchedule>): PreorderSchedule => {

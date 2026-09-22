@@ -19,14 +19,17 @@ interface FraudEvent {
 }
 
 export default function FraudDetection() {
+  const [loadError, setLoadError] = useState('');
   const [events, setEvents] = useState<FraudEvent[]>([]);
 
   async function loadEvents() {
     try {
       const data = await adminService.getFraudEvents();
+      setLoadError('');
       setEvents(data);
     } catch (err) {
       console.error('Failed loading fraud database:', err);
+      setLoadError('Unable to load this section. Reload to retry; displayed data may be outdated.');
     }
   }
 
@@ -34,18 +37,13 @@ export default function FraudDetection() {
     loadEvents();
   }, []);
 
-  const handleResolve = async (id: number) => {
-    try {
-      // Mock local update or call resolved
-      setEvents(prev => prev.map(e => e.id === id ? { ...e, status: 'RESOLVED' } : e));
-      alert(`Fraud event #${id} marked as RESOLVED.`);
-    } catch (e: any) {
-      alert(`Update failed: ${e.message}`);
-    }
+  const handleResolve = async (_id: number) => {
+    setLoadError('Resolution is not connected to the backend yet. This event remains open; no change has been saved.');
   };
 
   return (
     <div className="space-y-6 text-left">
+      {loadError && <p role="alert" className="rounded-xl p-3 bg-red-500/10 text-red-600">{loadError}</p>}
       
       {/* Header */}
       <div>

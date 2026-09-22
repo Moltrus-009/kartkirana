@@ -1,0 +1,48 @@
+// Isolated Firebase emulators only. Never import production configuration.
+const assert=require('node:assert/strict');
+process.env.FIREBASE_AUTH_EMULATOR_HOST='127.0.0.1:9099';
+process.env.FIRESTORE_EMULATOR_HOST='127.0.0.1:8181';
+process.env.FIREBASE_STORAGE_EMULATOR_HOST='127.0.0.1:9199';
+const {initializeApp,deleteApp}=require('firebase-admin/app');
+const {getAuth}=require('firebase-admin/auth');
+const {getFirestore}=require('firebase-admin/firestore');
+const {getStorage}=require('firebase-admin/storage');
+const {createAccountDeletionService,verifyRecentPhone}=require('../services/accountDeletionService');
+const projectId='demo-deletion-integration';
+const app=initializeApp({projectId,storageBucket:`${projectId}.appspot.com`},'deletion-integration');
+const auth=getAuth(app),db=getFirestore(app),bucket=getStorage(app).bucket();
+const post=async(method,body)=>{
+ const r=await fetch(`http://127.0.0.1:9099/identitytoolkit.googleapis.com/v1/accounts:${method}?key=demo-key`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+ return {status:r.status,data:await r.json()};
+};
+(async()=>{
+ await fetch(`http://127.0.0.1:8181/emulator/v1/projects/${projectId}/databases/(default)/documents`,{method:'DELETE'});
+ await fetch(`http://127.0.0.1:9099/emulator/v1/projects/${projectId}/accounts`,{method:'DELETE'});
+ const uid='emulator-deletion-owner',phoneNumber='+919800000099';
+ await auth.createUser({uid,phoneNumber});
+ await db.doc(`users/${uid}`).set({uid,role:'customer',phone:phoneNumber,addresses:[{street:'Test address'}]});
+ await bucket.file(`users/${uid}/profile.jpg`).save(Buffer.from('demo image'),{metadata:{contentType:'image/jpeg'}});
+ const sent=await post('sendVerificationCode',{phoneNumber,recaptchaToken:'emulator'});
+ assert.equal(sent.status,200);
+ const list=await (await fetch(`http://127.0.0.1:9099/emulator/v1/projects/${projectId}/verificationCodes`)).json();
+ const code=list.verificationCodes.find(x=>x.phoneNumber===phoneNumber).code;
+ const wrong=await post('signInWithPhoneNumber',{sessionInfo:sent.data.sessionInfo,code:code==='000000'?'111111':'000000'});
+ assert.equal(wrong.status,400);
+ const verified=await post('signInWithPhoneNumber',{sessionInfo:sent.data.sessionInfo,code});
+ assert.equal(verified.status,200);
+ const claims=await auth.verifyIdToken(verified.data.idToken,true);
+ assert.equal(claims.uid,uid);verifyRecentPhone(claims);
+ await assert.rejects(auth.verifyIdToken('forged.invalid.token',true));
+ assert.throws(()=>verifyRecentPhone({...claims,auth_time:Math.floor(Date.now()/1000)-301}));
+ const service=createAccountDeletionService({db,auth,bucket});
+ const receipt=await service.request(claims,'customer',{confirm:'DELETE'});
+ await service.review(receipt.id,'demo-reviewer',{obligationsCleared:true,retentionReviewed:true,evidenceReference:'EMULATOR-ONLY-REVIEW'});
+ await service.process(receipt.id);
+ assert.equal((await db.doc(`accountDeletionRequests/${receipt.id}`).get()).data().status,'COMPLETED');
+ assert.equal((await db.doc(`users/${uid}`).get()).exists,false);
+ assert.equal((await bucket.file(`users/${uid}/profile.jpg`).exists())[0],false);
+ await assert.rejects(auth.getUser(uid),e=>e.code==='auth/user-not-found');
+ await assert.rejects(auth.verifyIdToken(verified.data.idToken,true));
+ await service.process(receipt.id);
+ console.log('PASS: emulated phone OTP, invalid OTP/token, expired verification, verified request, actual emulator Firestore/Storage/Auth cleanup, stale-token rejection and repeated worker');
+})().catch(e=>{console.error(e);process.exitCode=1;}).finally(async()=>{await db.terminate();await deleteApp(app);});

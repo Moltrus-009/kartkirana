@@ -120,7 +120,7 @@ const db = new Proxy({}, {
 const auth = new Proxy({}, {
   get(target, prop) {
     if (prop === 'verifyIdToken') {
-      return async (token) => {
+      return async (token, checkRevoked = false) => {
         if (token.startsWith('mock_token_') && (env.USE_MOCK_DB === 'true' || env.USE_MOCK_DB === true)) {
           const uid = token.replace('mock_token_', '');
           return { uid, email: `${uid}@mock.com`, role: uid === 'admin' ? 'admin' : 'customer' };
@@ -129,11 +129,12 @@ const auth = new Proxy({}, {
         if (!authInstance) {
           throw new Error('[FIREBASE ERROR] Firebase Auth service is not initialized.');
         }
-        return authInstance.verifyIdToken(token);
+        return authInstance.verifyIdToken(token, checkRevoked);
       };
     }
     
-    return authInstance ? authInstance[prop] : undefined;
+    const value = authInstance ? authInstance[prop] : undefined;
+    return typeof value === 'function' ? value.bind(authInstance) : value;
   }
 });
 

@@ -7,6 +7,11 @@ const customerDist = resolve(scriptDirectory, '..', 'dist')
 
 const portals = [
   {
+    name: 'Private Admin',
+    source: resolve(scriptDirectory, '..', '..', 'admin', 'dist'),
+    destination: resolve(customerDist, 'private', 'admin'),
+  },
+  {
     name: 'Shopkeeper Partner',
     source: resolve(scriptDirectory, '..', '..', 'shopkeeper pov', 'dist'),
     destination: resolve(customerDist, 'shopkeeperpartner'),

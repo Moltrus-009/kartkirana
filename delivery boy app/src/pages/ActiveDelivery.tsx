@@ -22,7 +22,9 @@ import type { ChatMessage } from '../services/firestoreService';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { isOrderStatus, normalizeOrderStatus } from '../types/orderStatus';
-import { PER_DELIVERY_FEE } from '../constants/earnings';
+import { coordinates, navigationUrl } from '../lib/deliveryRoute';
+import type { MapStop } from '../lib/deliveryRoute';
+import { riderPayout, batchPayout } from '../constants/earnings';
 
 interface ActiveDeliveryProps {
   setViewActiveMap: (view: boolean) => void;
@@ -57,7 +59,9 @@ export const ActiveDelivery: React.FC<ActiveDeliveryProps> = ({ setViewActiveMap
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const order = activeOrders[0];
+  const batchStop = activeBatch?.stops?.[activeBatch.currentStopIndex];
+  const order = activeOrders.find(o => o.id === batchStop?.orderId) || activeOrders[0];
+  useEffect(() => { setCheckedItems({}); setEnteredOtp(''); setOtpError(''); }, [activeBatch?.id, activeBatch?.currentStopIndex, order?.id]);
 
   // Subscribe to chat messages
   useEffect(() => {
@@ -174,13 +178,16 @@ export const ActiveDelivery: React.FC<ActiveDeliveryProps> = ({ setViewActiveMap
         name: isPickup ? (stop?.shopName || 'Partner Store') : (stop?.customerName || 'Customer'),
         phone: isPickup ? '' : (stop?.customerPhone || ''),
         address: isPickup ? (stop?.shopAddress || 'Store Location') : (stop?.address || 'Delivery Address'),
-        coords: stop?.coords || { lat: 28.5835, lng: 77.3142 },
-        items: linkedOrder?.items || [],
+        coords: coordinates(stop?.coords),
+        items: isPickup ? (stop.orderIds || [stop.orderId]).flatMap(id => {
+          const linked = activeOrders.find(o => o.id === id);
+          return (linked?.items || []).map(item => ({ ...item, product: { ...item.product, id: id + ':' + item.product.id, name: item.product.name + ' (Order ' + id.slice(-6) + ')' } }));
+        }) : linkedOrder?.items || [],
         instructions: linkedOrder?.instructions || 'Handle with care.',
         status: stop?.status || 'pending',
         stopIndex: idx,
         totalStops: activeBatch.stops.length,
-        earnings: activeBatch.totalEarnings || 0
+        earnings: batchPayout(activeBatch.orderIds.length)
       };
     } else {
       // Single order details
@@ -192,18 +199,24 @@ export const ActiveDelivery: React.FC<ActiveDeliveryProps> = ({ setViewActiveMap
         name: isPickup ? (order?.shopName || 'Partner Store') : (order?.contact?.name || 'Customer'),
         phone: isPickup ? '' : (order?.contact?.phone || ''),
         address: isPickup ? (order?.shopAddress || 'Store Location') : (order?.deliveryAddress?.address || 'Delivery Address'),
-        coords: isPickup ? (order?.shopCoords || { lat: 28.5835, lng: 77.3142 }) : (order?.deliveryAddress?.coords || { lat: 28.59, lng: 77.33 }),
+        coords: isPickup ? coordinates(order?.shopCoords) : coordinates(order?.deliveryAddress?.coords || order?.deliveryAddress),
         items: order?.items || [],
         instructions: order?.instructions || 'N/A',
         status: order?.status || 'PLACED',
         stopIndex: isPickup ? 0 : 1,
         totalStops: 2,
-        earnings: order?.deliveryFee || PER_DELIVERY_FEE
+        earnings: riderPayout(order)
       };
     }
   };
 
   const currentStop = getActiveStop();
+  const routeStops: MapStop[] = activeBatch ? activeBatch.stops.map(stop => ({ ...stop, coords: coordinates(stop.coords) })) : [
+    { id: 'pickup', type: 'pickup', shopName: order.shopName, shopAddress: order.shopAddress, coords: coordinates(order.shopCoords), status: currentStop.stopIndex === 0 ? 'pending' : 'completed' },
+    { id: 'delivery', type: 'delivery', customerName: order.contact?.name, address: order.deliveryAddress?.address, coords: coordinates(order.deliveryAddress?.coords || order.deliveryAddress), status: 'pending' }
+  ];
+  const nextNavigation = navigationUrl(routeStops, currentStop.stopIndex);
+  const fullNavigation = navigationUrl(routeStops, currentStop.stopIndex, true);
 
   const stopOrder = activeBatch
     ? (activeOrders.find(o => o.id === currentStop.orderId) || order)
@@ -211,9 +224,9 @@ export const ActiveDelivery: React.FC<ActiveDeliveryProps> = ({ setViewActiveMap
 
   // Dynamic coordinates metrics
   const rawDistance = getHaversineDistance(user?.coords || null, currentStop.coords || null);
-  const distanceText = rawDistance !== null ? `${rawDistance.toFixed(2)} km away` : 'Calculating...';
+  const distanceText = rawDistance !== null ? `${rawDistance.toFixed(2)} km straight-line` : 'Calculating...';
   const durationMins = rawDistance !== null ? Math.max(1, Math.round((rawDistance / 25) * 60)) : null;
-  const durationText = durationMins !== null ? `${durationMins} mins` : 'Calculating...';
+  const durationText = durationMins !== null ? `~${durationMins} mins estimate` : 'Calculating...';
 
   // Checklist helper
   const toggleItemCheck = (prodId: string) => {
@@ -328,24 +341,7 @@ export const ActiveDelivery: React.FC<ActiveDeliveryProps> = ({ setViewActiveMap
       <div className="w-full h-80 rounded-3xl overflow-hidden border border-slate-100 dark:border-dark-border shadow-sm z-10">
         <SVGMap
           riderCoords={user?.coords || null}
-          stops={activeBatch ? activeBatch.stops : [
-            {
-              id: 'stop-pickup',
-              type: 'pickup',
-              orderId: order.id,
-              shopName: order.shopName,
-              coords: order.shopCoords || { lat: 28.5835, lng: 77.3142 },
-              status: isOrderStatus(order.status, 'RIDER_ASSIGNED', 'ARRIVED_AT_SHOP') ? 'pending' : 'completed'
-            },
-            {
-              id: 'stop-delivery',
-              type: 'delivery',
-              orderId: order.id,
-              customerName: order.contact?.name || 'Customer',
-              coords: order.deliveryAddress?.coords || { lat: 28.5912, lng: 77.3412 },
-              status: isOrderStatus(order.status, 'DELIVERED', 'COMPLETED') ? 'completed' : 'pending'
-            }
-          ]}
+          stops={routeStops}
           currentStopIndex={currentStop.stopIndex}
           status={order.status}
         />
@@ -355,7 +351,7 @@ export const ActiveDelivery: React.FC<ActiveDeliveryProps> = ({ setViewActiveMap
       {activeBatch && (
         <div className="bg-white dark:bg-zinc-900 border border-slate-200/65 dark:border-zinc-800 p-3.5 rounded-2xl shadow-xs space-y-2">
           <p className="text-[9px] font-black uppercase text-slate-400 tracking-wider">
-            Optimized Batch Stops Sequence
+            Batch delivery sequence
           </p>
           <div className="flex items-center space-x-2 py-1 overflow-x-auto no-scrollbar">
             {activeBatch.stops.map((stop, index) => {
@@ -373,7 +369,7 @@ export const ActiveDelivery: React.FC<ActiveDeliveryProps> = ({ setViewActiveMap
                   }`}
                 >
                   <span>{stop.type === 'pickup' ? '🏪' : '📍'}</span>
-                  <span>{stop.type === 'pickup' ? stop.shopName?.split(' ')[0] : stop.customerName?.split(' ')[0]}</span>
+                  <span>{index + 1}. {stop.type === 'pickup' ? stop.shopName : stop.customerName}</span>
                 </div>
               );
             })}
@@ -381,6 +377,10 @@ export const ActiveDelivery: React.FC<ActiveDeliveryProps> = ({ setViewActiveMap
         </div>
       )}
 
+      {fullNavigation && activeBatch && (
+        <a href={fullNavigation} target="_blank" rel="noreferrer" className="block rounded-xl bg-primary p-3 text-center text-white font-bold">Open all remaining stops in Google Maps</a>
+      )}
+      {!currentStop.coords && <p role="alert" className="rounded-xl bg-amber-50 p-3 text-amber-900 text-sm">This stop has no map pin. Confirm the address with the shop or customer. Navigation will use the written address where available.</p>}
       {/* Main HUD Stop card panel */}
       <div className="bg-gradient-to-br from-[#1548a5] via-[#12449f] to-[#0b2e73] text-white border border-blue-900/30 p-5 rounded-2xl shadow-xl space-y-4">
         
@@ -404,7 +404,7 @@ export const ActiveDelivery: React.FC<ActiveDeliveryProps> = ({ setViewActiveMap
         {/* Pre-Order Schedule Badge */}
         {((stopOrder as any)?.preorderDate || (stopOrder as any)?.preorderSlot) && (
           <div className="bg-gradient-to-r from-amber-500/20 to-orange-500/20 text-amber-300 border border-amber-500/30 p-2.5 rounded-xl font-extrabold text-[10px] uppercase tracking-wider flex items-center gap-2 text-left">
-            <span>📅 PRE-ORDER SCHEDULE: {(stopOrder as any).preorderDate || 'Scheduled'} • {(stopOrder as any).preorderSlot || 'Assigned Slot'}</span>
+            <span>📅 SCHEDULED DELIVERY: {(stopOrder as any).preorderDate || 'Scheduled'} • {(stopOrder as any).preorderSlot || 'Assigned Slot'} (IST)</span>
           </div>
         )}
 
@@ -420,9 +420,9 @@ export const ActiveDelivery: React.FC<ActiveDeliveryProps> = ({ setViewActiveMap
                 </p>
               </div>
             </div>
-            {currentStop.coords && (
+            {nextNavigation && (
               <a
-                href={`https://www.google.com/maps/dir/?api=1&destination=${currentStop.coords.lat},${currentStop.coords.lng}`}
+                href={nextNavigation}
                 target="_blank"
                 rel="noreferrer"
                 className="flex items-center gap-1.5 px-3 py-2 bg-gradient-to-r from-[#4CAF50] to-[#2E7D32] text-white text-[9px] font-black uppercase tracking-wider rounded-xl transition flex-shrink-0 shadow-sm active:scale-95 cursor-pointer select-none"

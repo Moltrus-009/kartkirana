@@ -902,3 +902,11 @@ body.dark {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
+
+/* Keep requests, forms and navigation usable on compact screens and with a keyboard. */
+.rider-request-overlay { top: var(--rider-visible-top, 0px); bottom: auto; height: var(--rider-visible-height, 100dvh); padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); overflow: hidden; }
+.rider-request-overlay > :first-child, .rider-request-overlay > :last-child { flex-shrink: 0; }
+.rider-request-overlay input, .rider-main input, .rider-main select { min-width: 0; max-width: 100%; }
+.rider-bottom-nav button { min-width: 0; overflow-wrap: anywhere; }
+.rider-main { min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 359px) { .rider-main { padding-inline: 10px; } .rider-brand-bar { padding-inline: 10px; } .rider-request-overlay { font-size: 12px; } }

@@ -29,7 +29,10 @@ try {
     const g = window as any;
     
     if (!g.firebaseApp) {
-      g.firebaseApp = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+      // Keep admin sign-in/sign-out separate from the three public portals.
+      const adminAppName = 'kartkirana-private-admin';
+      g.firebaseApp = getApps().some(app => app.name === adminAppName)
+        ? getApp(adminAppName) : initializeApp(firebaseConfig, adminAppName);
     }
     app = g.firebaseApp;
 

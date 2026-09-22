@@ -55,6 +55,10 @@ function scanFile(filePath) {
 
   const isEnvFile = basename === '.env' || basename === '.env.example' || basename.startsWith('.env.');
   const isMinifiedJs = basename.includes('.js') && (filePath.includes('/assets/') || filePath.includes('\\assets\\') || filePath.includes('/public/') || filePath.includes('\\public\\'));
+  // Vercel copies public service workers into its generated static output.
+  // Permit only public Firebase identifiers there; all secret checks still run.
+  const isVercelStaticJs = path.extname(filePath) === '.js' &&
+    filePath.split(path.sep).join('/').includes('/.vercel/output/static/');
 
   try {
     const content = fs.readFileSync(filePath, 'utf8');
@@ -62,7 +66,7 @@ function scanFile(filePath) {
     // 1. Run pattern checks
     PATTERNS.forEach(({ name, regex }) => {
       // Firebase api keys are public. Skip flagging them inside .env config files or minified build assets
-      if (name === 'Naked Firebase API Key in Code' && (isEnvFile || isMinifiedJs)) {
+      if (name === 'Naked Firebase API Key in Code' && (isEnvFile || isMinifiedJs || isVercelStaticJs)) {
         return;
       }
 

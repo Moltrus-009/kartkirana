@@ -1,0 +1,41 @@
+const assert=require('node:assert/strict');
+process.env.FIRESTORE_EMULATOR_HOST='127.0.0.1:8189';
+const {Firestore}=require('@google-cloud/firestore');
+const db=new Firestore({projectId:'demo-commerce-http',host:'127.0.0.1:8189',ssl:false});
+function replace(path,exports){const id=require.resolve(path);require.cache[id]={id,filename:id,loaded:true,exports};}
+replace('../config/env',{NODE_ENV:'production',USE_MOCK_DB:false});
+replace('../config/firebase',{db,auth:{verifyIdToken:async(token,revoked)=>{assert.equal(revoked,true);if(token!=='valid-fixture-token')throw new Error('invalid');return {uid:'customer-http'};}}});
+replace('firebase-admin/app-check',{getAppCheck:()=>({verifyToken:async token=>{if(token!=='valid-app-fixture')throw new Error('invalid');return {appId:'fixture'};}})});
+const express=require('express');const app=express();app.use(express.json());app.use('/v1',require('../routes/planningRoutes'));app.use((e,req,res,next)=>res.status(e.statusCode||500).json({message:e.message}));
+let server;
+(async()=>{
+  assert.equal((await fetch('http://127.0.0.1:8189/emulator/v1/projects/demo-commerce-http/databases/(default)/documents',{method:'DELETE'})).ok,true);
+  await db.doc('users/customer-http').set({uid:'customer-http',addresses:[]});
+  await db.doc('products/product-http').set({name:'Rice',shopId:'shop-http',stock:5,price:40});
+  server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));
+  const base=`http://127.0.0.1:${server.address().port}/v1`;
+  const headers={'Content-Type':'application/json','Authorization':'Bearer valid-fixture-token','X-Firebase-AppCheck':'valid-app-fixture','Idempotency-Key':'http_fixture_share_001'};
+  const body={uid:'attacker',userId:'attacker',items:[{productId:'product-http',quantity:2}]};
+  const post=(h,b=body)=>fetch(base+'/shared-carts',{method:'POST',headers:h,body:JSON.stringify(b)});
+  assert.equal((await post({'Content-Type':'application/json'})).status,401);
+  assert.equal((await post({...headers,Authorization:'Bearer forged'})).status,401);
+  assert.equal((await post({...headers,'X-Firebase-AppCheck':'forged'})).status,401);
+  const created=await post(headers);assert.equal(created.status,201);const share=await created.json();
+  const publicRead=await fetch(base+'/shared-carts/'+share.token);assert.equal(publicRead.status,200);const data=await publicRead.json();assert.equal(data.uid,undefined);assert.equal(data.userId,undefined);assert.equal(data.creatorUserId,undefined);
+  const stored=(await db.collection('sharedCarts').where('token','==',share.token).get()).docs[0].data();assert.equal(stored.creatorUserId,'customer-http');
+  assert.equal((await post(headers)).status,201);
+  assert.equal((await post(headers,{items:[{productId:'product-http',quantity:-1}]})).status,400);
+  assert.equal((await fetch(base+'/shared-carts/invalid')).status,404);
+  const date=new Date(Date.now()+2*86400000).toISOString().slice(0,10);
+  await db.doc('orders/scheduled-http').set({userId:'customer-http',status:'PLACED',preorderDate:date,riderId:null,currentRiderId:null,batchId:null});
+  const reschedule=()=>fetch(base+'/scheduled-orders/scheduled-http/reschedule',{method:'POST',headers,body:JSON.stringify({preorderDate:date,preorderSlot:'09:00 AM - 11:00 AM'})});
+  assert.equal((await reschedule()).status,200);
+  assert((await db.doc('orders/scheduled-http').get()).data().dispatchNotBefore.toMillis()>Date.now());
+  await db.doc('orders/scheduled-http').update({userId:'another-customer'});assert.equal((await reschedule()).status,404);
+  await db.doc('orders/scheduled-http').update({userId:'customer-http',status:'SHOP_ACCEPTED'});assert.equal((await reschedule()).status,409);
+  let limited=false;for(let i=0;i<12;i++){const response=await post(headers);if(response.status===429){assert.match((await response.json()).message,/Too many/);limited=true;break;}}
+  assert.equal(limited,true);
+  await db.doc('planningRateLimits/customer-http').set({count:20,resetAt:Date.now()+60000});
+  assert.equal((await fetch(base+'/routines',{headers})).status,429);
+  console.log('PASS HTTP: Firebase token/revocation verification, App Check enforcement, anonymous safe reads, UID injection ignored, validation, idempotent retry, JSON rate limiting');
+})().catch(e=>{console.error(e);process.exitCode=1;}).finally(async()=>{if(server)await new Promise(r=>server.close(r));await db.terminate();});

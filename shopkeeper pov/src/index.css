@@ -268,3 +268,50 @@ body {
     max-width: 42rem;
   }
 }
+
+/* Phone viewport, safe areas, and overlays share one usable height. */
+:root { --merchant-nav-height: 72px; --merchant-visible-height: 100dvh; --merchant-visible-top: 0px; }
+.merchant-shell { height: var(--merchant-visible-height); min-height: var(--merchant-visible-height); }
+.merchant-sidebar { height: var(--merchant-visible-height); padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+.merchant-page { scroll-padding-block: 1rem calc(var(--merchant-nav-height) + 1rem); }
+.page-transition { animation: none; }
+.merchant-modal-overlay {
+  top: var(--merchant-visible-top) !important;
+  bottom: auto !important;
+  height: var(--merchant-visible-height);
+  width: 100%;
+  z-index: 100;
+  padding: max(12px, env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px)) max(12px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px)) !important;
+  overflow: hidden;
+  align-items: center !important;
+}
+.merchant-modal-overlay > div {
+  max-height: 100% !important;
+  min-height: 0;
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  overflow-wrap: anywhere;
+  scroll-padding-block: 1rem;
+}
+.merchant-bottom-nav > button { flex: 1 1 0; min-width: 0; min-height: 44px; padding-inline: 2px; }
+.merchant-bottom-nav span { max-width: 100%; overflow-wrap: anywhere; text-align: center; }
+.merchant-batch-action { bottom: calc(var(--merchant-nav-height) + 12px); flex-wrap: wrap; gap: 8px; }
+.merchant-page:has(.merchant-batch-action) { padding-bottom: calc(var(--merchant-nav-height) + 9rem); }
+@media (min-width: 768px) { .merchant-batch-action { bottom: 16px; } }
+@media (max-width: 767px) {
+  .merchant-page { padding-bottom: calc(var(--merchant-nav-height) + 24px); }
+  .merchant-mobile-header { gap: 6px; padding-inline: 10px; }
+  .merchant-mobile-header > div { min-width: 0; gap: 6px; }
+  .merchant-mobile-header img { flex-shrink: 0; }
+  input, textarea, select { max-width: 100%; min-width: 0; scroll-margin-block: 20px; }
+}
+@media (max-width: 359px) {
+  .merchant-page { padding-inline: 12px; }
+  .merchant-bottom-nav { padding-inline: 4px; }
+  .merchant-bottom-nav span { letter-spacing: 0; }
+  .merchant-modal-overlay > div { padding: 16px; }
+}
+.merchant-auth-page { min-height: var(--merchant-visible-height); padding-top: max(16px, env(safe-area-inset-top, 0px)); padding-bottom: max(24px, env(safe-area-inset-bottom, 0px)); }
+.merchant-auth-card { min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 359px) { .merchant-auth-card { padding: 20px; } }

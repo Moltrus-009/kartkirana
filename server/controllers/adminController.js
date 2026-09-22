@@ -779,11 +779,11 @@ class AdminController {
         const listUsersResult = await firebaseAuth.listUsers(1000, nextPageToken);
         listUsersResult.users.forEach((userRecord) => {
           const claims = userRecord.customClaims || {};
-          if (claims.admin || claims.role) {
+          if (require('../config/adminAccess').isAllowedAdminPhone(userRecord.phoneNumber) && (claims.admin || claims.adminRole)) {
             admins.push({
               uid: userRecord.uid,
               phone: userRecord.phoneNumber || '',
-              role: claims.role || 'admin',
+              role: claims.adminRole || claims.role || 'admin',
               claims: claims
             });
           }
@@ -815,12 +815,16 @@ class AdminController {
         return res.status(400).json({ error: 'Bad Request', message: 'Either phone or uid is required.' });
       }
 
+      if (!require('../config/adminAccess').isAllowedAdminPhone(targetUser.phoneNumber)) {
+        return res.status(403).json({ message: 'Admin access is restricted to the two configured phone numbers.' });
+      }
       const prevClaims = targetUser.customClaims || {};
 
       // Update claims on Auth
       await firebaseAuth.setCustomUserClaims(targetUser.uid, {
+        ...prevClaims,
         admin: true,
-        role: role
+        adminRole: role
       });
 
       // SQLite Audit Log
@@ -852,16 +856,17 @@ class AdminController {
       if (!uid || !role) return res.status(400).json({ error: 'Bad Request', message: 'UID and Role are required.' });
 
       const targetUser = await firebaseAuth.getUser(uid);
+      if (!require('../config/adminAccess').isAllowedAdminPhone(targetUser.phoneNumber)) return res.status(403).json({ message: 'This account is outside the configured admin portal.' });
       const prevClaims = targetUser.customClaims || {};
 
       // Check if demoting the last Super Admin
-      if (prevClaims.role === 'super_admin' && role !== 'super_admin') {
+      if ((prevClaims.adminRole || prevClaims.role) === 'super_admin' && role !== 'super_admin') {
         const allAdmins = [];
         let nextPageToken;
         do {
           const listUsersResult = await firebaseAuth.listUsers(1000, nextPageToken);
           listUsersResult.users.forEach((u) => {
-            if (u.customClaims?.role === 'super_admin') {
+            if (require('../config/adminAccess').isAllowedAdminPhone(u.phoneNumber) && (u.customClaims?.adminRole || u.customClaims?.role) === 'super_admin') {
               allAdmins.push(u.uid);
             }
           });
@@ -878,8 +883,9 @@ class AdminController {
 
       // Update Claims
       await firebaseAuth.setCustomUserClaims(uid, {
+        ...prevClaims,
         admin: true,
-        role: role
+        adminRole: role
       });
 
       // Audit Log
@@ -911,16 +917,17 @@ class AdminController {
       if (!uid) return res.status(400).json({ error: 'Bad Request', message: 'UID parameter is required.' });
 
       const targetUser = await firebaseAuth.getUser(uid);
+      if (!require('../config/adminAccess').isAllowedAdminPhone(targetUser.phoneNumber)) return res.status(403).json({ message: 'This account is outside the configured admin portal.' });
       const prevClaims = targetUser.customClaims || {};
 
       // Verify if target is super_admin
-      if (prevClaims.role === 'super_admin') {
+      if ((prevClaims.adminRole || prevClaims.role) === 'super_admin') {
         const superAdmins = [];
         let nextPageToken;
         do {
           const listUsersResult = await firebaseAuth.listUsers(1000, nextPageToken);
           listUsersResult.users.forEach((u) => {
-            if (u.customClaims?.role === 'super_admin') {
+            if (require('../config/adminAccess').isAllowedAdminPhone(u.phoneNumber) && (u.customClaims?.adminRole || u.customClaims?.role) === 'super_admin') {
               superAdmins.push(u.uid);
             }
           });
@@ -935,8 +942,11 @@ class AdminController {
         }
       }
 
-      // Update Custom Claims to null
-      await firebaseAuth.setCustomUserClaims(uid, null);
+      const nextClaims = { ...prevClaims };
+      delete nextClaims.admin;
+      delete nextClaims.adminRole;
+      if (require('../middleware/rbac').ROLE_PERMISSIONS[nextClaims.role] || nextClaims.role === 'admin_super') delete nextClaims.role;
+      await firebaseAuth.setCustomUserClaims(uid, nextClaims);
 
       // Audit Log
       await writeAuditLog(
@@ -947,7 +957,7 @@ class AdminController {
         uid,
         prevClaims,
         null,
-        'Revoked admin permissions and cleared Custom Claims.',
+        'Revoked administrative permissions; preserved other account claims.',
         req.ip,
         req.headers['user-agent']
       );

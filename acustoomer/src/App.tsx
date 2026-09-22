@@ -42,6 +42,9 @@ const PrivacyHub = React.lazy(() => import('./pages/privacy/PrivacyHub').then(mo
 const CustomerPrivacy = React.lazy(() => import('./pages/privacy/CustomerPrivacy').then(module => ({ default: module.CustomerPrivacy })));
 const ShopkeeperPrivacy = React.lazy(() => import('./pages/privacy/ShopkeeperPrivacy').then(module => ({ default: module.ShopkeeperPrivacy })));
 const RiderPrivacy = React.lazy(() => import('./pages/privacy/RiderPrivacy').then(module => ({ default: module.RiderPrivacy })));
+const AccountDeletion = React.lazy(() => import('./pages/AccountDeletion'));
+const SharedCart = React.lazy(() => import('./pages/SharedCart'));
+const Routines = React.lazy(() => import('./pages/Routines'));
 
 const RouteFallback = () => (
   <div className="mx-auto w-full max-w-xl px-4 py-6" aria-label="Loading page">
@@ -208,7 +211,7 @@ const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const noNavRoutes = ['/splash', '/onboarding', '/login', '/terms'];
   const showNav = !noNavRoutes.includes(location.pathname) && !isPrivacyPage;
   const isCheckoutFlow = ['/cart', '/checkout'].includes(location.pathname);
-  const isFocusedFlow = isCheckoutFlow || location.pathname === '/order-success' || location.pathname.startsWith('/orders/track/');
+  const isFocusedFlow = isCheckoutFlow || location.pathname === '/order-success' || location.pathname.startsWith('/orders/track/') || location.pathname === '/routines' || location.pathname.startsWith('/shared-cart/');
 
   return (
     <div className="app-viewport flex min-h-screen w-full max-w-full flex-col overflow-x-hidden bg-[var(--bg-main)] text-slate-800 transition-colors dark:text-slate-100">
@@ -315,6 +318,8 @@ export const AppContent: React.FC = () => {
             </ProtectedRoute>
           } />
           
+          <Route path="/shared-cart/:token" element={<SharedCart />} />
+          <Route path="/routines" element={<ProtectedRoute><Routines /></ProtectedRoute>} />
           <Route path="/cart" element={
             <ProtectedRoute>
               <Cart />
@@ -385,6 +390,15 @@ export const AppContent: React.FC = () => {
 };
 
 const App: React.FC = () => {
+  // Public deletion uses an isolated in-memory Auth instance. Do not mount the
+  // normal customer providers here: their hydration creates missing profiles.
+  if (window.location.pathname === '/delete-account' || window.location.pathname.startsWith('/delete-account/')) {
+    return <HelmetProvider><Router><Suspense fallback={<RouteFallback />}><Routes>
+      <Route path="/delete-account" element={<AccountDeletion />} />
+      <Route path="/delete-account/:accountType" element={<AccountDeletion key={window.location.pathname} />} />
+      <Route path="*" element={<Navigate to="/delete-account" replace />} />
+    </Routes></Suspense></Router></HelmetProvider>;
+  }
   return (
     <HelmetProvider>
       <LanguageProvider>

@@ -16,7 +16,8 @@ import {
 } from 'lucide-react';
 
 export default function OperationsCenter() {
-  const { users, shops, products, orders, riders } = useAdmin();
+  const { users, shops, products, orders, riders, dataError, lastSyncedAt } = useAdmin();
+  const [healthError, setHealthError] = useState(false);
   const [health, setHealth] = useState<any>(null);
   const [fraudCount, setFraudCount] = useState(0);
 
@@ -25,10 +26,12 @@ export default function OperationsCenter() {
       try {
         const hData = await adminService.getSystemHealth();
         setHealth(hData);
+        setHealthError(false);
         const fData = await adminService.getFraudEvents();
         setFraudCount(fData.filter((event: any) => event.status !== 'RESOLVED').length);
       } catch (err) {
         console.warn('Failed loading system health metrics:', err);
+        setHealthError(true);
       }
     }
     loadStats();
@@ -40,8 +43,8 @@ export default function OperationsCenter() {
   const pendingOrders = orders.filter(o => ['CONFIRMED', 'PLACED', 'UPCOMING', 'DRAFT'].includes(o.status.toUpperCase()));
   const activeOrders = orders.filter(o => ['ACCEPTED', 'SHOP_ACCEPTED', 'PREPARING', 'PACKED', 'READY', 'READY_FOR_PICKUP', 'SEARCHING_RIDER', 'RIDER_ASSIGNED', 'ARRIVED_AT_SHOP', 'RIDER_PICKED_UP', 'PICKED_UP', 'OUT_FOR_DELIVERY'].includes(o.status.toUpperCase()));
   const shopsAwaitingApproval = shops.filter(s => s.verificationStep !== 'approved' && s.verificationStep !== 'live');
-  const ridersAwaitingApproval = riders.filter(r => r.verificationStatus !== 'approved');
-  const onlineRiders = riders.filter(r => r.status === 'online' || r.status === 'busy' || r.status === 'idle');
+  const ridersAwaitingApproval = riders.filter(r => (!r.verificationStatus || r.verificationStatus === 'pending'));
+  const onlineRiders = riders.filter(r => r.documentStatus === 'verified' && ['online', 'busy', 'idle'].includes(r.status));
   const lowStockProducts = products.filter(p => p.stock <= 5);
 
   // Delayed deliveries count (> 20 mins since placement & not finished)
@@ -90,7 +93,7 @@ export default function OperationsCenter() {
             <p className="text-[10px] font-semibold text-slate-400">Sequential step formation of platform coordination</p>
           </div>
           <span className="text-[9px] font-black uppercase bg-emerald-500/10 text-emerald-500 px-3 py-1 rounded-full border border-emerald-500/20">
-            System Live
+            {dataError || healthError ? 'Check connection' : lastSyncedAt ? 'Data connected' : 'Connecting'}
           </span>
         </div>
 
@@ -274,7 +277,7 @@ export default function OperationsCenter() {
 
               {delayedOrders.length === 0 && lowStockProducts.length === 0 && (
                 <div className="text-center py-8 text-slate-400 font-semibold text-xs">
-                  All systems operating normally. No active warnings flagged.
+                  {dataError || healthError ? 'Some data is unavailable. Check connection before relying on these counts.' : 'No active warnings in the loaded data.'}
                 </div>
               )}
             </div>
@@ -287,13 +290,13 @@ export default function OperationsCenter() {
               <div className="bg-slate-50 dark:bg-slate-850 p-4 rounded-2xl">
                 <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1">Server Status</span>
                 <span className="font-black text-emerald-500 text-xs flex items-center justify-center gap-1">
-                  <Activity className="h-3.5 w-3.5 animate-pulse" /> Connected
+                  <Activity className="h-3.5 w-3.5 animate-pulse" /> {healthError || !health ? 'Unavailable' : 'Connected'}
                 </span>
               </div>
               <div className="bg-slate-50 dark:bg-slate-850 p-4 rounded-2xl">
                 <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1">Database Sync</span>
                 <span className="font-black text-emerald-500 text-xs flex items-center justify-center gap-1">
-                  <Rss className="h-3.5 w-3.5 animate-pulse" /> Realtime
+                  <Rss className="h-3.5 w-3.5 animate-pulse" /> {dataError ? 'Sync issue' : lastSyncedAt ? 'Connected' : 'Connecting'}
                 </span>
               </div>
               <div className="bg-slate-50 dark:bg-slate-850 p-4 rounded-2xl">
@@ -305,7 +308,7 @@ export default function OperationsCenter() {
               <div className="bg-slate-50 dark:bg-slate-850 p-4 rounded-2xl">
                 <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1">API Uptime</span>
                 <span className="font-black text-slate-800 dark:text-white text-xs">
-                  {health ? `${(health.api_uptime / 3600).toFixed(1)} hrs` : '--'}
+                  {Number.isFinite(health?.api_uptime) ? `${(health.api_uptime / 3600).toFixed(1)} hrs` : '--'}
                 </span>
               </div>
             </div>

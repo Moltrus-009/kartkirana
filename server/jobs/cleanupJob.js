@@ -15,6 +15,8 @@ const runCleanup = async () => {
   const nowIso = new Date().toISOString();
 
   try {
+    await deleteSnapshotsInChunks(await db.collection('sharedCarts').where('expiresAt', '<', nowIso).get());
+    await deleteSnapshotsInChunks(await db.collection('planningRateLimits').where('expiresAt', '<', nowIso).get());
     const lockSnaps = await db.collection('locks')
       .where('expiresAt', '<', nowIso)
       .get();

@@ -1,3 +1,4 @@
+import { Capacitor } from '@capacitor/core';
 import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { Bike, ShieldCheck, ArrowRight } from 'lucide-react';
@@ -49,7 +50,7 @@ export const Login: React.FC<LoginProps> = ({ onOpenTerms, onOpenPrivacy }) => {
   }, []);
 
   const createRecaptchaVerifier = () => {
-    if (!hasValidConfig || !auth) return null;
+    if (Capacitor.getPlatform() === 'android' || !hasValidConfig || !auth) return null;
     const verifier = recaptchaManager.setup(auth, 'recaptcha-container');
     if (!verifier) setError('Security verification could not be initialized. Refresh the app and try again.');
     return verifier;
@@ -71,7 +72,7 @@ export const Login: React.FC<LoginProps> = ({ onOpenTerms, onOpenPrivacy }) => {
     const formattedPhone = `+91${phoneNumber.trim()}`;
 
     const verifier = createRecaptchaVerifier();
-    if (hasValidConfig && auth && !verifier) return;
+    if (Capacitor.getPlatform() !== 'android' && hasValidConfig && auth && !verifier) return;
 
     setSubmitting(true);
     try {
@@ -124,11 +125,11 @@ export const Login: React.FC<LoginProps> = ({ onOpenTerms, onOpenPrivacy }) => {
     const formattedPhone = `+91${phoneNumber.trim()}`;
 
     const verifier = createRecaptchaVerifier();
-    if (hasValidConfig && auth && !verifier) return;
+    if (Capacitor.getPlatform() !== 'android' && hasValidConfig && auth && !verifier) return;
 
     setSubmitting(true);
     try {
-      const res = await sendOTP(formattedPhone, verifier);
+      const res = await sendOTP(formattedPhone, verifier, true);
       if (res.success) {
         setConfirmationResult(res.confirmationResult);
         setInfo('OTP code resent successfully!');

@@ -15,15 +15,19 @@ export default function Settings() {
   const [flags, setFlags] = useState<any>({});
   const [versions, setVersions] = useState<any>({});
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [saving, setSaving] = useState(false);
 
   async function loadSettings() {
+    setLoading(true);
+    setLoadError('');
     try {
       const data = await adminService.getSettings();
       setFlags(data.featureFlags || {});
       setVersions(data.versionControl || {});
     } catch (err) {
       console.error('Failed fetching settings:', err);
+      setLoadError('Settings could not be loaded. Retry before making changes.');
     } finally {
       setLoading(false);
     }
@@ -69,7 +73,7 @@ export default function Settings() {
         </p>
       </div>
 
-      {loading ? (
+      {loadError ? <div role="alert" className="p-4 rounded-xl bg-red-500/10 text-red-600">{loadError} <button onClick={loadSettings} className="underline font-bold">Retry</button></div> : loading ? (
         <div className="text-center py-20 text-slate-400 font-bold uppercase tracking-widest animate-pulse text-xs">
           Loading configs...
         </div>

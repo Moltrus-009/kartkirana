@@ -11,6 +11,7 @@ interface Zone {
 }
 
 export default function Zones() {
+  const [loadError, setLoadError] = useState('');
   const [zones, setZones] = useState<Zone[]>([]);
   const [loading, setLoading] = useState(true);
   
@@ -24,9 +25,11 @@ export default function Zones() {
   async function loadZones() {
     try {
       const data = await adminService.getZones();
+      setLoadError('');
       setZones(data);
     } catch (err) {
       console.error('Failed loading zones:', err);
+      setLoadError('Unable to load this section. Reload to retry; displayed data may be outdated.');
     } finally {
       setLoading(false);
     }
@@ -43,8 +46,13 @@ export default function Zones() {
       // Parse coordinates (e.g. "28.58,77.31; 28.59,77.31; 28.59,77.32")
       const pairs = coordsInput.split(';').map(p => {
         const parts = p.trim().split(',');
-        return { lat: parseFloat(parts[0]), lng: parseFloat(parts[1]) };
-      }).filter(p => !isNaN(p.lat) && !isNaN(p.lng));
+        if (parts.length !== 2 || parts.some(part => !part.trim())) throw new Error('Each coordinate must contain latitude and longitude.');
+        return { lat: Number(parts[0]), lng: Number(parts[1]) };
+      });
+      if (pairs.some(p => !Number.isFinite(p.lat) || !Number.isFinite(p.lng) || Math.abs(p.lat) > 90 || Math.abs(p.lng) > 180)) throw new Error('Coordinates are outside the valid latitude/longitude range.');
+      const minimum = Number(minOrder);
+      const fee = Number(deliveryFee);
+      if (!minOrder.trim() || !deliveryFee.trim() || !Number.isFinite(minimum) || !Number.isFinite(fee) || minimum < 0 || fee < 0) throw new Error('Enter valid non-negative pricing amounts.');
 
       if (pairs.length < 3) {
         alert('Please input at least 3 lat,lng coordinate pairs to define a closed zone area.');
@@ -55,8 +63,8 @@ export default function Zones() {
         name: name.trim(),
         polygon: pairs,
         pricing: {
-          minOrder: parseInt(minOrder) || 100,
-          deliveryFee: parseInt(deliveryFee) || 20
+          minOrder: minimum,
+          deliveryFee: fee
         },
         isActive: true
       });
@@ -84,6 +92,7 @@ export default function Zones() {
 
   return (
     <div className="space-y-6 text-left select-none">
+      {loadError && <p role="alert" className="rounded-xl p-3 bg-red-500/10 text-red-600">{loadError}</p>}
       
       {/* Header */}
       <div className="flex justify-between items-center">

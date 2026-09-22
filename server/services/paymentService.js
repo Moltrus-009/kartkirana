@@ -36,10 +36,17 @@ const normalizeDeliveryAddress = (value = {}) => {
 };
 
 class PaymentService {
-  async initPayment(userId, shopId, items, deliveryAddress, couponCode, walletCreditsUsed = 0, referralCode = '', preorderSchedule = null, orderNotes = '', paymentMethod = 'razorpay') {
-    const orderId = `ord_${crypto.randomBytes(6).toString('hex')}`;
-    const paymentId = `pay_${crypto.randomBytes(6).toString('hex')}`;
-    const attemptId = `att_${crypto.randomBytes(6).toString('hex')}`;
+  async initPayment(userId, shopId, items, deliveryAddress, couponCode, walletCreditsUsed = 0, referralCode = '', preorderSchedule = null, orderNotes = '', paymentMethod = 'razorpay', routineContext = null) {
+    const routineExecution = require('./routineExecution');
+    const schedule = preorderSchedule ? (routineContext ? require('./planningCalendar').windowFor(preorderSchedule.date, preorderSchedule.slotId || preorderSchedule.slot) : require('./planningCalendar').validateSchedule(preorderSchedule)) : null;
+    if (routineContext) {
+      const prior = (await db.collection('routineExecutions').doc(routineContext.executionId).get()).data();
+      if (!prior || prior.userId !== userId) throw new AppError('Routine occurrence not found.', 404);
+      if (prior.checkoutResult) return prior.checkoutResult;
+    }
+    const orderId = routineContext ? `ord_rt_${routineContext.executionId}` : `ord_${crypto.randomBytes(6).toString('hex')}`;
+    const paymentId = routineContext ? `pay_rt_${routineContext.executionId}` : `pay_${crypto.randomBytes(6).toString('hex')}`;
+    const attemptId = routineContext ? `att_rt_${routineContext.executionId}` : `att_${crypto.randomBytes(6).toString('hex')}`;
 
     const normalizedPaymentMethod = String(paymentMethod || 'razorpay').toLowerCase();
     const isCod = normalizedPaymentMethod === 'cod';
@@ -106,7 +113,22 @@ class PaymentService {
       );
     }
 
-    await db.runTransaction(async (transaction) => {
+    const checkoutResult = isCod ? {orderId, paymentId, cod:true, amount:breakdown.grandTotal, currency:'INR'} : {
+      orderId, paymentId, attemptId, gatewayOrderId:gatewayOrder.id, amount:breakdown.grandTotal, currency:'INR',
+      paymentKey:RazorpayProvider.keyId, upiAddress:require('../config/paymentConfig').upi.address,
+      priceBreakdown:breakdown, customerDetails:{userId}
+    };
+    const replayResult = await db.runTransaction(async (transaction) => {
+      const { assertAccountAvailable } = require('./accountDeletionGuard');
+      await assertAccountAvailable(db, transaction, userId, 'customer');
+      const deletionShop = await transaction.get(db.collection('shops').doc(shopId));
+      if (deletionShop.data()?.accountDeletedAt) throw new AppError('This shop is closed.', 409);
+      if (deletionShop.data()?.ownerId) await assertAccountAvailable(db, transaction, deletionShop.data().ownerId, 'shopkeeper');
+      let routineState = null;
+      if (routineContext) {
+        routineState = await routineExecution.prepare(db, transaction, routineContext, userId, {...deletionShop.data(), id:shopId}, normalizedDeliveryAddress, breakdown);
+        if (routineState.replay) return routineState.replay;
+      }
       // Read coupon + customer redemption state before inventory begins its
       // transaction writes. This closes concurrent checkout/retry races.
       const couponReservation = await CouponService.prepareRedemption(
@@ -120,9 +142,9 @@ class PaymentService {
       // COD is committed immediately; online payments receive a time-bound reservation.
       // Keeping these as separate flows avoids Firestore reads after writes in a transaction.
       if (isCod) {
-        await InventoryService.commitCodInventory(transaction, breakdown.validatedItems, userId);
+        await InventoryService.commitCodInventory(transaction, breakdown.validatedItems, userId, Boolean(routineContext));
       } else {
-        await InventoryService.reserveInventory(transaction, orderId, breakdown.validatedItems, expiresAt, userId);
+        await InventoryService.reserveInventory(transaction, orderId, breakdown.validatedItems, expiresAt, userId, Boolean(routineContext));
       }
 
       CouponService.commitRedemption(transaction, couponReservation, userId, orderId, isCod ? 'REDEEMED' : 'RESERVED', isCod ? null : expiresAt);
@@ -157,6 +179,8 @@ class PaymentService {
         priceBreakdown,
         deliveryAddress: normalizedDeliveryAddress,
         orderNotes: orderNotes || '',
+        ...(schedule ? {orderSource:routineContext?'ROUTINE':'SCHEDULED',scheduledDeliveryStart:schedule.scheduledDeliveryStart,scheduledDeliveryEnd:schedule.scheduledDeliveryEnd,dispatchNotBefore:new Date(Date.parse(schedule.scheduledDeliveryStart)-require('../config/planning').dispatchLeadMinutes*60000)} : {}),
+        ...(routineContext ? {routineId:routineState.execution.routineId,routineExecutionId:routineContext.executionId} : {}),
         estimatedDelivery: preorderSchedule ? `${preorderSchedule.date} | ${preorderSchedule.slot}` : '15-20 Mins',
         preorderDate: preorderSchedule ? preorderSchedule.date : null,
         preorderSlot: preorderSchedule ? preorderSchedule.slot : null,
@@ -218,10 +242,13 @@ class PaymentService {
         const attemptRef = PaymentAttemptRepository.collection.doc(attemptId);
         transaction.set(attemptRef, PaymentAttemptRepository._prepareDoc(attemptData, userId, true));
       }
+      if (routineState) routineExecution.commit(db, transaction, routineState, checkoutResult, {...deletionShop.data(), id:shopId}, isCod);
+      return null;
     });
+    if (replayResult) return replayResult;
 
     if (isCod) {
-      paymentEmitter.emit('order.placed', { orderId, userId });
+      if (!routineContext) paymentEmitter.emit('order.placed', { orderId, userId });
 
       return {
         orderId,

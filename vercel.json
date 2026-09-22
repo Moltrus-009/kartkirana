@@ -1,30 +1,73 @@
 {
-  "installCommand": "npm --prefix acustoomer install --no-audit --no-fund && npm --prefix \"shopkeeper pov\" install --no-audit --no-fund && npm --prefix \"delivery boy app\" install --no-audit --no-fund",
+  "installCommand": "npm --prefix acustoomer install --no-audit --no-fund && npm --prefix \"shopkeeper pov\" install --no-audit --no-fund && npm --prefix \"delivery boy app\" install --no-audit --no-fund && npm --prefix \"admin\" install --no-audit --no-fund",
   "buildCommand": "npm --prefix acustoomer run build:web",
   "outputDirectory": "acustoomer/dist",
   "redirects": [
     {
+      "permanent": true,
+      "source": "/private/admin",
+      "destination": "/private/admin/"
+    },
+    {
       "source": "/:path*",
-      "has": [{ "type": "host", "value": "www.kartkirana.com" }],
+      "has": [
+        {
+          "type": "host",
+          "value": "www.kartkirana.com"
+        }
+      ],
       "destination": "https://kartkirana.com/:path*",
       "permanent": true
     },
-    { "source": "/shopkeeperpartner", "destination": "/shopkeeperpartner/", "permanent": true },
-    { "source": "/driver", "destination": "/driver/", "permanent": true }
+    {
+      "source": "/shopkeeperpartner",
+      "destination": "/shopkeeperpartner/",
+      "permanent": true
+    },
+    {
+      "source": "/driver",
+      "destination": "/driver/",
+      "permanent": true
+    }
   ],
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+    {
+      "destination": "/private/admin/index.html",
+      "source": "/private/admin/:path*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
   ],
   "headers": [
     {
       "source": "/(.*)",
       "headers": [
-        { "key": "Strict-Transport-Security", "value": "max-age=31536000; includeSubDomains" },
-        { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "X-Frame-Options", "value": "SAMEORIGIN" },
-        { "key": "Content-Security-Policy", "value": "frame-ancestors 'self'" },
-        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
-        { "key": "Permissions-Policy", "value": "camera=(self), microphone=(self), geolocation=(self), payment=(self)" }
+        {
+          "key": "Strict-Transport-Security",
+          "value": "max-age=31536000; includeSubDomains"
+        },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "SAMEORIGIN"
+        },
+        {
+          "key": "Content-Security-Policy",
+          "value": "frame-ancestors 'self'"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(self), microphone=(self), geolocation=(self), payment=(self)"
+        }
       ]
     }
   ]

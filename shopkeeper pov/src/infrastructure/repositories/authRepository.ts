@@ -1,4 +1,6 @@
-import { signInWithPhoneNumber, signOut, type ApplicationVerifier, type ConfirmationResult } from 'firebase/auth';
+import { signInWithPhoneNumber, signInWithCredential, PhoneAuthProvider, signOut, type ApplicationVerifier, type UserCredential } from 'firebase/auth';
+import { Capacitor } from '@capacitor/core';
+import { NativePhoneAuth } from '../../lib/nativePhoneAuth';
 import { auth, db } from '../firebase/firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import type { AuthRepository } from '../../domain/repositories/AuthRepository';
@@ -6,10 +8,10 @@ import type { Merchant } from '../../domain/entities/Merchant';
 import { mapFirebaseError } from '../../core/errors/errors';
 import { logger } from '../../core/logger/logger';
 
-let confirmationResult: ConfirmationResult | null = null;
+let confirmationResult: { confirm: (code: string) => Promise<UserCredential> } | null = null;
 
 export const authRepository: AuthRepository = {
-  async triggerOTP(phone: string, appVerifier: ApplicationVerifier): Promise<{ success: boolean; error?: string }> {
+  async triggerOTP(phone: string, appVerifier?: ApplicationVerifier): Promise<{ success: boolean; error?: string }> {
     if (!auth) {
       return { success: false, error: 'Secure sign-in is unavailable. Please contact support.' };
     }
@@ -17,8 +19,19 @@ export const authRepository: AuthRepository = {
     const formattedPhone = phone.startsWith('+') ? phone : `+91${phone}`;
 
     try {
-      logger.info('Auth', `Triggering OTP SMS for ${formattedPhone}`);
-      confirmationResult = await signInWithPhoneNumber(auth, formattedPhone, appVerifier);
+      confirmationResult = null;
+      logger.info('Auth', 'Requesting phone verification.');
+      if (Capacitor.getPlatform() === 'android') {
+        const activeAuth = auth;
+        const { verificationId } = await NativePhoneAuth.sendVerificationCode({ phoneNumber: formattedPhone });
+        if (!verificationId) throw new Error('Phone verification did not return a session. Please request another OTP.');
+        confirmationResult = {
+          confirm: code => signInWithCredential(activeAuth, PhoneAuthProvider.credential(verificationId, code)),
+        };
+      } else {
+        if (!appVerifier) throw new Error('Browser phone verification is not initialized.');
+        confirmationResult = await signInWithPhoneNumber(auth, formattedPhone, appVerifier);
+      }
       return { success: true };
     } catch (e: any) {
       confirmationResult = null;

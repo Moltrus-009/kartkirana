@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { adminService } from '../services/adminService';
 import { 
   Send, 
@@ -6,6 +6,9 @@ import {
 } from 'lucide-react';
 
 export default function Notifications() {
+  const [zones, setZones] = useState<{id: string; name: string}[]>([]);
+  const [zoneError, setZoneError] = useState('');
+  useEffect(() => { let active = true; adminService.getZones().then(data => { if (active) setZones(data.filter((zone: any) => zone.isActive !== false)); }).catch(() => { if (active) setZoneError('Zones could not be loaded. Reload to retry.'); }); return () => { active = false; }; }, []);
   const [target, setTarget] = useState('everyone'); // everyone, users, riders, shops, area
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
@@ -15,7 +18,7 @@ export default function Notifications() {
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim() || !body.trim()) return;
+    if (loading || !title.trim() || !body.trim() || (target === 'area' && !zones.some(zone => zone.id === areaId))) return;
 
     setLoading(true);
     setSuccess(false);
@@ -56,6 +59,7 @@ export default function Notifications() {
         </div>
       )}
 
+      {target === 'area' && (zoneError || !zones.length) && <p role="status">{zoneError || 'No active delivery zones available.'}</p>}
       {/* Form */}
       <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-850 p-6 rounded-[32px] shadow-xs">
         <form onSubmit={handleSend} className="space-y-4 text-xs font-bold text-slate-700 dark:text-zinc-350">
@@ -87,9 +91,7 @@ export default function Notifications() {
                 className="w-full bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-slate-850 rounded-xl px-3 py-2.5 outline-none cursor-pointer text-slate-900 dark:text-white"
               >
                 <option value="">Choose geofenced boundary...</option>
-                {/* Fallback mock list if zones empty */}
-                <option value="zone-noida-15">Noida Sector 15 Zone</option>
-                <option value="zone-delhi-main">Delhi Central Zone</option>
+                {zones.map(zone => <option key={zone.id} value={zone.id}>{zone.name}</option>)}
               </select>
             </div>
           )}

@@ -1,5 +1,8 @@
 {
   "indexes": [
+    {"collectionGroup":"routines","queryScope":"COLLECTION","fields":[{"fieldPath":"status","order":"ASCENDING"},{"fieldPath":"nextActionAt","order":"ASCENDING"}]},
+    {"collectionGroup":"routines","queryScope":"COLLECTION","fields":[{"fieldPath":"status","order":"ASCENDING"},{"fieldPath":"pausedUntil","order":"ASCENDING"}]},
+    {"collectionGroup":"routineExecutions","queryScope":"COLLECTION","fields":[{"fieldPath":"userId","order":"ASCENDING"},{"fieldPath":"scheduledFor","order":"DESCENDING"}]},
     {
       "collectionGroup": "orders",
       "queryScope": "COLLECTION",

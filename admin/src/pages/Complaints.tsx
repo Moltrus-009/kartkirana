@@ -35,6 +35,7 @@ interface Complaint {
 }
 
 export default function Complaints() {
+  const [loadError, setLoadError] = useState('');
   const { adminUser } = useAdmin();
   const [complaints, setComplaints] = useState<Complaint[]>([]);
   const [selectedTicket, setSelectedTicket] = useState<Complaint | null>(null);
@@ -48,9 +49,11 @@ export default function Complaints() {
   async function loadComplaints() {
     try {
       const data = await adminService.getComplaints();
+      setLoadError('');
       setComplaints(data);
     } catch (err) {
       console.error('Failed loading complaints:', err);
+      setLoadError('Unable to load this section. Reload to retry; displayed data may be outdated.');
     }
   }
 
@@ -94,6 +97,7 @@ export default function Complaints() {
 
   return (
     <div className="space-y-6 text-left select-none">
+      {loadError && <p role="alert" className="rounded-xl p-3 bg-red-500/10 text-red-600">{loadError}</p>}
       
       {/* Header */}
       <div className="flex items-start justify-between gap-4">

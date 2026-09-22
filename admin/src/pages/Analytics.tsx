@@ -10,8 +10,8 @@ export default function Analytics() {
   const { orders, users } = useAdmin();
 
   // 1. Calculations
-  const completedOrders = orders.filter(o => ['delivered', 'COMPLETED', 'DELIVERED'].includes(o.status));
-  const cancelledOrders = orders.filter(o => ['cancelled', 'SHOP_REJECTED'].includes(o.status));
+  const completedOrders = orders.filter(o => ['COMPLETED', 'DELIVERED'].includes(o.status.toUpperCase()));
+  const cancelledOrders = orders.filter(o => ['CANCELLED', 'AUTO_CANCELLED', 'SHOP_REJECTED', 'RETURNED'].includes(o.status.toUpperCase()));
   
   const totalRevenue = completedOrders.reduce((sum, o) => sum + (o.total || 0), 0);
   const avgOrderValue = completedOrders.length > 0 ? Math.round(totalRevenue / completedOrders.length) : 0;

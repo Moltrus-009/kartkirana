@@ -11,11 +11,14 @@ interface Coupon {
   minOrderValue: number;
   validUntil: string;
   active: boolean;
+  status?: string;
   userUsageLimit?: number;
   usedCount?: number;
 }
 
 export default function Coupons() {
+  const [saving, setSaving] = useState(false);
+  const [syncError, setSyncError] = useState('');
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -32,6 +35,7 @@ export default function Coupons() {
   useEffect(() => {
     if (!db) {
       setLoading(false);
+      setSyncError('Database unavailable. Please reconnect.');
       return;
     }
     const q = query(collection(db, 'coupons'));
@@ -41,6 +45,7 @@ export default function Coupons() {
       setLoading(false);
     }, (err) => {
       console.error('[Admin Coupons] Sync error:', err);
+      setSyncError('Coupons could not be loaded. Reload to retry.');
       setLoading(false);
     });
 
@@ -50,11 +55,13 @@ export default function Coupons() {
   // 2. Submit handler to create coupon
   const handleAddCoupon = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!code || value <= 0 || minPurchase < 0 || !expiryDate) {
+    if (saving || !db) return;
+    if (!/^[A-Za-z0-9_-]{2,40}$/.test(code.trim()) || !Number.isFinite(value) || value <= 0 || (discountType === 'percentage' && value > 100) || !Number.isFinite(minPurchase) || minPurchase < 0 || !expiryDate || new Date(`${expiryDate}T23:59:59+05:30`).getTime() <= Date.now()) {
       setError('Please fill in all required fields correctly.');
       return;
     }
 
+    setSaving(true);
     try {
       const normalizedCode = code.trim().toUpperCase();
       const duplicateCode = await getDocs(query(collection(db!, 'coupons'), where('code', '==', normalizedCode)));
@@ -69,7 +76,7 @@ export default function Coupons() {
         value,
         discountValue: value,
         minOrderValue: minPurchase,
-        validUntil: `${expiryDate}T23:59:59.999`,
+        validUntil: `${expiryDate}T23:59:59.999+05:30`,
         status: 'active',
         active: true,
         userUsageLimit: 1,
@@ -95,7 +102,7 @@ export default function Coupons() {
       setError(null);
     } catch (err: any) {
       setError(err.message || 'Failed to add coupon');
-    }
+    } finally { setSaving(false); }
   };
 
   // 3. Delete Coupon
@@ -129,6 +136,7 @@ export default function Coupons() {
         </button>
       </div>
 
+      {syncError && <p role="alert" className="text-red-600">{syncError}</p>}
       {/* Coupons Table/Grid list */}
       {loading ? (
         <div className="text-center py-16 text-slate-400 font-bold text-xs uppercase tracking-widest animate-pulse">
@@ -160,7 +168,7 @@ export default function Coupons() {
                     {coupon.code}
                   </h4>
                   <span className="text-[9px] text-slate-400 font-black uppercase tracking-wider block mt-0.5">
-                    Promo Campaign
+                    {coupon.active === false || (coupon.status && coupon.status !== 'active') ? 'Inactive' : new Date(coupon.validUntil).getTime() <= Date.now() ? 'Expired' : 'Active'}
                   </span>
                 </div>
               </div>
@@ -281,10 +289,10 @@ export default function Coupons() {
               {/* Save Coupon */}
               <div className="pt-2 border-t border-slate-50 dark:border-slate-800/40">
                 <button
-                  type="submit"
+                  type="submit" disabled={saving}
                   className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-black py-3 rounded-2xl cursor-pointer text-center uppercase tracking-wider text-xs shadow-xs"
                 >
-                  Save Coupon
+                  {saving ? 'Saving…' : 'Save Coupon'}
                 </button>
               </div>
             </form>

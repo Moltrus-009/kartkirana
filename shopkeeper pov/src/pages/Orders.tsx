@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import { useState, useEffect } from 'react';
 import { useAppStore } from '../core/store/useAppStore';
 import { useDiagnostics } from '../core/diagnostics/diagnostics';
@@ -20,7 +21,7 @@ const MIN_BATCH_SIZE = 2;
 const MAX_BATCH_SIZE = 3;
 const MAX_BATCH_SPREAD_METERS = 1500;
 const RIDER_DELIVERY_FEE = 10;
-const BATCH_BONUS = 15;
+const BATCH_BONUS = 6;
 
 type Coordinates = { lat: number; lng: number };
 
@@ -269,7 +270,7 @@ export default function Orders() {
       riderCoords: selectedRider.coords || { lat: 0, lng: 0 },
       status: 'assigned' as const, // Rider gets pop up assignment
       orderIds: selectedOrderIds,
-      totalEarnings: selectedOrderIds.length * RIDER_DELIVERY_FEE + BATCH_BONUS,
+      totalEarnings: RIDER_DELIVERY_FEE + Math.max(0, selectedOrderIds.length - 1) * BATCH_BONUS,
       totalDistance,
       estimatedTime,
       maxDeliverySpreadMeters: Math.round(locality.maxSpreadMeters),
@@ -394,7 +395,7 @@ export default function Orders() {
                       <span className="font-extrabold text-slate-800 dark:text-zinc-200">{t('order_id')}: {order.id.slice(-6).toUpperCase()}</span>
                       {((order as any).preorderDate || (order as any).preorderSlot || (order as any).items?.some((i: any) => i.isPreorder)) && (
                         <div className="flex items-center gap-1 mt-1 bg-gradient-to-r from-amber-500/20 to-orange-500/20 text-amber-700 dark:text-amber-400 border border-amber-500/30 px-2.5 py-1 rounded-xl font-black text-[9px] uppercase tracking-wider">
-                          📅 PRE-ORDER: {(order as any).preorderDate || 'Scheduled'} • {(order as any).preorderSlot || 'Assigned Slot'}
+                          📅 {(order as any).orderSource === 'ROUTINE' ? 'ROUTINE DELIVERY' : 'SCHEDULED DELIVERY'}: {(order as any).preorderDate || 'Scheduled'} • {(order as any).preorderSlot || 'Assigned Slot'} (IST)
                         </div>
                       )}
                       {order.appliedPromotion && (
@@ -545,7 +546,7 @@ export default function Orders() {
 
       {/* Floating Action Banner for Batching */}
       {selectedOrderIds.length > 0 && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 max-w-sm w-[90%] bg-slate-900 dark:bg-zinc-900 text-white rounded-3xl p-4.5 shadow-2xl flex items-center justify-between border border-slate-800 dark:border-zinc-800 z-50 animate-fade-in">
+        <div className="merchant-batch-action fixed bottom-4 left-1/2 -translate-x-1/2 max-w-sm w-[90%] bg-slate-900 dark:bg-zinc-900 text-white rounded-3xl p-4.5 shadow-2xl flex items-center justify-between border border-slate-800 dark:border-zinc-800 z-50 animate-fade-in">
           <div className="text-left space-y-0.5 pl-1.5">
             <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider">{t('selection')}</span>
             <p className="text-xs font-black">{selectedOrderIds.length} {selectedOrderIds.length === 1 ? 'Order' : 'Orders'} Selected</p>
@@ -561,7 +562,7 @@ export default function Orders() {
 
       {/* Batching Modal */}
       {isBatchModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in text-left">
+        createPortal(<div role="dialog" aria-modal="true" className="merchant-modal-overlay fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in text-left">
           <div className="bg-white dark:bg-zinc-900 max-w-md w-full rounded-[32px] p-6 space-y-5 border border-slate-100 dark:border-zinc-850 shadow-2xl overflow-y-auto max-h-[85vh]">
             
             <div className="flex justify-between items-start">
@@ -641,8 +642,8 @@ export default function Orders() {
             <div className="grid grid-cols-2 gap-3.5 bg-slate-50 dark:bg-zinc-850 p-4.5 rounded-2xl text-center text-xs font-black">
               <div className="space-y-0.5">
                 <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">{t('rider_earnings')}</span>
-                <span className="text-slate-800 dark:text-zinc-100 text-sm">₹{selectedOrderIds.length * RIDER_DELIVERY_FEE + BATCH_BONUS}</span>
-                <span className="text-[8px] text-emerald-500 block font-black uppercase tracking-wider">+₹15 Batch Bonus</span>
+                <span className="text-slate-800 dark:text-zinc-100 text-sm">₹{RIDER_DELIVERY_FEE + Math.max(0, selectedOrderIds.length - 1) * BATCH_BONUS}</span>
+                <span className="text-[8px] text-emerald-500 block font-black uppercase tracking-wider">₹10 first order + ₹6 each additional</span>
               </div>
               <div className="space-y-0.5">
                 <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">{t('estimated_route')}</span>
@@ -669,7 +670,7 @@ export default function Orders() {
             </div>
 
           </div>
-        </div>
+        </div>, document.body)
       )}
 
     </div>

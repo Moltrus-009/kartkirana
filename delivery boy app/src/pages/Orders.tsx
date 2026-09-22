@@ -1,3 +1,4 @@
+import { riderPayout } from '../constants/earnings';
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { Package, IndianRupee, Store, MapPin } from 'lucide-react';
@@ -51,7 +52,7 @@ export const Orders: React.FC = () => {
   return (
     <div className="space-y-4.5 animate-fade-in text-left">
       
-      <div className="flex justify-between items-center pb-1">
+      <div className="flex flex-wrap gap-2 justify-between items-center pb-1">
         <h2 className="text-base font-black uppercase text-slate-800 dark:text-zinc-200 tracking-wider">
           Delivery Task Logs
         </h2>
@@ -171,7 +172,7 @@ export const Orders: React.FC = () => {
                     <span className="text-slate-300 dark:text-zinc-700">|</span>
                     <span className="text-success font-black text-xs flex items-center">
                       <IndianRupee className="h-3 w-3" />
-                      <span>{o.deliveryFee || 10}</span>
+                      <span>{riderPayout(o, historyOrders)}</span>
                     </span>
                   </div>
                 </div>

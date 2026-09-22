@@ -1,8 +1,8 @@
 import { useAdmin, type RiderDoc } from '../context/AdminContext';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { adminService } from '../services/adminService';
 import { db } from '../lib/firebase';
-import { doc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { doc, deleteDoc } from 'firebase/firestore';
 import { 
   Users, 
   MapPin, 
@@ -17,18 +17,25 @@ import {
 } from 'lucide-react';
 
 export default function Riders() {
-  const { riders } = useAdmin();
+  const { riders, updateRiderVerification } = useAdmin();
   const [selectedRider, setSelectedRider] = useState<RiderDoc | null>(null);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [newPassword, setNewPassword] = useState('');
+  const [savingRider, setSavingRider] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [riderFinancials, setRiderFinancials] = useState<any>(null);
   const [loadingFinancials, setLoadingFinancials] = useState(false);
 
+  useEffect(() => {
+    setSelectedRider(previous => previous ? riders.find(rider => rider.uid === previous.uid) || null : null);
+  }, [riders]);
+
   // Safely retrieve financials
   const handleSelectRider = async (rider: RiderDoc) => {
     setSelectedRider(rider);
+    setActionMessage('');
     setRiderFinancials(null);
     setLoadingFinancials(true);
     try {
@@ -41,7 +48,7 @@ export default function Riders() {
     }
   };
 
-  const pendingRiders = riders.filter(r => r.verificationStatus !== 'approved');
+  const pendingRiders = riders.filter(r => (!r.verificationStatus || r.verificationStatus === 'pending'));
 
   // Filter riders safely
   const filteredRiders = riders.filter(r => {
@@ -49,27 +56,32 @@ export default function Riders() {
     const phoneStr = r.phone || '';
     const matchSearch = nameStr.toLowerCase().includes(search.toLowerCase()) || phoneStr.includes(search);
     const matchStatus = statusFilter === 'pending_approval'
-      ? r.verificationStatus !== 'approved'
+      ? (!r.verificationStatus || r.verificationStatus === 'pending')
       : statusFilter ? r.status === statusFilter : true;
     return matchSearch && matchStatus;
   });
 
   const handleApprove = async (riderId: string) => {
+    if (savingRider) return;
+    setSavingRider(riderId);
+    setActionMessage('');
     try {
-      await updateDoc(doc(db!, 'riders', riderId), { verificationStatus: 'approved' });
-      alert('Rider verification approved.');
+      await updateRiderVerification(riderId, 'approved');
+      setActionMessage('Approval saved. Rider access is enabled. The rider can go online with location permission.');
     } catch (e: any) {
-      alert(`Approval failed: ${e.message}`);
-    }
+      setActionMessage(`Approval failed: ${e.message}`);
+    } finally { setSavingRider(null); }
   };
 
   const handleRejectOrSuspend = async (riderId: string, status: 'rejected' | 'suspended') => {
+    if (savingRider) return;
+    setSavingRider(riderId);
     try {
-      await updateDoc(doc(db!, 'riders', riderId), { verificationStatus: status });
-      alert(`Rider verification status set to ${status.toUpperCase()}.`);
+      await updateRiderVerification(riderId, status);
+      setActionMessage(`Rider ${status}. Online access disabled.`);
     } catch (e: any) {
-      alert(`Update failed: ${e.message}`);
-    }
+      setActionMessage(`Update failed: ${e.message}`);
+    } finally { setSavingRider(null); }
   };
 
   const handleDeleteRider = async (riderId: string) => {
@@ -145,7 +157,7 @@ export default function Riders() {
         <div className="lg:col-span-2 space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {filteredRiders.map((rider) => {
-              const isApproved = rider.verificationStatus === 'approved';
+              const isApproved = rider.verificationStatus === 'approved' && rider.documentStatus === 'verified';
               const stateColors = {
                 online: 'bg-emerald-500/10 text-emerald-500',
                 busy: 'bg-amber-500/10 text-amber-500',
@@ -205,9 +217,9 @@ export default function Riders() {
                     <div className="flex items-center gap-1.5">
                       {!isApproved ? (
                         <button
-                          onClick={() => handleApprove(rider.uid)}
+                          onClick={() => handleSelectRider(rider)}
                           className="p-1.5 bg-emerald-500 text-slate-950 hover:bg-emerald-600 rounded-lg cursor-pointer transition"
-                          title="Approve verification KYC"
+                          title="Review documents and approval"
                         >
                           <Check className="h-3.5 w-3.5" />
                         </button>
@@ -232,9 +244,9 @@ export default function Riders() {
                       <button
                         onClick={() => handleSelectRider(rider)}
                         className="p-1.5 hover:bg-slate-50 dark:hover:bg-slate-850 text-slate-400 hover:text-indigo-500 rounded-lg cursor-pointer transition"
-                        title="View Rider Timelines"
+                        title="Review rider documents"
                       >
-                        <ChevronRight className="h-3.5 w-3.5" />
+                        <span className="text-[10px] font-bold">Review documents</span><ChevronRight className="h-3.5 w-3.5" />
                       </button>
 
                       <button
@@ -254,10 +266,10 @@ export default function Riders() {
         </div>
 
         {/* Right side: Detailed Rider Lifecycle Timeline details */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-850 rounded-[32px] p-6 shadow-xs h-[550px] overflow-y-auto space-y-5 text-xs text-left">
+        <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-850 rounded-[32px] p-6 shadow-xs lg:max-h-[85vh] overflow-y-auto space-y-5 text-xs text-left">
           {!selectedRider ? (
             <div className="h-full flex items-center justify-center text-slate-400 font-semibold text-center py-20">
-              Select a courier partner card to inspect their lifecycle timeline and dispatcher logs.
+              Select Review documents on a rider to inspect uploaded documents and approve access.
             </div>
           ) : (
             <div className="space-y-6">
@@ -274,6 +286,25 @@ export default function Riders() {
                   ✕
                 </button>
               </div>
+
+              <section className="space-y-3" aria-label="Rider document review">
+                <h4 className="font-black text-base">Documents and approval</h4>
+                <p>Approval: <strong>{selectedRider.verificationStatus || 'pending'}</strong> · Access: <strong>{selectedRider.documentStatus === 'verified' ? 'Enabled' : 'Blocked until approval'}</strong></p>
+                {selectedRider.verificationStatus === 'approved' && selectedRider.documentStatus !== 'verified' && <p role="alert" className="text-amber-600">Previous approval did not enable rider access. Use Sync approved access below.</p>}
+                {([['Driving licence', selectedRider.dlUrl], ['Aadhaar', selectedRider.aadhaarUrl], ['Vehicle registration (RC)', selectedRider.rcUrl]] as const).map(([label, url]) => (
+                  <div key={label} className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 flex flex-wrap justify-between gap-2">
+                    <span className="font-bold">{label}</span>
+                    {url && /^https:\/\//i.test(url) ? <a href={url} target="_blank" rel="noopener noreferrer" className="text-indigo-600 underline font-bold">Open document</a> : <span className="text-amber-600">Not uploaded</span>}
+                  </div>
+                ))}
+                <p className="text-slate-500">Open each uploaded image or PDF to review it before approving. Missing documents are shown above.</p>
+                <div className="flex flex-wrap gap-2">
+                  <button disabled={!!savingRider} onClick={() => handleApprove(selectedRider.uid)} className="px-4 py-3 bg-emerald-500 rounded-xl font-bold disabled:opacity-50">{savingRider === selectedRider.uid ? 'Saving…' : selectedRider.verificationStatus === 'approved' && selectedRider.documentStatus !== 'verified' ? 'Sync approved access' : 'Approve rider'}</button>
+                  <button disabled={!!savingRider} onClick={() => handleRejectOrSuspend(selectedRider.uid, 'rejected')} className="px-4 py-3 bg-red-100 text-red-700 rounded-xl font-bold">Reject</button>
+                  <button disabled={!!savingRider} onClick={() => handleRejectOrSuspend(selectedRider.uid, 'suspended')} className="px-4 py-3 bg-amber-100 text-amber-800 rounded-xl font-bold">Suspend</button>
+                </div>
+                {actionMessage && <p role="status">{actionMessage}</p>}
+              </section>
 
               {/* Financial Metrics from Centralized API */}
               {loadingFinancials ? (
